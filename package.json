@@ -1,0 +1,30 @@
+{
+  "name": "usi-installer",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "type": "module",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "check-types": "turbo run check-types",
+    "dev:native": "turbo run dev -F native",
+    "dev:web": "turbo run dev -F web",
+    "dev:server": "turbo run dev -F @usi-installer/backend",
+    "dev:setup": "turbo run dev:setup -F @usi-installer/backend"
+  },
+  "dependencies": {
+    "@usi-installer/env": "workspace:*",
+    "dotenv": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "@usi-installer/config": "workspace:*",
+    "turbo": "^2.10.7",
+    "typescript": "^6.0.3"
+  },
+  "packageManager": "pnpm@10.28.1"
+}
