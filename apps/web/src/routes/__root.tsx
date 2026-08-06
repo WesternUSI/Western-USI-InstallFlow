@@ -42,7 +42,9 @@ function RootComponent() {
       >
         <div className="grid grid-rows-[auto_1fr] h-svh">
           <Header />
-          <Outlet />
+          <div className="row-start-2 min-h-0">
+            <Outlet />
+          </div>
         </div>
         <Toaster richColors />
       </ThemeProvider>

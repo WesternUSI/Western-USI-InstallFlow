@@ -1,22 +1,19 @@
-import { UserButton, useUser } from "@clerk/react";
+import { useUser } from "@clerk/react";
 import { createFileRoute } from "@tanstack/react-router";
-import { api } from "@usi-installer/backend/convex/_generated/api";
-import { useQuery } from "convex/react";
+
+import { UploadSiteDatabaseButton } from "@/components/upload-site-database-button";
 
 export const Route = createFileRoute("/_auth/dashboard")({
   component: RouteComponent,
 });
 
 function RouteComponent() {
-  const privateData = useQuery(api.privateData.get);
   const user = useUser();
 
   return (
-    <div>
-      <h1>Dashboard</h1>
-      <p>Welcome {user.user?.fullName}</p>
-      <p>privateData: {privateData?.message}</p>
-      <UserButton />
+    <div className="flex h-full flex-col items-center justify-center gap-4 bg-[#edf1f3]">
+      <p className="text-[15px] font-medium text-[#6c7278]">Welcome {user.user?.fullName}</p>
+      <UploadSiteDatabaseButton />
     </div>
   );
 }

@@ -1,5 +1,4 @@
-import { SignInButton } from "@clerk/react";
-import { Outlet, createFileRoute } from "@tanstack/react-router";
+import { Navigate, Outlet, createFileRoute } from "@tanstack/react-router";
 import { Authenticated, AuthLoading, Unauthenticated } from "convex/react";
 
 export const Route = createFileRoute("/_auth")({
@@ -13,7 +12,7 @@ function AuthLayout() {
         <Outlet />
       </Authenticated>
       <Unauthenticated>
-        <SignInButton />
+        <Navigate to="/login" />
       </Unauthenticated>
       <AuthLoading>
         <div>Loading...</div>
