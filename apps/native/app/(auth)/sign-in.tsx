@@ -3,10 +3,28 @@ import { Ionicons } from "@expo/vector-icons";
 import { type Href, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import React from "react";
-import { Pressable, Text, TextInput, View } from "react-native";
+import { Image, Pressable, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Svg, { Defs, Rect, Stop, LinearGradient as SvgLinearGradient } from "react-native-svg";
 
 const REMEMBERED_EMAIL_KEY = "usi.remembered-email";
+
+/** Blue wash behind the wordmark, sampled from the login design. */
+function HeaderGlow() {
+  return (
+    <Svg width="100%" height="100%" style={{ position: "absolute", top: 0, left: 0 }}>
+      <Defs>
+        <SvgLinearGradient id="glow" x1="0.5" y1="0" x2="0.5" y2="1">
+          <Stop offset="0" stopColor="#8AAAFA" stopOpacity="1" />
+          <Stop offset="0.35" stopColor="#B4D0F6" stopOpacity="1" />
+          <Stop offset="0.7" stopColor="#DCE9F4" stopOpacity="1" />
+          <Stop offset="1" stopColor="#EDF1F3" stopOpacity="1" />
+        </SvgLinearGradient>
+      </Defs>
+      <Rect x="0" y="0" width="100%" height="100%" fill="url(#glow)" />
+    </Svg>
+  );
+}
 
 function pushDecoratedUrl(
   router: ReturnType<typeof useRouter>,
@@ -22,6 +40,9 @@ export default function Page() {
   const { signIn, errors, fetchStatus } = useSignIn();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  // The glow is drawn edge-to-edge, so the wordmark carries the top inset
+  // itself rather than padding the whole screen down.
+  const headerHeight = insets.top + 140;
 
   const [emailAddress, setEmailAddress] = React.useState("");
   const [password, setPassword] = React.useState("");
@@ -76,9 +97,7 @@ export default function Page() {
     }
 
     if (signIn.status !== "complete") {
-      setStatusMessage(
-        `Sign-in could not be completed (status: ${signIn.status ?? "unknown"}). Please contact the office.`,
-      );
+      setStatusMessage("Sign-in could not be completed. Please contact the office.");
       return;
     }
 
@@ -97,23 +116,34 @@ export default function Page() {
   };
 
   return (
-    <View className="flex-1 bg-[#f7f9fc]" style={{ paddingTop: insets.top }}>
-      <View className="items-center pt-6 pb-2">
-        <Text className="text-2xl font-bold tracking-[6px] text-[#1a1c1e]">WESTERN USI</Text>
+    <View className="flex-1 bg-[#edf1f3]">
+      <View style={{ height: headerHeight }}>
+        <HeaderGlow />
+        <View className="flex-1 items-center justify-end pb-3">
+          <Image
+            source={require("@/assets/images/WESTERN USI-01 1.png")}
+            style={{ width: 270, height: 33 }}
+            resizeMode="contain"
+          />
+        </View>
       </View>
 
-      <View className="flex-1 px-6 pt-12">
-        <Text className="text-[32px] leading-[42px] font-bold text-[#1a1c1e]">
-          Sign in to your Account
+      <View className="flex-1 px-6 pt-14">
+        <Text className="text-[34px] leading-[44px] font-extrabold text-[#1a1c1e]">
+          Sign in to your{"\n"}Account
         </Text>
-        <Text className="mt-3 text-sm text-[#6c7278]">Enter your credentials to log in</Text>
+        <Text className="mt-3 text-[15px] font-medium text-[#6c7278]">
+          Enter your credentials to log in
+        </Text>
 
-        {statusMessage && <Text className="mt-4 text-sm text-[#d32f2f]">{statusMessage}</Text>}
+        {statusMessage && (
+          <Text className="mt-4 text-sm font-medium text-[#d32f2f]">{statusMessage}</Text>
+        )}
 
-        <View className="mt-8 gap-3">
-          <View className="rounded-xl border border-[#edf1f3] bg-white px-4">
+        <View className="mt-9 gap-3">
+          <View className="rounded-[14px] border border-white bg-white px-4 shadow-sm">
             <TextInput
-              className="h-[46px] text-base text-[#1a1c1e]"
+              className="h-[52px] text-[15px] font-medium text-[#1a1c1e]"
               autoCapitalize="none"
               autoComplete="email"
               keyboardType="email-address"
@@ -124,12 +154,14 @@ export default function Page() {
             />
           </View>
           {errors.fields.identifier && (
-            <Text className="text-xs text-[#d32f2f]">{errors.fields.identifier.message}</Text>
+            <Text className="text-xs font-medium text-[#d32f2f]">
+              {errors.fields.identifier.message}
+            </Text>
           )}
 
-          <View className="flex-row items-center rounded-xl border border-[#edf1f3] bg-white px-4">
+          <View className="flex-row items-center rounded-[14px] border border-white bg-white px-4 shadow-sm">
             <TextInput
-              className="h-[46px] flex-1 text-base text-[#1a1c1e]"
+              className="h-[52px] flex-1 text-[15px] font-medium text-[#1a1c1e]"
               autoCapitalize="none"
               autoComplete="password"
               placeholder="Password"
@@ -152,11 +184,13 @@ export default function Page() {
             </Pressable>
           </View>
           {errors.fields.password && (
-            <Text className="text-xs text-[#d32f2f]">{errors.fields.password.message}</Text>
+            <Text className="text-xs font-medium text-[#d32f2f]">
+              {errors.fields.password.message}
+            </Text>
           )}
         </View>
 
-        <View className="mt-4 flex-row items-center justify-between">
+        <View className="mt-5 flex-row items-center justify-between">
           <Pressable
             accessibilityRole="checkbox"
             accessibilityState={{ checked: rememberMe }}
@@ -165,28 +199,28 @@ export default function Page() {
             onPress={() => setRememberMe((remembered) => !remembered)}
           >
             <View
-              className={`h-[19px] w-[19px] items-center justify-center rounded border ${
-                rememberMe ? "border-[#2563eb] bg-[#2563eb]" : "border-[#acb5bb] bg-white"
+              className={`h-5 w-5 items-center justify-center rounded-[5px] border-[1.5px] ${
+                rememberMe ? "border-[#2563eb] bg-[#2563eb]" : "border-[#acb5bb] bg-transparent"
               }`}
             >
-              {rememberMe && <Ionicons name="checkmark" size={13} color="#ffffff" />}
+              {rememberMe && <Ionicons name="checkmark" size={14} color="#ffffff" />}
             </View>
-            <Text className="ml-2 text-sm text-[#6c7278]">Remember me</Text>
+            <Text className="ml-2.5 text-[13px] font-medium text-[#6c7278]">Remember me</Text>
           </Pressable>
 
           {/* Reset flow is not built yet — intentionally inert. */}
-          <Text className="text-sm text-[#4d81e7]">Forgot Password ?</Text>
+          <Text className="text-[13px] font-semibold text-[#4d81e7]">Forgot Password ?</Text>
         </View>
 
         <Pressable
           accessibilityRole="button"
-          className={`mt-6 h-12 items-center justify-center rounded-xl bg-[#2563eb] ${
+          className={`mt-7 h-[54px] items-center justify-center rounded-[14px] bg-[#2f5fe0] ${
             canSubmit ? "" : "opacity-50"
           }`}
           disabled={!canSubmit}
           onPress={handleSubmit}
         >
-          <Text className="text-base font-semibold text-white">Log In</Text>
+          <Text className="text-[17px] font-bold text-white">Log In</Text>
         </Pressable>
       </View>
     </View>
