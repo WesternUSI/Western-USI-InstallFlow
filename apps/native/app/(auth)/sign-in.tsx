@@ -1,7 +1,12 @@
 import { useSignIn } from "@clerk/expo";
-import { type Href, Link, useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { type Href, useRouter } from "expo-router";
+import * as SecureStore from "expo-secure-store";
 import React from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, Text, TextInput, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+const REMEMBERED_EMAIL_KEY = "usi.remembered-email";
 
 function pushDecoratedUrl(
   router: ReturnType<typeof useRouter>,
@@ -10,239 +15,180 @@ function pushDecoratedUrl(
 ) {
   const url = decorateUrl(href);
   const nextHref = url.startsWith("http") ? new URL(url).pathname : url;
-  router.push(nextHref as Href);
+  router.replace(nextHref as Href);
 }
 
 export default function Page() {
   const { signIn, errors, fetchStatus } = useSignIn();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+
   const [emailAddress, setEmailAddress] = React.useState("");
   const [password, setPassword] = React.useState("");
-  const [code, setCode] = React.useState("");
+  const [rememberMe, setRememberMe] = React.useState(false);
+  const [isPasswordVisible, setIsPasswordVisible] = React.useState(false);
   const [statusMessage, setStatusMessage] = React.useState<string | null>(null);
 
-  const emailCodeFactor = signIn.supportedSecondFactors.find(
-    (factor) => factor.strategy === "email_code",
-  );
-  const requiresEmailCode =
-    signIn.status === "needs_client_trust" ||
-    (signIn.status === "needs_second_factor" && !!emailCodeFactor);
+  // Pre-fill the email from the last "Remember me" sign-in. Only the email is
+  // stored; Clerk's tokenCache owns session persistence either way.
+  React.useEffect(() => {
+    let isActive = true;
+
+    SecureStore.getItemAsync(REMEMBERED_EMAIL_KEY)
+      .then((storedEmail) => {
+        if (isActive && storedEmail) {
+          setEmailAddress(storedEmail);
+          setRememberMe(true);
+        }
+      })
+      .catch((error) => {
+        console.error("Unable to read the remembered email:", error);
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  const isSubmitting = fetchStatus === "fetching";
+  const canSubmit = !!emailAddress && !!password && !isSubmitting;
+
+  const persistRememberedEmail = async () => {
+    try {
+      if (rememberMe) {
+        await SecureStore.setItemAsync(REMEMBERED_EMAIL_KEY, emailAddress);
+      } else {
+        await SecureStore.deleteItemAsync(REMEMBERED_EMAIL_KEY);
+      }
+    } catch (error) {
+      console.error("Unable to persist the remembered email:", error);
+    }
+  };
 
   const handleSubmit = async () => {
     setStatusMessage(null);
 
-    const { error } = await signIn.password({
-      emailAddress,
-      password,
-    });
+    const { error } = await signIn.password({ emailAddress, password });
 
     if (error) {
-      console.error(JSON.stringify(error, null, 2));
-      setStatusMessage(error.longMessage ?? "Unable to sign in. Please try again.");
+      setStatusMessage(error.longMessage ?? "Email or password is incorrect. Please try again.");
       return;
     }
 
-    if (signIn.status === "complete") {
-      await signIn.finalize({
-        navigate: ({ session, decorateUrl }) => {
-          if (session?.currentTask) {
-            console.log(session.currentTask);
-            return;
-          }
-
-          pushDecoratedUrl(router, decorateUrl, "/");
-        },
-      });
-    } else if (signIn.status === "needs_second_factor" || signIn.status === "needs_client_trust") {
-      if (emailCodeFactor) {
-        await signIn.mfa.sendEmailCode();
-        setStatusMessage(`We sent a verification code to ${emailCodeFactor.safeIdentifier}.`);
-      } else {
-        console.error("Second factor is required, but email_code is not available:", signIn);
-        setStatusMessage(
-          "A second factor is required, but this screen only supports email codes right now.",
-        );
-      }
-    } else {
-      console.error("Sign-in attempt not complete:", signIn);
-      setStatusMessage("Sign-in could not be completed. Check the logs for more details.");
+    if (signIn.status !== "complete") {
+      setStatusMessage(
+        `Sign-in could not be completed (status: ${signIn.status ?? "unknown"}). Please contact the office.`,
+      );
+      return;
     }
+
+    await persistRememberedEmail();
+
+    await signIn.finalize({
+      navigate: ({ session, decorateUrl }) => {
+        if (session?.currentTask) {
+          console.log(session.currentTask);
+          return;
+        }
+
+        pushDecoratedUrl(router, decorateUrl, "/");
+      },
+    });
   };
-
-  const handleVerify = async () => {
-    setStatusMessage(null);
-
-    await signIn.mfa.verifyEmailCode({ code });
-
-    if (signIn.status === "complete") {
-      await signIn.finalize({
-        navigate: ({ session, decorateUrl }) => {
-          if (session?.currentTask) {
-            console.log(session.currentTask);
-            return;
-          }
-
-          pushDecoratedUrl(router, decorateUrl, "/");
-        },
-      });
-    } else {
-      console.error("Sign-in attempt not complete:", signIn);
-      setStatusMessage("That code did not complete sign-in. Please try again.");
-    }
-  };
-
-  if (requiresEmailCode) {
-    return (
-      <View style={styles.container}>
-        <Text style={styles.title}>Verify your account</Text>
-        {statusMessage && <Text style={styles.helper}>{statusMessage}</Text>}
-        <TextInput
-          style={styles.input}
-          value={code}
-          placeholder="Enter your verification code"
-          placeholderTextColor="#666666"
-          onChangeText={(value) => setCode(value)}
-          keyboardType="numeric"
-        />
-        {errors.fields.code && <Text style={styles.error}>{errors.fields.code.message}</Text>}
-        <Pressable
-          style={({ pressed }) => [
-            styles.button,
-            fetchStatus === "fetching" && styles.buttonDisabled,
-            pressed && styles.buttonPressed,
-          ]}
-          onPress={handleVerify}
-          disabled={fetchStatus === "fetching"}
-        >
-          <Text style={styles.buttonText}>Verify</Text>
-        </Pressable>
-        <Pressable
-          style={({ pressed }) => [styles.secondaryButton, pressed && styles.buttonPressed]}
-          onPress={() => signIn.mfa.sendEmailCode()}
-        >
-          <Text style={styles.secondaryButtonText}>I need a new code</Text>
-        </Pressable>
-      </View>
-    );
-  }
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Sign in</Text>
-      {statusMessage && <Text style={styles.helper}>{statusMessage}</Text>}
-      <Text style={styles.label}>Email address</Text>
-      <TextInput
-        style={styles.input}
-        autoCapitalize="none"
-        value={emailAddress}
-        placeholder="Enter email"
-        placeholderTextColor="#666666"
-        onChangeText={(value) => setEmailAddress(value)}
-        keyboardType="email-address"
-      />
-      {errors.fields.identifier && (
-        <Text style={styles.error}>{errors.fields.identifier.message}</Text>
-      )}
-      <Text style={styles.label}>Password</Text>
-      <TextInput
-        style={styles.input}
-        value={password}
-        placeholder="Enter password"
-        placeholderTextColor="#666666"
-        secureTextEntry={true}
-        onChangeText={(value) => setPassword(value)}
-      />
-      {errors.fields.password && <Text style={styles.error}>{errors.fields.password.message}</Text>}
-      <Pressable
-        style={({ pressed }) => [
-          styles.button,
-          (!emailAddress || !password || fetchStatus === "fetching") && styles.buttonDisabled,
-          pressed && styles.buttonPressed,
-        ]}
-        onPress={handleSubmit}
-        disabled={!emailAddress || !password || fetchStatus === "fetching"}
-      >
-        <Text style={styles.buttonText}>Sign in</Text>
-      </Pressable>
-      <View style={styles.linkContainer}>
-        <Text>Don't have an account? </Text>
-        <Link href="/sign-up">
-          <Text style={styles.linkText}>Sign up</Text>
-        </Link>
+    <View className="flex-1 bg-[#f7f9fc]" style={{ paddingTop: insets.top }}>
+      <View className="items-center pt-6 pb-2">
+        <Text className="text-2xl font-bold tracking-[6px] text-[#1a1c1e]">WESTERN USI</Text>
+      </View>
+
+      <View className="flex-1 px-6 pt-12">
+        <Text className="text-[32px] leading-[42px] font-bold text-[#1a1c1e]">
+          Sign in to your Account
+        </Text>
+        <Text className="mt-3 text-sm text-[#6c7278]">Enter your credentials to log in</Text>
+
+        {statusMessage && <Text className="mt-4 text-sm text-[#d32f2f]">{statusMessage}</Text>}
+
+        <View className="mt-8 gap-3">
+          <View className="rounded-xl border border-[#edf1f3] bg-white px-4">
+            <TextInput
+              className="h-[46px] text-base text-[#1a1c1e]"
+              autoCapitalize="none"
+              autoComplete="email"
+              keyboardType="email-address"
+              placeholder="Email"
+              placeholderTextColor="#acb5bb"
+              value={emailAddress}
+              onChangeText={setEmailAddress}
+            />
+          </View>
+          {errors.fields.identifier && (
+            <Text className="text-xs text-[#d32f2f]">{errors.fields.identifier.message}</Text>
+          )}
+
+          <View className="flex-row items-center rounded-xl border border-[#edf1f3] bg-white px-4">
+            <TextInput
+              className="h-[46px] flex-1 text-base text-[#1a1c1e]"
+              autoCapitalize="none"
+              autoComplete="password"
+              placeholder="Password"
+              placeholderTextColor="#acb5bb"
+              secureTextEntry={!isPasswordVisible}
+              value={password}
+              onChangeText={setPassword}
+            />
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={isPasswordVisible ? "Hide password" : "Show password"}
+              hitSlop={12}
+              onPress={() => setIsPasswordVisible((visible) => !visible)}
+            >
+              <Ionicons
+                name={isPasswordVisible ? "eye-outline" : "eye-off-outline"}
+                size={20}
+                color="#6c7278"
+              />
+            </Pressable>
+          </View>
+          {errors.fields.password && (
+            <Text className="text-xs text-[#d32f2f]">{errors.fields.password.message}</Text>
+          )}
+        </View>
+
+        <View className="mt-4 flex-row items-center justify-between">
+          <Pressable
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: rememberMe }}
+            className="flex-row items-center"
+            hitSlop={8}
+            onPress={() => setRememberMe((remembered) => !remembered)}
+          >
+            <View
+              className={`h-[19px] w-[19px] items-center justify-center rounded border ${
+                rememberMe ? "border-[#2563eb] bg-[#2563eb]" : "border-[#acb5bb] bg-white"
+              }`}
+            >
+              {rememberMe && <Ionicons name="checkmark" size={13} color="#ffffff" />}
+            </View>
+            <Text className="ml-2 text-sm text-[#6c7278]">Remember me</Text>
+          </Pressable>
+
+          {/* Reset flow is not built yet — intentionally inert. */}
+          <Text className="text-sm text-[#4d81e7]">Forgot Password ?</Text>
+        </View>
+
+        <Pressable
+          accessibilityRole="button"
+          className={`mt-6 h-12 items-center justify-center rounded-xl bg-[#2563eb] ${
+            canSubmit ? "" : "opacity-50"
+          }`}
+          disabled={!canSubmit}
+          onPress={handleSubmit}
+        >
+          <Text className="text-base font-semibold text-white">Log In</Text>
+        </Pressable>
       </View>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    padding: 20,
-    gap: 12,
-  },
-  title: {
-    marginBottom: 8,
-    fontSize: 24,
-    fontWeight: "700",
-  },
-  label: {
-    fontWeight: "600",
-    fontSize: 14,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    backgroundColor: "#fff",
-  },
-  button: {
-    backgroundColor: "#0a7ea4",
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 8,
-    alignItems: "center",
-    marginTop: 8,
-  },
-  buttonPressed: {
-    opacity: 0.7,
-  },
-  buttonDisabled: {
-    opacity: 0.5,
-  },
-  buttonText: {
-    color: "#fff",
-    fontWeight: "600",
-  },
-  secondaryButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 8,
-    alignItems: "center",
-    marginTop: 8,
-  },
-  secondaryButtonText: {
-    color: "#0a7ea4",
-    fontWeight: "600",
-  },
-  linkContainer: {
-    flexDirection: "row",
-    gap: 4,
-    marginTop: 12,
-    alignItems: "center",
-  },
-  linkText: {
-    color: "#0a7ea4",
-    fontWeight: "600",
-  },
-  error: {
-    color: "#d32f2f",
-    fontSize: 12,
-    marginTop: -8,
-  },
-  helper: {
-    color: "#555555",
-    fontSize: 13,
-  },
-});

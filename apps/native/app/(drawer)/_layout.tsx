@@ -1,5 +1,6 @@
+import { useAuth } from "@clerk/expo";
 import { Ionicons, MaterialIcons } from "@expo/vector-icons";
-import { Link } from "expo-router";
+import { Link, Redirect } from "expo-router";
 import { Drawer } from "expo-router/drawer";
 import { useThemeColor } from "heroui-native";
 import React, { useCallback } from "react";
@@ -8,10 +9,19 @@ import { Pressable, Text } from "react-native";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 function DrawerLayout() {
+  const { isLoaded, isSignedIn } = useAuth();
   const themeColorForeground = useThemeColor("foreground");
   const themeColorBackground = useThemeColor("background");
 
   const renderThemeToggle = useCallback(() => <ThemeToggle />, []);
+
+  if (!isLoaded) {
+    return null;
+  }
+
+  if (!isSignedIn) {
+    return <Redirect href="/(auth)/sign-in" />;
+  }
 
   return (
     <Drawer

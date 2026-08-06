@@ -84,11 +84,6 @@ export default function Home() {
               <Button.Label>Sign In</Button.Label>
             </Button>
           </Link>
-          <Link href="/(auth)/sign-up" asChild>
-            <Button variant="ghost">
-              <Button.Label>Sign Up</Button.Label>
-            </Button>
-          </Link>
         </View>
       </Unauthenticated>
       <AuthLoading>
