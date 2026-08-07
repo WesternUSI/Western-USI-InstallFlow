@@ -3,25 +3,35 @@ import { Ionicons } from "@expo/vector-icons";
 import { type Href, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import React from "react";
-import { Image, Pressable, Text, TextInput, View } from "react-native";
+import {
+  Image,
+  Platform,
+  Pressable,
+  StatusBar,
+  Text,
+  TextInput,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Defs, Rect, Stop, LinearGradient as SvgLinearGradient } from "react-native-svg";
 
 const REMEMBERED_EMAIL_KEY = "usi.remembered-email";
+const GLOW_TOP = "#8AAAFA";
 
 /** Blue wash behind the wordmark, sampled from the login design. */
-function HeaderGlow() {
+function HeaderGlow({ width, height }: { width: number; height: number }) {
   return (
-    <Svg width="100%" height="100%" style={{ position: "absolute", top: 0, left: 0 }}>
+    <Svg width={width} height={height} style={{ position: "absolute", top: 0, left: 0 }}>
       <Defs>
         <SvgLinearGradient id="glow" x1="0.5" y1="0" x2="0.5" y2="1">
-          <Stop offset="0" stopColor="#8AAAFA" stopOpacity="1" />
+          <Stop offset="0" stopColor={GLOW_TOP} stopOpacity="1" />
           <Stop offset="0.35" stopColor="#B4D0F6" stopOpacity="1" />
           <Stop offset="0.7" stopColor="#DCE9F4" stopOpacity="1" />
           <Stop offset="1" stopColor="#EDF1F3" stopOpacity="1" />
         </SvgLinearGradient>
       </Defs>
-      <Rect x="0" y="0" width="100%" height="100%" fill="url(#glow)" />
+      <Rect x="0" y="0" width={width} height={height} fill="url(#glow)" />
     </Svg>
   );
 }
@@ -40,9 +50,19 @@ export default function Page() {
   const { signIn, errors, fetchStatus } = useSignIn();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  // The glow is drawn edge-to-edge, so the wordmark carries the top inset
-  // itself rather than padding the whole screen down.
+  const { width: screenWidth } = useWindowDimensions();
+  // Glow + solid fallback fill the status-bar gap; logo is padded below the inset.
   const headerHeight = insets.top + 140;
+
+  // Keep system icons readable on the purple header. Avoid expo-status-bar —
+  // its background/translucent props fight Android edge-to-edge and flash white/black.
+  React.useEffect(() => {
+    StatusBar.setBarStyle("dark-content", true);
+    if (Platform.OS === "android") {
+      StatusBar.setTranslucent(true);
+      StatusBar.setBackgroundColor(GLOW_TOP);
+    }
+  }, []);
 
   const [emailAddress, setEmailAddress] = React.useState("");
   const [password, setPassword] = React.useState("");
@@ -116,10 +136,28 @@ export default function Page() {
   };
 
   return (
-    <View className="flex-1 bg-[#edf1f3]">
-      <View style={{ height: headerHeight }}>
-        <HeaderGlow />
-        <View className="flex-1 items-center justify-end pb-3">
+    <View style={{ flex: 1, backgroundColor: GLOW_TOP }}>
+      {/*
+        Solid GLOW_TOP behind the SVG so any status-bar / safe-area gap is purple,
+        never navigator white or page gray. marginTop pulls into the inset gap on Android.
+      */}
+      <View
+        style={{
+          height: headerHeight,
+          marginTop: -insets.top,
+          backgroundColor: GLOW_TOP,
+        }}
+      >
+        <HeaderGlow width={screenWidth} height={headerHeight} />
+        <View
+          style={{
+            flex: 1,
+            paddingTop: insets.top,
+            alignItems: "center",
+            justifyContent: "flex-end",
+            paddingBottom: 12,
+          }}
+        >
           <Image
             source={require("@/assets/images/WESTERN USI-01 1.png")}
             style={{ width: 270, height: 33 }}
@@ -128,7 +166,7 @@ export default function Page() {
         </View>
       </View>
 
-      <View className="flex-1 px-6 pt-14">
+      <View className="flex-1 bg-[#edf1f3] px-6 pt-14">
         <Text className="text-[34px] leading-[44px] font-extrabold text-[#1a1c1e]">
           Sign in to your{"\n"}Account
         </Text>

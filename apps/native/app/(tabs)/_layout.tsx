@@ -31,8 +31,10 @@ function SyncTabButton({ focused }: { focused: boolean }) {
 export default function TabsLayout() {
   const { isLoaded, isSignedIn } = useAuth();
 
+  // App cold-starts on (tabs). While Clerk loads after a storage clear, returning
+  // null flashes white — keep the login purple so the status-bar gap never goes white.
   if (!isLoaded) {
-    return null;
+    return <View style={{ flex: 1, backgroundColor: "#8AAAFA" }} />;
   }
 
   if (!isSignedIn) {

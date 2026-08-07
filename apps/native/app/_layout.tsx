@@ -22,10 +22,19 @@ const convex = new ConvexReactClient(env.EXPO_PUBLIC_CONVEX_URL, {
 
 function StackLayout() {
   return (
-    <Stack screenOptions={{}}>
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-      <Stack.Screen name="modal" options={{ title: "Modal", presentation: "modal" }} />
+    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#8AAAFA" } }}>
+      <Stack.Screen
+        name="(tabs)"
+        options={{ headerShown: false, contentStyle: { backgroundColor: "#8AAAFA" } }}
+      />
+      <Stack.Screen
+        name="(auth)"
+        options={{ headerShown: false, contentStyle: { backgroundColor: "#8AAAFA" } }}
+      />
+      <Stack.Screen
+        name="modal"
+        options={{ title: "Modal", presentation: "modal", headerShown: true }}
+      />
     </Stack>
   );
 }
@@ -34,7 +43,7 @@ export default function Layout() {
   return (
     <ClerkProvider tokenCache={tokenCache} publishableKey={env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY}>
       <ConvexProviderWithClerk client={convex} useAuth={useAuth}>
-        <GestureHandlerRootView style={{ flex: 1 }}>
+        <GestureHandlerRootView style={{ flex: 1, backgroundColor: "#8AAAFA" }}>
           <KeyboardProvider>
             <AppThemeProvider>
               <HeroUINativeProvider>

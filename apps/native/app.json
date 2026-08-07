@@ -8,6 +8,10 @@
     },
     "name": "usi-installer",
     "slug": "usi-installer",
+    "android": {
+      "edgeToEdgeEnabled": true,
+      "backgroundColor": "#8AAAFA"
+    },
     "plugins": ["expo-font"],
     "experiments": {
       "typedRoutes": true,
