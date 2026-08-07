@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { mutation } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 
 const siteRowValidator = v.object({
   area: v.string(),
@@ -13,6 +13,66 @@ const siteRowValidator = v.object({
   gps_coordinates: v.optional(v.string()),
   photo_saved: v.boolean(),
   map_saved: v.boolean(),
+});
+
+export const listSites = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+
+    const sites = await ctx.db.query("sites").collect();
+
+    return sites.map((site) => ({
+      _id: site._id,
+      area: site.area,
+      site: site.site,
+      panel_id: site.panel_id,
+      gps_coordinates: site.gps_coordinates,
+      installation_notes: site.installation_notes,
+      equipment: site.equipment,
+      panel_qty: site.panel_qty,
+      panel_size: site.panel_size,
+      line: site.line,
+    }));
+  },
+});
+
+export const getSite = query({
+  args: {
+    id: v.id("sites"),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+
+    const site = await ctx.db.get(args.id);
+    if (!site) {
+      return null;
+    }
+
+    const imageUrls = (
+      await Promise.all(site.image_id.map((storageId) => ctx.storage.getUrl(storageId)))
+    ).filter((url): url is string => url !== null);
+
+    return {
+      _id: site._id,
+      area: site.area,
+      site: site.site,
+      panel_id: site.panel_id,
+      gps_coordinates: site.gps_coordinates,
+      installation_notes: site.installation_notes,
+      equipment: site.equipment,
+      panel_qty: site.panel_qty,
+      panel_size: site.panel_size,
+      line: site.line,
+      imageUrls,
+    };
+  },
 });
 
 export const upsertSites = mutation({
