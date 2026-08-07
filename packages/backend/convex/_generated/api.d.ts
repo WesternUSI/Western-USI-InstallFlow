@@ -13,6 +13,7 @@ import type * as http from "../http.js";
 import type * as privateData from "../privateData.js";
 import type * as sites from "../sites.js";
 import type * as users from "../users.js";
+import type * as workorders from "../workorders.js";
 
 import type {
   ApiFromModules,
@@ -26,6 +27,7 @@ declare const fullApi: ApiFromModules<{
   privateData: typeof privateData;
   sites: typeof sites;
   users: typeof users;
+  workorders: typeof workorders;
 }>;
 
 /**

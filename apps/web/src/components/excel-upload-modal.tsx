@@ -1,4 +1,3 @@
-import { api } from "@usi-installer/backend/convex/_generated/api";
 import { Button } from "@usi-installer/ui/components/button";
 import {
   Dialog,
@@ -8,22 +7,36 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@usi-installer/ui/components/dialog";
-import { useMutation } from "convex/react";
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { parseSiteDatabase, type ParseSiteDatabaseResult } from "@/lib/parseSiteDatabase";
+import type { SkippedRow } from "@/lib/excelParsing";
 
-interface UploadSiteDatabaseModalProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
+interface ParseResult<TRow> {
+  rows: TRow[];
+  skipped: SkippedRow[];
 }
 
-export function UploadSiteDatabaseModal({ open, onOpenChange }: UploadSiteDatabaseModalProps) {
-  const [result, setResult] = useState<ParseSiteDatabaseResult | null>(null);
+interface ExcelUploadModalProps<TRow> {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+  description: React.ReactNode;
+  parse: (buffer: ArrayBuffer) => ParseResult<TRow>;
+  onConfirm: (rows: TRow[]) => Promise<{ inserted: number; updated: number }>;
+}
+
+export function ExcelUploadModal<TRow>({
+  open,
+  onOpenChange,
+  title,
+  description,
+  parse,
+  onConfirm,
+}: ExcelUploadModalProps<TRow>) {
+  const [result, setResult] = useState<ParseResult<TRow> | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
-  const upsertSites = useMutation(api.sites.upsertSites);
 
   async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -34,7 +47,7 @@ export function UploadSiteDatabaseModal({ open, onOpenChange }: UploadSiteDataba
 
     try {
       const buffer = await file.arrayBuffer();
-      setResult(parseSiteDatabase(buffer));
+      setResult(parse(buffer));
     } catch (error) {
       setParseError(error instanceof Error ? error.message : "Failed to parse file");
     }
@@ -45,7 +58,7 @@ export function UploadSiteDatabaseModal({ open, onOpenChange }: UploadSiteDataba
 
     setIsUploading(true);
     try {
-      const { inserted, updated } = await upsertSites({ rows: result.rows });
+      const { inserted, updated } = await onConfirm(result.rows);
       toast.success(`Upload complete: ${inserted} inserted, ${updated} updated`);
       setResult(null);
       onOpenChange(false);
@@ -60,11 +73,8 @@ export function UploadSiteDatabaseModal({ open, onOpenChange }: UploadSiteDataba
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Upload Site Database</DialogTitle>
-          <DialogDescription>
-            Select the Go Site Database Excel file. Existing sites are matched and updated by
-            Panel ID; new Panel IDs are added.
-          </DialogDescription>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
 
         <input type="file" accept=".xlsx" onChange={handleFileChange} className="text-xs" />

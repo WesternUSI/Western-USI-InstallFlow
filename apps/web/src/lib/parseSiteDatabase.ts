@@ -1,5 +1,13 @@
 import * as XLSX from "xlsx";
 
+import {
+  findDataSheet,
+  normalizeHeader,
+  type SkippedRow,
+  toOptionalNumber,
+  toOptionalString,
+} from "@/lib/excelParsing";
+
 export interface ParsedSiteRow {
   area: string;
   site: string;
@@ -14,10 +22,7 @@ export interface ParsedSiteRow {
   map_saved: boolean;
 }
 
-export interface SkippedRow {
-  row: number;
-  reason: string;
-}
+export type { SkippedRow };
 
 export interface ParseSiteDatabaseResult {
   rows: ParsedSiteRow[];
@@ -40,7 +45,7 @@ const COLUMN_ALIASES: Record<string, keyof ParsedSiteRow | "panel_id_raw"> = {
 
 export function parseSiteDatabase(buffer: ArrayBuffer): ParseSiteDatabaseResult {
   const workbook = XLSX.read(buffer, { type: "array" });
-  const grid = findDataSheetGrid(workbook);
+  const { grid } = findDataSheet(workbook, "location");
 
   const headerRowIndex = grid.findIndex(
     (row) => Array.isArray(row) && row.some((cell) => normalizeHeader(cell) === "location"),
@@ -105,37 +110,6 @@ export function parseSiteDatabase(buffer: ArrayBuffer): ParseSiteDatabaseResult 
   }
 
   return { rows, skipped };
-}
-
-function findDataSheetGrid(workbook: XLSX.WorkBook): unknown[][] {
-  for (const name of workbook.SheetNames) {
-    const sheet = workbook.Sheets[name];
-    const grid = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
-      header: 1,
-      raw: true,
-      defval: "",
-    });
-    const hasLocationHeader = grid.some(
-      (row) => Array.isArray(row) && row.some((cell) => normalizeHeader(cell) === "location"),
-    );
-    if (hasLocationHeader) return grid;
-  }
-  throw new Error("Could not find a sheet with a 'LOCATION' column in the workbook");
-}
-
-function normalizeHeader(value: unknown): string {
-  return String(value ?? "").trim().toLowerCase();
-}
-
-function toOptionalString(value: unknown): string | undefined {
-  const str = String(value ?? "").trim();
-  return str === "" ? undefined : str;
-}
-
-function toOptionalNumber(value: unknown): number | undefined {
-  if (value === "" || value == null) return undefined;
-  const num = Number(value);
-  return Number.isNaN(num) ? undefined : num;
 }
 
 function toBoolean(value: unknown): boolean {
