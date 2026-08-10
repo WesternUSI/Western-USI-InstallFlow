@@ -1,5 +1,6 @@
-import * as SecureStore from "expo-secure-store";
 import React from "react";
+
+import { getPersistentItem, setPersistentItem } from "@/lib/persistent-storage";
 
 const LAST_SYNCED_KEY = "usi.last-synced-at";
 
@@ -18,7 +19,7 @@ export function SyncProvider({ children }: React.PropsWithChildren) {
   React.useEffect(() => {
     let isActive = true;
 
-    SecureStore.getItemAsync(LAST_SYNCED_KEY)
+    getPersistentItem(LAST_SYNCED_KEY)
       .then((stored) => {
         if (isActive && stored) {
           setLastSyncedAt(new Date(stored));
@@ -40,7 +41,7 @@ export function SyncProvider({ children }: React.PropsWithChildren) {
       // Convex subscriptions already stream changes live, so there is nothing
       // to re-fetch yet. Once work orders land this is where the pull goes.
       const syncedAt = new Date();
-      await SecureStore.setItemAsync(LAST_SYNCED_KEY, syncedAt.toISOString());
+      await setPersistentItem(LAST_SYNCED_KEY, syncedAt.toISOString());
       setLastSyncedAt(syncedAt);
     } catch (error) {
       console.error("Unable to record the sync time:", error);

@@ -1,7 +1,9 @@
-import { useAuth } from "@clerk/expo";
 import { Ionicons } from "@expo/vector-icons";
 import { Redirect, Tabs } from "expo-router";
+import { Authenticated, AuthLoading, Unauthenticated } from "convex/react";
 import { Text, View } from "react-native";
+
+import { AuthLoadingView } from "@/components/auth-loading";
 
 function SyncTabButton({ focused }: { focused: boolean }) {
   return (
@@ -28,19 +30,7 @@ function SyncTabButton({ focused }: { focused: boolean }) {
   );
 }
 
-export default function TabsLayout() {
-  const { isLoaded, isSignedIn } = useAuth();
-
-  // App cold-starts on (tabs). While Clerk loads after a storage clear, returning
-  // null flashes white — keep the login purple so the status-bar gap never goes white.
-  if (!isLoaded) {
-    return <View style={{ flex: 1, backgroundColor: "#8AAAFA" }} />;
-  }
-
-  if (!isSignedIn) {
-    return <Redirect href="/(auth)/sign-in" />;
-  }
-
+function TabsNavigator() {
   return (
     <Tabs
       screenOptions={{
@@ -84,5 +74,21 @@ export default function TabsLayout() {
         }}
       />
     </Tabs>
+  );
+}
+
+export default function TabsLayout() {
+  return (
+    <>
+      <Authenticated>
+        <TabsNavigator />
+      </Authenticated>
+      <Unauthenticated>
+        <Redirect href="/(auth)/sign-in" />
+      </Unauthenticated>
+      <AuthLoading>
+        <AuthLoadingView />
+      </AuthLoading>
+    </>
   );
 }

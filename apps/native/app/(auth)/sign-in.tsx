@@ -1,7 +1,7 @@
 import { useSignIn } from "@clerk/expo";
 import { Ionicons } from "@expo/vector-icons";
-import { type Href, useRouter } from "expo-router";
-import * as SecureStore from "expo-secure-store";
+import { Redirect, useRouter } from "expo-router";
+import { Authenticated, AuthLoading, Unauthenticated } from "convex/react";
 import React from "react";
 import {
   Image,
@@ -15,6 +15,13 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Defs, Rect, Stop, LinearGradient as SvgLinearGradient } from "react-native-svg";
+
+import {
+  deletePersistentItem,
+  getPersistentItem,
+  setPersistentItem,
+} from "@/lib/persistent-storage";
+import { AuthLoadingView } from "@/components/auth-loading";
 
 const REMEMBERED_EMAIL_KEY = "usi.remembered-email";
 const GLOW_TOP = "#8AAAFA";
@@ -36,17 +43,7 @@ function HeaderGlow({ width, height }: { width: number; height: number }) {
   );
 }
 
-function pushDecoratedUrl(
-  router: ReturnType<typeof useRouter>,
-  decorateUrl: (url: string) => string,
-  href: string,
-) {
-  const url = decorateUrl(href);
-  const nextHref = url.startsWith("http") ? new URL(url).pathname : url;
-  router.replace(nextHref as Href);
-}
-
-export default function Page() {
+function LoginForm() {
   const { signIn, errors, fetchStatus } = useSignIn();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -75,7 +72,7 @@ export default function Page() {
   React.useEffect(() => {
     let isActive = true;
 
-    SecureStore.getItemAsync(REMEMBERED_EMAIL_KEY)
+    getPersistentItem(REMEMBERED_EMAIL_KEY)
       .then((storedEmail) => {
         if (isActive && storedEmail) {
           setEmailAddress(storedEmail);
@@ -97,9 +94,9 @@ export default function Page() {
   const persistRememberedEmail = async () => {
     try {
       if (rememberMe) {
-        await SecureStore.setItemAsync(REMEMBERED_EMAIL_KEY, emailAddress);
+        await setPersistentItem(REMEMBERED_EMAIL_KEY, emailAddress);
       } else {
-        await SecureStore.deleteItemAsync(REMEMBERED_EMAIL_KEY);
+        await deletePersistentItem(REMEMBERED_EMAIL_KEY);
       }
     } catch (error) {
       console.error("Unable to persist the remembered email:", error);
@@ -124,13 +121,13 @@ export default function Page() {
     await persistRememberedEmail();
 
     await signIn.finalize({
-      navigate: ({ session, decorateUrl }) => {
+      navigate: ({ session }) => {
         if (session?.currentTask) {
           console.log(session.currentTask);
           return;
         }
 
-        pushDecoratedUrl(router, decorateUrl, "/");
+        router.replace("/");
       },
     });
   };
@@ -262,5 +259,21 @@ export default function Page() {
         </Pressable>
       </View>
     </View>
+  );
+}
+
+export default function Page() {
+  return (
+    <>
+      <Authenticated>
+        <Redirect href="/" />
+      </Authenticated>
+      <Unauthenticated>
+        <LoginForm />
+      </Unauthenticated>
+      <AuthLoading>
+        <AuthLoadingView />
+      </AuthLoading>
+    </>
   );
 }
