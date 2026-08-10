@@ -1,5 +1,6 @@
 import { useUser } from "@clerk/expo";
 import { Ionicons } from "@expo/vector-icons";
+import { type Href, useRouter } from "expo-router";
 import React from "react";
 import { Image, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -27,12 +28,22 @@ type NavCardProps = {
   icon: React.ComponentProps<typeof Ionicons>["name"];
   title: string;
   subtitle: string;
+  onPress?: () => void;
 };
 
-function NavCard({ accent, iconTint, iconBackground, icon, title, subtitle }: NavCardProps) {
+function NavCard({
+  accent,
+  iconTint,
+  iconBackground,
+  icon,
+  title,
+  subtitle,
+  onPress,
+}: NavCardProps) {
   return (
     <Pressable
       accessibilityRole="button"
+      onPress={onPress}
       className="flex-row items-center overflow-hidden rounded-2xl bg-white"
       style={{
         shadowColor: "#0f172a",
@@ -69,6 +80,7 @@ export default function Home() {
   const { user } = useUser();
   const insets = useSafeAreaInsets();
   const { lastSyncedAt } = useSync();
+  const router = useRouter();
 
   const greeting = greetingFor(new Date());
   const displayName = user?.firstName?.trim() || user?.emailAddresses[0]?.emailAddress.split("@")[0];
@@ -100,6 +112,7 @@ export default function Home() {
             icon="location"
             title="Site Database"
             subtitle={"Browse panels, photos\n& equipment"}
+            onPress={() => router.push("/site-database" as Href)}
           />
 
           <NavCard

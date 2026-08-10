@@ -13,6 +13,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Defs, Rect, Stop, LinearGradient as SvgLinearGradient } from "react-native-svg";
 
@@ -163,7 +164,13 @@ function LoginForm() {
         </View>
       </View>
 
-      <View className="flex-1 bg-[#edf1f3] px-6 pt-14">
+      <KeyboardAwareScrollView
+        className="flex-1 bg-[#edf1f3]"
+        contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 24, paddingTop: 56, paddingBottom: 32 }}
+        keyboardShouldPersistTaps="handled"
+        bottomOffset={24}
+        showsVerticalScrollIndicator={false}
+      >
         <Text className="text-[34px] leading-[44px] font-extrabold text-[#1a1c1e]">
           Sign in to your{"\n"}Account
         </Text>
@@ -257,7 +264,7 @@ function LoginForm() {
         >
           <Text className="text-[17px] font-bold text-white">Log In</Text>
         </Pressable>
-      </View>
+      </KeyboardAwareScrollView>
     </View>
   );
 }

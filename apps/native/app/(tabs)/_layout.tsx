@@ -73,6 +73,12 @@ function TabsNavigator() {
           tabBarIcon: ({ color }) => <Ionicons name="ellipsis-horizontal" size={24} color={color} />,
         }}
       />
+      <Tabs.Screen
+        name="site-database"
+        options={{
+          href: null,
+        }}
+      />
     </Tabs>
   );
 }
