@@ -1,19 +1,57 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
+import { type QueryCtx, mutation, query } from "./_generated/server";
 
 const siteRowValidator = v.object({
   area: v.string(),
   site: v.string(),
   panel_id: v.string(),
-  installation_notes: v.optional(v.string()),
-  equipment: v.array(v.string()),
-  panel_qty: v.optional(v.number()),
-  panel_size: v.optional(v.string()),
-  line: v.optional(v.string()),
-  gps_coordinates: v.optional(v.string()),
-  photo_saved: v.boolean(),
-  map_saved: v.boolean(),
+  quantity: v.optional(v.number()),
+  size: v.optional(v.string()),
+  area_progress: v.optional(v.string()),
+  install_notes: v.optional(v.string()),
+  equipment_needed: v.array(v.string()),
+  location: v.optional(v.string()),
+  missing_value: v.boolean(),
 });
+
+type SiteRow = typeof siteRowValidator.type;
+
+function publicFields(site: Doc<"sites">) {
+  return {
+    _id: site._id,
+    area: site.area,
+    site: site.site,
+    panel_id: site.panel_id,
+    quantity: site.quantity,
+    size: site.size,
+    area_progress: site.area_progress,
+    install_notes: site.install_notes,
+    equipment_needed: site.equipment_needed,
+    location: site.location,
+    photo_saved: site.photo_saved,
+    map_saved: site.map_saved,
+    missing_value: site.missing_value,
+  };
+}
+
+/**
+ * Finds the existing document a row should update. Rows whose panel_id is a
+ * placeholder ("???") are matched on panel_id *and* site, because different
+ * sites share that placeholder and must not collapse into one row.
+ */
+function findExisting(ctx: QueryCtx, row: SiteRow) {
+  if (row.missing_value) {
+    return ctx.db
+      .query("sites")
+      .withIndex("by_panel_id_site", (q) => q.eq("panel_id", row.panel_id).eq("site", row.site))
+      .first();
+  }
+  return ctx.db
+    .query("sites")
+    .withIndex("by_panel_id", (q) => q.eq("panel_id", row.panel_id))
+    .first();
+}
 
 export const listSites = query({
   args: {},
@@ -24,19 +62,7 @@ export const listSites = query({
     }
 
     const sites = await ctx.db.query("sites").collect();
-
-    return sites.map((site) => ({
-      _id: site._id,
-      area: site.area,
-      site: site.site,
-      panel_id: site.panel_id,
-      gps_coordinates: site.gps_coordinates,
-      installation_notes: site.installation_notes,
-      equipment: site.equipment,
-      panel_qty: site.panel_qty,
-      panel_size: site.panel_size,
-      line: site.line,
-    }));
+    return sites.map(publicFields);
   },
 });
 
@@ -56,25 +82,20 @@ export const getSite = query({
     }
 
     const imageUrls = (
-      await Promise.all(site.image_id.map((storageId) => ctx.storage.getUrl(storageId)))
+      await Promise.all(site.site_img.map((storageId) => ctx.storage.getUrl(storageId)))
     ).filter((url): url is string => url !== null);
 
-    return {
-      _id: site._id,
-      area: site.area,
-      site: site.site,
-      panel_id: site.panel_id,
-      gps_coordinates: site.gps_coordinates,
-      installation_notes: site.installation_notes,
-      equipment: site.equipment,
-      panel_qty: site.panel_qty,
-      panel_size: site.panel_size,
-      line: site.line,
-      imageUrls,
-    };
+    return { ...publicFields(site), imageUrls };
   },
 });
 
+/**
+ * Applies an uploaded Site Database. Rows already present are matched and
+ * updated column by column; new panel ids are inserted.
+ *
+ * `photo_saved` and `map_saved` are never read from the file — they are derived
+ * from whether the site has stored images and GPS coordinates respectively.
+ */
 export const upsertSites = mutation({
   args: {
     rows: v.array(siteRowValidator),
@@ -85,14 +106,7 @@ export const upsertSites = mutation({
       throw new Error("Not authenticated");
     }
 
-    const existingDocs = await Promise.all(
-      args.rows.map((row) =>
-        ctx.db
-          .query("sites")
-          .withIndex("by_panel_id", (q) => q.eq("panel_id", row.panel_id))
-          .unique(),
-      ),
-    );
+    const existingDocs = await Promise.all(args.rows.map((row) => findExisting(ctx, row)));
 
     let inserted = 0;
     let updated = 0;
@@ -100,24 +114,22 @@ export const upsertSites = mutation({
     for (let i = 0; i < args.rows.length; i++) {
       const row = args.rows[i];
       const existing = existingDocs[i];
+      const map_saved = (row.location ?? "") !== "";
 
       if (existing) {
         await ctx.db.patch(existing._id, {
-          area: row.area,
-          site: row.site,
-          panel_id: row.panel_id,
-          installation_notes: row.installation_notes,
-          equipment: row.equipment,
-          panel_qty: row.panel_qty,
-          panel_size: row.panel_size,
-          line: row.line,
-          gps_coordinates: row.gps_coordinates,
-          photo_saved: row.photo_saved,
-          map_saved: row.map_saved,
+          ...row,
+          map_saved,
+          photo_saved: existing.site_img.length > 0,
         });
         updated++;
       } else {
-        await ctx.db.insert("sites", { ...row, image_id: [] });
+        await ctx.db.insert("sites", {
+          ...row,
+          site_img: [],
+          map_saved,
+          photo_saved: false,
+        });
         inserted++;
       }
     }

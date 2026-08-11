@@ -15,6 +15,8 @@ export const upsertUser = internalMutation({
       .unique();
 
     if (existing) {
+      // `team` and `role` are set by an admin in the Convex dashboard, not by
+      // Clerk, so they are deliberately left untouched here.
       await ctx.db.patch(existing._id, {
         clerk_id: args.clerk_id,
         email: args.email,
@@ -22,7 +24,7 @@ export const upsertUser = internalMutation({
         image_url: args.image_url,
       });
     } else {
-      await ctx.db.insert("users", args);
+      await ctx.db.insert("users", { ...args, team: [], role: "worker" });
     }
   },
 });

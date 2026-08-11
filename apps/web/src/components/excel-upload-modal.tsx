@@ -23,7 +23,8 @@ interface ExcelUploadModalProps<TRow> {
   title: string;
   description: React.ReactNode;
   parse: (buffer: ArrayBuffer) => ParseResult<TRow>;
-  onConfirm: (rows: TRow[]) => Promise<{ inserted: number; updated: number }>;
+  /** Performs the upload and returns the message to show on success. */
+  onConfirm: (rows: TRow[]) => Promise<string>;
 }
 
 export function ExcelUploadModal<TRow>({
@@ -58,8 +59,7 @@ export function ExcelUploadModal<TRow>({
 
     setIsUploading(true);
     try {
-      const { inserted, updated } = await onConfirm(result.rows);
-      toast.success(`Upload complete: ${inserted} inserted, ${updated} updated`);
+      toast.success(await onConfirm(result.rows));
       setResult(null);
       onOpenChange(false);
     } catch (error) {
