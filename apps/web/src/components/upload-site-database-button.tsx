@@ -18,9 +18,12 @@ export function UploadSiteDatabaseButton() {
           open={open}
           onOpenChange={setOpen}
           title="Upload Site Database"
-          description="Select the Go Site Database Excel file. Existing sites are matched and updated by Panel ID; new Panel IDs are added."
+          description="Select the Go Site Database Excel file. Existing sites are matched and updated by Panel ID; new Panel IDs are added. Photos already attached to a site are kept."
           parse={parseSiteDatabase}
-          onConfirm={(rows) => upsertSites({ rows })}
+          onConfirm={async (rows) => {
+            const { inserted, updated } = await upsertSites({ rows });
+            return `Upload complete: ${inserted} added, ${updated} updated`;
+          }}
         />
       )}
     </>
