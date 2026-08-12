@@ -1,6 +1,8 @@
+import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, mutation, query } from "./_generated/server";
+import { type SiteDetailStatus, deriveSiteDetailStatus, siteSearchText } from "./derive";
 import { findSiteForPanelSplit } from "./panelIds";
 
 async function requireIdentity(ctx: QueryCtx | MutationCtx) {
@@ -30,7 +32,7 @@ type SiteRow = typeof siteRowValidator.type;
  * the ones the Edit Site Details screen fills in — everything else on a site
  * comes from the spreadsheet and is always present.
  */
-export type SiteDetailStatus = "completed" | "incomplete" | "missing";
+export type { SiteDetailStatus } from "./derive";
 
 export const siteDetailStatusValidator = v.union(
   v.literal("completed"),
@@ -38,17 +40,27 @@ export const siteDetailStatusValidator = v.union(
   v.literal("missing"),
 );
 
+/** Prefers the stored key, falling back for rows written before it existed. */
 export function deriveDetailStatus(site: Doc<"sites">): SiteDetailStatus {
-  const filled = [
-    site.site_img.length > 0,
-    (site.location ?? "").trim() !== "",
-    (site.install_notes ?? "").trim() !== "",
-    site.equipment_needed.length > 0,
-  ].filter(Boolean).length;
+  return (site.detail_key as SiteDetailStatus | undefined) ?? deriveSiteDetailStatus(site);
+}
 
-  if (filled === 0) return "missing";
-  if (filled === 4) return "completed";
-  return "incomplete";
+/** The index keys that must be rewritten whenever a site row changes. */
+function derivedKeys(site: {
+  area: string;
+  site: string;
+  panel_id: string;
+  size?: string;
+  area_progress?: string;
+  site_img: unknown[];
+  location?: string;
+  install_notes?: string;
+  equipment_needed: string[];
+}) {
+  return {
+    search_text: siteSearchText(site),
+    detail_key: deriveSiteDetailStatus(site),
+  };
 }
 
 function publicFields(site: Doc<"sites">) {
@@ -111,11 +123,21 @@ export const getSite = query({
       return null;
     }
 
-    const imageUrls = (
-      await Promise.all(site.site_img.map((storageId) => ctx.storage.getUrl(storageId)))
-    ).filter((url): url is string => url !== null);
+    // Paired with their storage id so the dialog can remove a single one.
+    const images = (
+      await Promise.all(
+        site.site_img.map(async (storage_id) => ({
+          storage_id,
+          url: await ctx.storage.getUrl(storage_id),
+        })),
+      )
+    ).filter((image): image is { storage_id: typeof image.storage_id; url: string } =>
+      Boolean(image.url),
+    );
 
-    return { ...publicFields(site), imageUrls };
+    // `imageUrls` is what the native app reads; `images` carries the storage id
+    // as well so the admin dialog can remove one picture at a time.
+    return { ...publicFields(site), images, imageUrls: images.map((image) => image.url) };
   },
 });
 
@@ -157,52 +179,134 @@ export const areas = query({
   },
 });
 
+/** Ceiling on rows counted for a search term, so one query stays bounded. */
+const COUNT_LIMIT = 2000;
+
 /**
- * One page of sites plus the per-status counts that drive the tab bar. Counts
- * reflect the search and location filters but ignore the selected tab.
+ * One page of sites using Convex cursor pagination.
+ *
+ * Detail status is derived and search is a substring match, so both are applied
+ * to each page after it is read. A filtered page can come back holding fewer
+ * rows than `numItems` without being the last one — `isDone` is what marks the
+ * end.
  */
 export const list = query({
   args: {
+    paginationOpts: paginationOptsValidator,
     status: v.optional(siteDetailStatusValidator),
     area: v.optional(v.string()),
     search: v.optional(v.string()),
-    page: v.optional(v.number()),
-    page_size: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx);
 
-    const page = Math.max(1, args.page ?? 1);
-    const pageSize = Math.min(200, Math.max(1, args.page_size ?? 25));
+    const term = args.search?.trim() ?? "";
+    const { area, status } = args;
+
+    if (term !== "") {
+      const result = await ctx.db
+        .query("sites")
+        .withSearchIndex("by_search", (q) => {
+          let search = q.search("search_text", term);
+          if (status !== undefined) search = search.eq("detail_key", status);
+          if (area !== undefined) search = search.eq("area", area);
+          return search;
+        })
+        .paginate(args.paginationOpts);
+
+      return { ...result, page: result.page.map(publicFields) };
+    }
+
+    const stream = (() => {
+      if (status !== undefined) {
+        return ctx.db
+          .query("sites")
+          .withIndex("by_detail_key_area", (q) =>
+            area === undefined
+              ? q.eq("detail_key", status)
+              : q.eq("detail_key", status).eq("area", area),
+          );
+      }
+      if (area !== undefined) {
+        return ctx.db.query("sites").withIndex("by_area", (q) => q.eq("area", area));
+      }
+      return ctx.db.query("sites");
+    })();
+
+    const result = await stream.order("desc").paginate(args.paginationOpts);
+    return { ...result, page: result.page.map(publicFields) };
+  },
+});
+
+/**
+ * Distinct values the search box can suggest.
+ *
+ * Takes no arguments on purpose: Convex caches a query per argument set, so one
+ * shared result is computed when the table changes and reused by everyone. The
+ * browser then filters it as the user types, which costs the backend nothing
+ * per keystroke.
+ */
+export const searchOptions = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireIdentity(ctx);
 
     const all = await ctx.db.query("sites").collect();
-    const scoped = all.filter(
-      (site) =>
-        matchesSearch(site, args.search ?? "") &&
-        (args.area === undefined || site.area === args.area),
-    );
+    const seen = new Map<string, { value: string; kind: string }>();
+
+    const add = (value: string | undefined, kind: string) => {
+      const trimmed = value?.trim();
+      if (!trimmed) return;
+      const key = `${kind}:${trimmed.toLowerCase()}`;
+      if (!seen.has(key)) seen.set(key, { value: trimmed, kind });
+    };
+
+    for (const site of all) {
+      add(site.area, "Location");
+      add(site.site, "Details");
+      add(site.panel_id, "Panel ID");
+    }
+
+    return [...seen.values()];
+  },
+});
+
+/**
+ * Per-status totals for the tab bar and the row counter. Kept apart from `list`
+ * because a cursor page cannot know totals, and this walks every matching row.
+ */
+export const counts = query({
+  args: {
+    area: v.optional(v.string()),
+    search: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx);
+
+    const term = args.search?.trim() ?? "";
+    const { area } = args;
+
+    // Counted through the same search index the table pages through, so the tab
+    // numbers can never disagree with the rows shown.
+    const rows =
+      term === ""
+        ? await ctx.db.query("sites").collect()
+        : await ctx.db
+            .query("sites")
+            .withSearchIndex("by_search", (q) => {
+              const search = q.search("search_text", term);
+              return area === undefined ? search : search.eq("area", area);
+            })
+            .take(COUNT_LIMIT);
 
     const counts = { all: 0, completed: 0, incomplete: 0, missing: 0 };
-    for (const site of scoped) {
+    for (const site of rows) {
+      if (term === "" && area !== undefined && site.area !== area) continue;
       counts.all++;
       counts[deriveDetailStatus(site)]++;
     }
 
-    const filtered =
-      args.status === undefined
-        ? scoped
-        : scoped.filter((site) => deriveDetailStatus(site) === args.status);
-
-    filtered.sort((a, b) => a.area.localeCompare(b.area) || a.site.localeCompare(b.site));
-
-    const start = (page - 1) * pageSize;
-    return {
-      rows: filtered.slice(start, start + pageSize).map(publicFields),
-      total: filtered.length,
-      page,
-      page_size: pageSize,
-      counts,
-    };
+    return counts;
   },
 });
 
@@ -226,10 +330,12 @@ export const update = mutation({
     }
 
     const { id, ...fields } = args;
+    const updated = { ...site, ...fields };
     await ctx.db.patch(id, {
       ...fields,
       // Kept in step with the data rather than set by hand, exactly as during import.
       map_saved: (fields.location ?? "").trim() !== "",
+      ...derivedKeys(updated),
     });
   },
 });
@@ -243,12 +349,8 @@ export const generateUploadUrl = mutation({
   },
 });
 
-/**
- * Step 2 of an image upload: attach the stored file to the site. The design
- * shows a single site image, so this replaces whatever was there before and
- * deletes the old file.
- */
-export const setSiteImage = mutation({
+/** Step 2 of an image upload: add the stored file to the site's gallery. */
+export const addSiteImage = mutation({
   args: {
     id: v.id("sites"),
     storage_id: v.id("_storage"),
@@ -261,17 +363,24 @@ export const setSiteImage = mutation({
       throw new Error("Site not found");
     }
 
-    for (const previous of site.site_img) {
-      await ctx.storage.delete(previous);
+    if (site.site_img.includes(args.storage_id)) {
+      return;
     }
 
-    await ctx.db.patch(args.id, { site_img: [args.storage_id], photo_saved: true });
+    const site_img = [...site.site_img, args.storage_id];
+    await ctx.db.patch(args.id, {
+      site_img,
+      photo_saved: true,
+      ...derivedKeys({ ...site, site_img }),
+    });
   },
 });
 
+/** Drops one image from the gallery and deletes the stored file behind it. */
 export const removeSiteImage = mutation({
   args: {
     id: v.id("sites"),
+    storage_id: v.id("_storage"),
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx);
@@ -281,11 +390,17 @@ export const removeSiteImage = mutation({
       throw new Error("Site not found");
     }
 
-    for (const previous of site.site_img) {
-      await ctx.storage.delete(previous);
+    const site_img = site.site_img.filter((storageId) => storageId !== args.storage_id);
+    if (site_img.length === site.site_img.length) {
+      return;
     }
 
-    await ctx.db.patch(args.id, { site_img: [], photo_saved: false });
+    await ctx.storage.delete(args.storage_id);
+    await ctx.db.patch(args.id, {
+      site_img,
+      photo_saved: site_img.length > 0,
+      ...derivedKeys({ ...site, site_img }),
+    });
   },
 });
 
@@ -326,18 +441,9 @@ export const resolveByPanelSplits = query({
 export const upsertSites = mutation({
   args: {
     rows: v.array(siteRowValidator),
-    file_name: v.string(),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (identity === null) {
-      throw new Error("Not authenticated");
-    }
-
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerk_id", identity.subject))
-      .unique();
+    await requireIdentity(ctx);
 
     const existingDocs = await Promise.all(args.rows.map((row) => findExisting(ctx, row)));
 
@@ -350,33 +456,67 @@ export const upsertSites = mutation({
       const map_saved = (row.location ?? "") !== "";
 
       if (existing) {
+        const merged = { ...existing, ...row };
         await ctx.db.patch(existing._id, {
           ...row,
           map_saved,
           photo_saved: existing.site_img.length > 0,
+          ...derivedKeys(merged),
         });
         updated++;
       } else {
+        const fresh = { ...row, site_img: [] };
         await ctx.db.insert("sites", {
-          ...row,
-          site_img: [],
+          ...fresh,
           map_saved,
           photo_saved: false,
+          ...derivedKeys(fresh),
         });
         inserted++;
       }
     }
 
+    return { inserted, updated };
+  },
+});
+
+/**
+ * Records one completed Site Database upload. Called once after the last batch
+ * of `upsertSites`, so a large file can be applied over several transactions
+ * without producing several import rows.
+ */
+export const recordSiteImport = mutation({
+  args: {
+    file_name: v.string(),
+    total_rows: v.number(),
+    inserted: v.number(),
+    updated: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_id", (q) => q.eq("clerk_id", identity.subject))
+      .unique();
+
     await ctx.db.insert("site_imports", {
-      file_name: args.file_name,
+      ...args,
       uploaded_at: Date.now(),
       uploaded_by_name: user?.name ?? identity.name ?? identity.email ?? "Unknown user",
-      total_rows: args.rows.length,
-      inserted,
-      updated,
     });
+  },
+});
 
-    return { inserted, updated };
+/** Whether any site exists at all — gates the work order import. */
+export const hasSites = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireIdentity(ctx);
+    return (await ctx.db.query("sites").first()) !== null;
   },
 });
 

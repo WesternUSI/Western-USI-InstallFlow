@@ -33,9 +33,14 @@ function RootComponent() {
   return (
     <>
       <HeadContent />
+      {/* The admin panel is a light-only design: its colours are set directly
+          rather than through theme tokens, so the shadcn components have to
+          stay light too or dialogs and inputs come out dark. `forcedTheme`
+          also ignores any "dark" left in localStorage from earlier builds. */}
       <ThemeProvider
         attribute="class"
-        defaultTheme="dark"
+        defaultTheme="light"
+        forcedTheme="light"
         disableTransitionOnChange
         storageKey="vite-ui-theme"
       >

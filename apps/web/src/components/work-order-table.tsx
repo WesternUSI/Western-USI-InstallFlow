@@ -8,7 +8,8 @@ import {
 } from "@usi-installer/ui/components/table";
 import { Tabs, TabsList, TabsTrigger } from "@usi-installer/ui/components/tabs";
 
-import { TablePagination } from "@/components/table-pagination";
+import type { SearchOption } from "@/components/search-input";
+import { TablePagination, type TablePaginationProps } from "@/components/table-pagination";
 import { TableToolbar } from "@/components/table-toolbar";
 import {
   type WorkOrderStatus,
@@ -41,14 +42,12 @@ interface WorkOrderTableProps {
   title: string;
   rows: WorkOrderTableRow[];
   counts: WorkOrderCounts;
-  total: number;
-  page: number;
-  pageSize: number;
   status: WorkOrderStatusTab;
   search: string;
+  searchOptions: SearchOption[] | undefined;
+  pagination: TablePaginationProps;
   onStatusChange: (status: WorkOrderStatusTab) => void;
   onSearchChange: (search: string) => void;
-  onPageChange: (page: number) => void;
 }
 
 const HEADINGS = [
@@ -74,20 +73,19 @@ export function WorkOrderTable({
   title,
   rows,
   counts,
-  total,
-  page,
-  pageSize,
   status,
   search,
+  searchOptions,
+  pagination,
   onStatusChange,
   onSearchChange,
-  onPageChange,
 }: WorkOrderTableProps) {
   return (
     <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
       <TableToolbar
         title={title}
         search={search}
+        searchOptions={searchOptions}
         placeholder="Search by location, panel ID, advertiser"
         onSearchChange={onSearchChange}
       />
@@ -167,7 +165,7 @@ export function WorkOrderTable({
         </TableBody>
       </Table>
 
-      <TablePagination total={total} page={page} pageSize={pageSize} onPageChange={onPageChange} />
+      <TablePagination {...pagination} />
     </section>
   );
 }

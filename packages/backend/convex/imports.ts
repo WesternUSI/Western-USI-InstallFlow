@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, mutation, query } from "./_generated/server";
+import { deriveWorkOrderStatus, workOrderSearchText } from "./derive";
 import { findSiteForPanelSplit } from "./panelIds";
 
 const workOrderRowValidator = v.object({
@@ -44,17 +45,17 @@ function summarise(doc: Doc<"imports">) {
 }
 
 /**
- * Records one Installation Schedule import: an `imports` summary row plus one
- * `workorders` row per parsed line.
+ * Starts one Installation Schedule import.
  *
- * Site matching is redone here rather than trusted from the client, and the
- * matched site's area is snapshotted onto each work order as `train_line`.
+ * A large schedule is written over several `addWorkOrders` calls rather than
+ * one, because a Convex mutation is a single transaction with a bounded number
+ * of reads and writes. The summary row is created up front with zero totals and
+ * filled in by `finalizeImport` once every batch has landed.
  */
 export const createImport = mutation({
   args: {
     file_name: v.string(),
     upload_date: v.string(),
-    rows: v.array(workOrderRowValidator),
   },
   handler: async (ctx, args) => {
     const identity = await requireIdentity(ctx);
@@ -64,11 +65,6 @@ export const createImport = mutation({
       .withIndex("by_clerk_id", (q) => q.eq("clerk_id", identity.subject))
       .unique();
 
-    const sites = await Promise.all(
-      args.rows.map((row) => findSiteForPanelSplit(ctx, row.panel_split)),
-    );
-    const missingSites = sites.filter((site) => site === null).length;
-
     const importId: Id<"imports"> = await ctx.db.insert("imports", {
       name: `Import-Data-${args.upload_date}`,
       file_name: args.file_name,
@@ -76,25 +72,107 @@ export const createImport = mutation({
       imported_at: Date.now(),
       imported_by: user?._id,
       imported_by_name: user?.name ?? identity.name ?? identity.email ?? "Unknown user",
-      total_rows: args.rows.length,
-      missing_sites: missingSites,
+      total_rows: 0,
+      missing_sites: 0,
     });
+
+    return importId;
+  },
+});
+
+/**
+ * Writes one batch of work orders for an in-progress import.
+ *
+ * Site matching is redone here rather than trusted from the client, and the
+ * matched site's area is snapshotted onto each row as `train_line`.
+ */
+export const addWorkOrders = mutation({
+  args: {
+    import_id: v.id("imports"),
+    rows: v.array(workOrderRowValidator),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx);
+
+    const importDoc = await ctx.db.get(args.import_id);
+    if (importDoc === null) {
+      throw new Error("Import not found");
+    }
+
+    const sites = await Promise.all(
+      args.rows.map((row) => findSiteForPanelSplit(ctx, row.panel_split)),
+    );
 
     for (let i = 0; i < args.rows.length; i++) {
       const site = sites[i];
-      await ctx.db.insert("workorders", {
+      const row = {
         ...args.rows[i],
-        import_id: importId,
-        upload_date: args.upload_date,
-        current_status: "pending",
-        assigned_team: [],
+        import_id: args.import_id,
+        upload_date: importDoc.upload_date,
+        current_status: "pending" as const,
+        assigned_team: [] as string[],
         site_id: site?._id,
         missing_value: site === null,
         train_line: site?.area_progress,
+      };
+
+      await ctx.db.insert("workorders", {
+        ...row,
+        // Filtering happens inside an index, so these are written with the row.
+        search_text: workOrderSearchText(row),
+        status_key: deriveWorkOrderStatus(row),
       });
     }
 
-    return { import_id: importId, inserted: args.rows.length, missing_sites: missingSites };
+    return {
+      inserted: args.rows.length,
+      missing_sites: sites.filter((site) => site === null).length,
+    };
+  },
+});
+
+/** Fills in the summary totals once every batch has been written. */
+export const finalizeImport = mutation({
+  args: {
+    import_id: v.id("imports"),
+    total_rows: v.number(),
+    missing_sites: v.number(),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx);
+
+    const { import_id, ...totals } = args;
+    await ctx.db.patch(import_id, totals);
+  },
+});
+
+/**
+ * Removes an import and every work order it created. Used to clean up when a
+ * batched upload fails part-way, so a half-written import is never left behind.
+ */
+export const deleteImport = mutation({
+  args: {
+    import_id: v.id("imports"),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx);
+
+    const rows = await ctx.db
+      .query("workorders")
+      .withIndex("by_import_id", (q) => q.eq("import_id", args.import_id))
+      .take(500);
+
+    for (const row of rows) {
+      await ctx.db.delete(row._id);
+    }
+
+    // Only drop the import row once its work orders are all gone; the client
+    // calls this repeatedly until `remaining` comes back zero.
+    if (rows.length === 0) {
+      await ctx.db.delete(args.import_id);
+    }
+
+    return { remaining: rows.length };
   },
 });
 

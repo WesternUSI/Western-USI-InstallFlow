@@ -9,15 +9,9 @@ import {
   TableRow,
 } from "@usi-installer/ui/components/table";
 import { useQuery } from "convex/react";
-import {
-  ArrowRight,
-  ClipboardList,
-  Database,
-  FileSpreadsheet,
-  TrendingUp,
-  UploadCloud,
-} from "lucide-react";
+import { ArrowRight, ClipboardList, Database, TrendingUp, UploadCloud } from "lucide-react";
 
+import { ExcelIcon } from "@/components/excel-icon";
 import { ImportSummaryCard } from "@/components/import-summary-card";
 import { PageHeader } from "@/components/page-header";
 import { WorkOrderStats } from "@/components/work-order-stats";
@@ -168,7 +162,7 @@ function LatestImport() {
   if (latest === null) {
     return (
       <div className="flex items-center gap-4 rounded-xl border border-dashed border-slate-300 bg-white px-6 py-6">
-        <FileSpreadsheet className="size-6 text-slate-400" />
+        <ExcelIcon className="size-8 opacity-60" />
         <div className="flex-1">
           <p className="text-base font-bold text-gray-900">No imports yet</p>
           <p className="text-sm text-gray-500">

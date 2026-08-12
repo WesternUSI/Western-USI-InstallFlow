@@ -2,7 +2,6 @@ import { api } from "@usi-installer/backend/convex/_generated/api";
 import type { Id } from "@usi-installer/backend/convex/_generated/dataModel";
 import { createFileRoute } from "@tanstack/react-router";
 import { Button } from "@usi-installer/ui/components/button";
-import { Input } from "@usi-installer/ui/components/input";
 import {
   Table,
   TableBody,
@@ -13,14 +12,18 @@ import {
 } from "@usi-installer/ui/components/table";
 import { Tabs, TabsList, TabsTrigger } from "@usi-installer/ui/components/tabs";
 import { useQuery } from "convex/react";
-import { ListFilter, Search } from "lucide-react";
+import { ListFilter } from "lucide-react";
 import { useState } from "react";
 
 import { EditSiteDialog } from "@/components/edit-site-dialog";
+import { FilterSelect } from "@/components/filter-select";
 import { ImportSummaryCard } from "@/components/import-summary-card";
 import { PageHeader } from "@/components/page-header";
+import { type SearchOption, SearchInput } from "@/components/search-input";
 import { SiteStats } from "@/components/site-stats";
 import { TablePagination } from "@/components/table-pagination";
+import { useCursorPagination } from "@/hooks/use-cursor-pagination";
+import { useDebouncedValue, useStickyValue } from "@/hooks/use-debounced-value";
 import {
   type SiteDetailStatusTab,
   SITE_DETAIL_STATUS_CLASSES,
@@ -37,6 +40,7 @@ const ALL_LOCATIONS = "__all__";
 
 function FilterBar({
   search,
+  searchOptions,
   area,
   areas,
   status,
@@ -45,6 +49,7 @@ function FilterBar({
   onStatusChange,
 }: {
   search: string;
+  searchOptions: SearchOption[] | undefined;
   area: string;
   areas: string[] | undefined;
   status: SiteDetailStatusTab;
@@ -54,50 +59,33 @@ function FilterBar({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 p-4">
-      <div className="relative max-w-md min-w-56 flex-1">
-        <Search className="absolute top-1/2 left-3 size-5 -translate-y-1/2 text-slate-400" />
-        <Input
-          value={search}
-          onChange={(event) => onSearchChange(event.target.value)}
-          placeholder="Search by location, panel ID, details"
-          className="h-[38px] rounded-lg pl-10 text-sm"
-        />
-      </div>
+      <SearchInput
+        value={search}
+        options={searchOptions}
+        placeholder="Search by location, panel ID, details"
+        onChange={onSearchChange}
+        className="max-w-md min-w-56 flex-1"
+      />
 
-      <label className="relative">
-        <span className="absolute -top-2 left-3 z-10 bg-white px-1 text-[10px] font-semibold tracking-wide text-slate-500 uppercase">
-          Location
-        </span>
-        <select
-          value={area}
-          onChange={(event) => onAreaChange(event.target.value)}
-          className="h-[38px] w-48 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800"
-        >
-          <option value={ALL_LOCATIONS}>All</option>
-          {areas?.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
-      </label>
+      <FilterSelect
+        label="Location"
+        value={area}
+        options={[
+          { value: ALL_LOCATIONS, label: "All" },
+          ...(areas ?? []).map((option) => ({ value: option, label: option })),
+        ]}
+        onChange={onAreaChange}
+      />
 
-      <label className="relative">
-        <span className="absolute -top-2 left-3 z-10 bg-white px-1 text-[10px] font-semibold tracking-wide text-slate-500 uppercase">
-          Details Status
-        </span>
-        <select
-          value={status}
-          onChange={(event) => onStatusChange(event.target.value as SiteDetailStatusTab)}
-          className="h-[38px] w-48 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800"
-        >
-          {SITE_DETAIL_STATUS_TABS.map((tab) => (
-            <option key={tab.value} value={tab.value}>
-              {tab.value === "all" ? "All" : tab.label}
-            </option>
-          ))}
-        </select>
-      </label>
+      <FilterSelect
+        label="Details Status"
+        value={status}
+        options={SITE_DETAIL_STATUS_TABS.map((tab) => ({
+          value: tab.value,
+          label: tab.value === "all" ? "All" : tab.label,
+        }))}
+        onChange={(next) => onStatusChange(next as SiteDetailStatusTab)}
+      />
 
       <Button variant="outline" className="h-[38px] gap-2 rounded-lg">
         <ListFilter className="size-4" />
@@ -111,25 +99,40 @@ function ManageSiteDataPage() {
   const [status, setStatus] = useState<SiteDetailStatusTab>("all");
   const [area, setArea] = useState(ALL_LOCATIONS);
   const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
   const [editingId, setEditingId] = useState<Id<"sites"> | null>(null);
+
+  // The box updates instantly; the queries follow once typing pauses, so a
+  // word typed out is one round trip rather than one per letter.
+  const debouncedSearch = useDebouncedValue(search);
+  const scopedArea = area === ALL_LOCATIONS ? undefined : area;
+
+  // Keyed on the debounced term, not the raw one, so the cursor is dropped at
+  // the same moment the query arguments actually change.
+  const { paginationOpts, page, hasPrevious, next, previous } = useCursorPagination(
+    PAGE_SIZE,
+    `${status}|${area}|${debouncedSearch}`,
+  );
 
   const areas = useQuery(api.sites.areas);
   const latestImport = useQuery(api.sites.latestImport);
-  const result = useQuery(api.sites.list, {
-    status: status === "all" ? undefined : status,
-    area: area === ALL_LOCATIONS ? undefined : area,
-    search,
-    page,
-    page_size: PAGE_SIZE,
-  });
 
-  function resetToFirstPage<T>(setter: (value: T) => void) {
-    return (value: T) => {
-      setter(value);
-      setPage(1);
-    };
-  }
+  // `useStickyValue` keeps the current page on screen while the next one loads
+  // instead of dropping back to "Loading…" on every change.
+  const result = useStickyValue(
+    useQuery(api.sites.list, {
+      paginationOpts,
+      status: status === "all" ? undefined : status,
+      area: scopedArea,
+      search: debouncedSearch,
+    }),
+  );
+  const counts = useStickyValue(
+    useQuery(api.sites.counts, { area: scopedArea, search: debouncedSearch }),
+  );
+
+  // No arguments, so Convex computes this once per data change and shares it —
+  // filtering as the user types happens in the browser.
+  const searchOptions = useQuery(api.sites.searchOptions);
 
   const uploadedOn =
     latestImport == null
@@ -154,17 +157,18 @@ function ManageSiteDataPage() {
         <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
           <FilterBar
             search={search}
+            searchOptions={searchOptions}
             area={area}
             areas={areas}
             status={status}
-            onSearchChange={resetToFirstPage(setSearch)}
-            onAreaChange={resetToFirstPage(setArea)}
-            onStatusChange={resetToFirstPage(setStatus)}
+            onSearchChange={setSearch}
+            onAreaChange={setArea}
+            onStatusChange={setStatus}
           />
 
           <Tabs
             value={status}
-            onValueChange={(value) => resetToFirstPage(setStatus)(value as SiteDetailStatusTab)}
+            onValueChange={(value) => setStatus(value as SiteDetailStatusTab)}
             className="gap-0"
           >
             <TabsList
@@ -177,7 +181,7 @@ function ManageSiteDataPage() {
                   value={tab.value}
                   className="px-1 pb-4 text-sm font-medium data-active:text-blue-600 data-active:after:bg-blue-500"
                 >
-                  {tab.label} ({(result?.counts[tab.value] ?? 0).toLocaleString()})
+                  {tab.label} ({(counts?.[tab.value] ?? 0).toLocaleString()})
                 </TabsTrigger>
               ))}
             </TabsList>
@@ -209,14 +213,14 @@ function ManageSiteDataPage() {
                   </TableCell>
                 </TableRow>
               )}
-              {result?.rows.length === 0 && (
+              {result?.page.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={6} className="px-6 py-10 text-center text-sm text-slate-400">
                     No sites match this filter.
                   </TableCell>
                 </TableRow>
               )}
-              {result?.rows.map((row) => (
+              {result?.page.map((row) => (
                 <TableRow key={row._id} className="border-slate-100">
                   <TableCell className="px-6 py-4 text-sm text-slate-700">{row.area}</TableCell>
                   <TableCell className="max-w-64 truncate px-6 py-4 text-sm text-slate-700">
@@ -250,10 +254,14 @@ function ManageSiteDataPage() {
           </Table>
 
           <TablePagination
-            total={result?.total ?? 0}
+            shown={result?.page.length ?? 0}
+            total={counts?.[status] ?? 0}
             page={page}
             pageSize={PAGE_SIZE}
-            onPageChange={setPage}
+            hasPrevious={hasPrevious}
+            hasNext={result !== undefined && !result.isDone}
+            onPrevious={previous}
+            onNext={() => result !== undefined && next(result.continueCursor)}
           />
         </section>
 

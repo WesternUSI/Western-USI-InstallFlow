@@ -6,6 +6,10 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { ExcelDropzone } from "@/components/excel-dropzone";
+import type { SearchOption } from "@/components/search-input";
+import { SiteDataRequiredDialog } from "@/components/site-data-required-dialog";
+import { type UploadError, UploadErrorDialog } from "@/components/upload-error-dialog";
+import { UPLOAD_BATCH_SIZE, chunk } from "@/lib/chunk";
 import { ImportSummaryCard } from "@/components/import-summary-card";
 import { PageHeader } from "@/components/page-header";
 import {
@@ -13,7 +17,7 @@ import {
   type WorkOrderTableRow,
   WorkOrderTable,
 } from "@/components/work-order-table";
-import { todayIsoDate } from "@/lib/excelParsing";
+import { detectWorkbookKind, todayIsoDate } from "@/lib/excelParsing";
 import { type ParsedWorkOrderRow, parseWorkOrder } from "@/lib/parseWorkOrder";
 import type { WorkOrderStatusTab } from "@/lib/workOrderStatus";
 
@@ -29,13 +33,41 @@ interface ParsedFile {
   skippedCount: number;
 }
 
+/** Turns a parse failure into something that names the actual problem. */
+function describeWorkOrderFailure(buffer: ArrayBuffer, error: unknown): UploadError {
+  if (detectWorkbookKind(buffer) === "site_database") {
+    return {
+      title: "That's the Site Database file",
+      description:
+        "This looks like the Go Site Database, not an Installation Schedule. Import it under Import Site Data, then come back here for the work orders.",
+      action: { to: "/import-site-data", label: "Import Site Data" },
+    };
+  }
+
+  return {
+    title: "This isn't an Installation Schedule",
+    description: `No CONTRACTED PANEL ID column was found, so this file can't be read as a work order schedule. (${
+      error instanceof Error ? error.message : "Unreadable file"
+    })`,
+  };
+}
+
 function ImportWorkOrdersPage() {
   const navigate = useNavigate();
   const createImport = useMutation(api.imports.createImport);
+  const addWorkOrders = useMutation(api.imports.addWorkOrders);
+  const finalizeImport = useMutation(api.imports.finalizeImport);
+  const deleteImport = useMutation(api.imports.deleteImport);
+
+  // Work orders are matched to sites by panel id, so importing them into an
+  // empty Site Database would flag every row as a missing site.
+  const hasSites = useQuery(api.sites.hasSites);
 
   const [parsed, setParsed] = useState<ParsedFile | null>(null);
-  const [parseError, setParseError] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<UploadError | null>(null);
   const [isImporting, setIsImporting] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [showSiteDataGate, setShowSiteDataGate] = useState(false);
 
   const [status, setStatus] = useState<WorkOrderStatusTab>("all");
   const [search, setSearch] = useState("");
@@ -72,6 +104,25 @@ function ImportWorkOrdersPage() {
     });
   }, [parsed, siteMatches]);
 
+  // Built from the parsed file rather than the database — these rows do not
+  // exist server-side yet, and suggesting from them costs nothing.
+  const searchOptions = useMemo(() => {
+    const seen = new Map<string, SearchOption>();
+    const add = (value: string | undefined, kind: string) => {
+      const trimmed = value?.trim();
+      if (!trimmed) return;
+      const key = `${kind}:${trimmed.toLowerCase()}`;
+      if (!seen.has(key)) seen.set(key, { value: trimmed, kind });
+    };
+
+    for (const row of previewRows) {
+      add(row.site, "Location");
+      add(row.panel_split, "Panel ID");
+      add(row.advertiser_campaign, "Advertiser");
+    }
+    return [...seen.values()];
+  }, [previewRows]);
+
   const searched = useMemo(() => {
     const needle = search.trim().toLowerCase();
     if (needle === "") return previewRows;
@@ -102,12 +153,21 @@ function ImportWorkOrdersPage() {
   const missingSites = counts.missing_site;
 
   function handleFile(file: File) {
-    setParseError(null);
+    if (hasSites === false) {
+      setShowSiteDataGate(true);
+      return;
+    }
+
+    setUploadError(null);
     void file.arrayBuffer().then((buffer) => {
       try {
         const result = parseWorkOrder(buffer);
         if (result.rows.length === 0) {
-          setParseError("No work order rows were found in that file.");
+          setUploadError({
+            title: "That file has no work orders",
+            description:
+              "The Installation Schedule columns were found, but every row was empty or incomplete. Check the file and try again.",
+          });
           return;
         }
         setParsed({
@@ -119,7 +179,7 @@ function ImportWorkOrdersPage() {
         setSearch("");
         setPage(1);
       } catch (error) {
-        setParseError(error instanceof Error ? error.message : "Failed to read that file.");
+        setUploadError(describeWorkOrderFailure(buffer, error));
       }
     });
   }
@@ -128,18 +188,47 @@ function ImportWorkOrdersPage() {
     if (parsed === null) return;
 
     setIsImporting(true);
+    setProgress(0);
+
+    const importId = await createImport({
+      file_name: parsed.fileName,
+      upload_date: todayIsoDate(),
+    });
+
     try {
-      const result = await createImport({
-        file_name: parsed.fileName,
-        upload_date: todayIsoDate(),
-        rows: parsed.rows,
+      // Written in batches: one Convex mutation is a single transaction, so a
+      // long schedule is spread across several of them.
+      let missing = 0;
+      let done = 0;
+
+      for (const rows of chunk(parsed.rows, UPLOAD_BATCH_SIZE)) {
+        const result = await addWorkOrders({ import_id: importId, rows });
+        missing += result.missing_sites;
+        done += rows.length;
+        setProgress(done);
+      }
+
+      await finalizeImport({
+        import_id: importId,
+        total_rows: parsed.rows.length,
+        missing_sites: missing,
       });
+
       toast.success(
-        `Imported ${result.inserted.toLocaleString()} work orders` +
-          (result.missing_sites > 0 ? `, ${result.missing_sites} without a matching site` : ""),
+        `Imported ${parsed.rows.length.toLocaleString()} work orders` +
+          (missing > 0 ? `, ${missing} without a matching site` : ""),
       );
       void navigate({ to: "/dashboard" });
     } catch (error) {
+      // Roll the half-written import back so it never shows on the dashboard.
+      try {
+        let remaining = 1;
+        while (remaining > 0) {
+          remaining = (await deleteImport({ import_id: importId })).remaining;
+        }
+      } catch {
+        // The rollback is best effort; the original failure is what matters.
+      }
       toast.error(error instanceof Error ? error.message : "Import failed");
     } finally {
       setIsImporting(false);
@@ -154,8 +243,10 @@ function ImportWorkOrdersPage() {
           description="Upload daily Excel file to import work orders into the system."
         />
         <div className="px-4 py-6">
-          <ExcelDropzone onFileSelected={handleFile} error={parseError} />
+          <ExcelDropzone onFileSelected={handleFile} onReject={setUploadError} />
         </div>
+        <SiteDataRequiredDialog open={showSiteDataGate} onOpenChange={setShowSiteDataGate} />
+        <UploadErrorDialog error={uploadError} onClose={() => setUploadError(null)} />
       </>
     );
   }
@@ -178,11 +269,19 @@ function ImportWorkOrdersPage() {
             title="Details by Status"
             rows={pageRows}
             counts={counts}
-            total={filtered.length}
-            page={page}
-            pageSize={PAGE_SIZE}
             status={status}
             search={search}
+            searchOptions={searchOptions}
+            pagination={{
+              shown: pageRows.length,
+              total: filtered.length,
+              page,
+              pageSize: PAGE_SIZE,
+              hasPrevious: page > 1,
+              hasNext: page * PAGE_SIZE < filtered.length,
+              onPrevious: () => setPage(page - 1),
+              onNext: () => setPage(page + 1),
+            }}
             onStatusChange={(next) => {
               setStatus(next);
               setPage(1);
@@ -191,7 +290,6 @@ function ImportWorkOrdersPage() {
               setSearch(next);
               setPage(1);
             }}
-            onPageChange={setPage}
           />
         )}
 
@@ -214,13 +312,15 @@ function ImportWorkOrdersPage() {
             disabled={isImporting}
             onClick={() => {
               setParsed(null);
-              setParseError(null);
+              setUploadError(null);
             }}
           >
             Cancel
           </Button>
           <Button disabled={isImporting || isResolving} onClick={() => void handleConfirm()}>
-            {isImporting ? "Importing…" : "Confirm Import"}
+            {isImporting
+              ? `Importing… ${progress.toLocaleString()} / ${parsed.rows.length.toLocaleString()}`
+              : "Confirm Import"}
           </Button>
         </div>
       </div>

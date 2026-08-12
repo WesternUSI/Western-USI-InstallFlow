@@ -1,18 +1,10 @@
+import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, query } from "./_generated/server";
+import { type WorkOrderStatus, deriveWorkOrderStatus } from "./derive";
 
-/**
- * The status shown in the admin UI. It is derived rather than stored, so
- * `current_status`, `assigned_team` and `missing_value` stay the single source
- * of truth and can never disagree with a cached label.
- */
-export type WorkOrderStatus =
-  | "completed"
-  | "missing_site"
-  | "pending"
-  | "allocated"
-  | "not_allocated";
+export type { WorkOrderStatus } from "./derive";
 
 export const workOrderStatusValidator = v.union(
   v.literal("completed"),
@@ -22,16 +14,9 @@ export const workOrderStatusValidator = v.union(
   v.literal("not_allocated"),
 );
 
-/**
- * Priority order matters: a completed install stays completed even if its site
- * never matched, and an unmatched row is flagged before allocation.
- */
+/** Prefers the stored key, falling back for rows written before it existed. */
 export function deriveStatus(workOrder: Doc<"workorders">): WorkOrderStatus {
-  if (workOrder.current_status === "completed") return "completed";
-  if (workOrder.missing_value) return "missing_site";
-  if (workOrder.current_status === "in_progress") return "pending";
-  if (workOrder.assigned_team.length > 0) return "allocated";
-  return "not_allocated";
+  return (workOrder.status_key as WorkOrderStatus | undefined) ?? deriveWorkOrderStatus(workOrder);
 }
 
 function toRow(workOrder: Doc<"workorders">) {
@@ -57,6 +42,9 @@ function toRow(workOrder: Doc<"workorders">) {
 function emptyCounts() {
   return { all: 0, completed: 0, allocated: 0, not_allocated: 0, missing_site: 0, pending: 0 };
 }
+
+/** Ceiling on rows counted for a search term, so one query stays bounded. */
+const COUNT_LIMIT = 2000;
 
 async function requireIdentity(ctx: QueryCtx) {
   const identity = await ctx.auth.getUserIdentity();
@@ -92,50 +80,136 @@ function matchesSearch(workOrder: Doc<"workorders">, search: string): boolean {
 }
 
 /**
- * One page of work orders plus the per-status counts that drive the tab bar.
- * Counts reflect the search term but ignore the selected status, so each tab
- * keeps showing how many rows the other tabs hold.
+ * One page of work orders using Convex cursor pagination.
+ *
+ * Both the search term and the status tab are resolved inside an index, so a
+ * page always comes back full of real matches. Filtering after reading a page
+ * cannot work here: a selective term would leave page after page empty while
+ * the matches sat further down the table.
  */
 export const list = query({
   args: {
+    paginationOpts: paginationOptsValidator,
     import_id: v.optional(v.id("imports")),
     status: v.optional(workOrderStatusValidator),
     search: v.optional(v.string()),
-    page: v.optional(v.number()),
-    page_size: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx);
 
-    const page = Math.max(1, args.page ?? 1);
-    const pageSize = Math.min(200, Math.max(1, args.page_size ?? 25));
+    const term = args.search?.trim() ?? "";
+    const importId = args.import_id;
+    const status = args.status;
 
-    const all = await fetchAll(ctx, args.import_id);
-    const searched = all.filter((workOrder) => matchesSearch(workOrder, args.search ?? ""));
+    if (term !== "") {
+      const result = await ctx.db
+        .query("workorders")
+        .withSearchIndex("by_search", (q) => {
+          let search = q.search("search_text", term);
+          if (status !== undefined) search = search.eq("status_key", status);
+          if (importId !== undefined) search = search.eq("import_id", importId);
+          return search;
+        })
+        .paginate(args.paginationOpts);
+
+      return { ...result, page: result.page.map(toRow) };
+    }
+
+    const stream = (() => {
+      if (importId !== undefined && status !== undefined) {
+        return ctx.db
+          .query("workorders")
+          .withIndex("by_import_status", (q) =>
+            q.eq("import_id", importId).eq("status_key", status),
+          );
+      }
+      if (importId !== undefined) {
+        return ctx.db
+          .query("workorders")
+          .withIndex("by_import_id", (q) => q.eq("import_id", importId));
+      }
+      if (status !== undefined) {
+        return ctx.db.query("workorders").withIndex("by_status_key", (q) =>
+          q.eq("status_key", status),
+        );
+      }
+      return ctx.db.query("workorders");
+    })();
+
+    const result = await stream.order("desc").paginate(args.paginationOpts);
+    return { ...result, page: result.page.map(toRow) };
+  },
+});
+
+/**
+ * Distinct values the search box can suggest.
+ *
+ * Takes no arguments on purpose: Convex caches a query per argument set, so one
+ * shared result is computed when the table changes and reused by everyone. The
+ * browser then filters it as the user types, which costs the backend nothing
+ * per keystroke.
+ */
+export const searchOptions = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireIdentity(ctx);
+
+    const all = await ctx.db.query("workorders").collect();
+    const seen = new Map<string, { value: string; kind: string }>();
+
+    const add = (value: string | undefined, kind: string) => {
+      const trimmed = value?.trim();
+      if (!trimmed) return;
+      const key = `${kind}:${trimmed.toLowerCase()}`;
+      if (!seen.has(key)) seen.set(key, { value: trimmed, kind });
+    };
+
+    for (const workOrder of all) {
+      add(workOrder.site, "Location");
+      add(workOrder.panel_split, "Panel ID");
+      add(workOrder.advertiser_campaign, "Advertiser");
+      add(workOrder.existing_advertiser, "Existing Advertiser");
+    }
+
+    return [...seen.values()];
+  },
+});
+
+/**
+ * Per-status totals for the tab bar and the row counter. Kept apart from `list`
+ * because a cursor page cannot know totals, and this walks every matching row.
+ */
+export const counts = query({
+  args: {
+    import_id: v.optional(v.id("imports")),
+    search: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx);
+
+    const term = args.search?.trim() ?? "";
+    const importId = args.import_id;
+
+    // Counted through the same search index the table pages through, so the tab
+    // numbers can never disagree with the rows shown.
+    const rows =
+      term === ""
+        ? await fetchAll(ctx, importId)
+        : await ctx.db
+            .query("workorders")
+            .withSearchIndex("by_search", (q) => {
+              const search = q.search("search_text", term);
+              return importId === undefined ? search : search.eq("import_id", importId);
+            })
+            .take(COUNT_LIMIT);
 
     const counts = emptyCounts();
-    for (const workOrder of searched) {
+    for (const workOrder of rows) {
       counts.all++;
       counts[deriveStatus(workOrder)]++;
     }
 
-    const filtered =
-      args.status === undefined
-        ? searched
-        : searched.filter((workOrder) => deriveStatus(workOrder) === args.status);
-
-    filtered.sort(
-      (a, b) => a.site.localeCompare(b.site) || a.panel_split.localeCompare(b.panel_split),
-    );
-
-    const start = (page - 1) * pageSize;
-    return {
-      rows: filtered.slice(start, start + pageSize).map(toRow),
-      total: filtered.length,
-      page,
-      page_size: pageSize,
-      counts,
-    };
+    return counts;
   },
 });
 

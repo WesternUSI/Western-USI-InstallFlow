@@ -56,7 +56,7 @@ export function EditSiteDialog({ siteId, onClose }: EditSiteDialogProps) {
 
   const updateSite = useMutation(api.sites.update);
   const generateUploadUrl = useMutation(api.sites.generateUploadUrl);
-  const setSiteImage = useMutation(api.sites.setSiteImage);
+  const addSiteImage = useMutation(api.sites.addSiteImage);
   const removeSiteImage = useMutation(api.sites.removeSiteImage);
 
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
@@ -76,25 +76,28 @@ export function EditSiteDialog({ siteId, onClose }: EditSiteDialogProps) {
     });
   }, [site]);
 
-  async function handleImage(file: File) {
+  async function handleImages(files: File[]) {
     if (siteId === null) return;
 
     setIsUploading(true);
     try {
-      const uploadUrl = await generateUploadUrl();
-      const response = await fetch(uploadUrl, {
-        method: "POST",
-        headers: { "Content-Type": file.type },
-        body: file,
-      });
-      if (!response.ok) {
-        throw new Error("Upload failed");
+      // Each file gets its own upload URL, then is attached to the site.
+      for (const file of files) {
+        const uploadUrl = await generateUploadUrl();
+        const response = await fetch(uploadUrl, {
+          method: "POST",
+          headers: { "Content-Type": file.type },
+          body: file,
+        });
+        if (!response.ok) {
+          throw new Error(`Could not upload ${file.name}`);
+        }
+        const { storageId } = (await response.json()) as { storageId: Id<"_storage"> };
+        await addSiteImage({ id: siteId, storage_id: storageId });
       }
-      const { storageId } = (await response.json()) as { storageId: Id<"_storage"> };
-      await setSiteImage({ id: siteId, storage_id: storageId });
-      toast.success("Site image updated");
+      toast.success(files.length === 1 ? "Image added" : `${files.length} images added`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not upload that image");
+      toast.error(error instanceof Error ? error.message : "Could not upload those images");
     } finally {
       setIsUploading(false);
     }
@@ -131,10 +134,10 @@ export function EditSiteDialog({ siteId, onClose }: EditSiteDialogProps) {
 
   return (
     <Dialog open={siteId !== null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="flex max-h-[90vh] flex-col sm:max-w-2xl">
+      <DialogContent className="flex max-h-[90vh] flex-col rounded-xl border-slate-200 bg-white sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle className="text-lg font-bold text-gray-900">Edit Site Details</DialogTitle>
-          <DialogDescription className="text-xs text-gray-500">
+          <DialogTitle className="text-lg font-bold text-slate-900">Edit Site Details</DialogTitle>
+          <DialogDescription className="text-sm text-slate-500">
             Update site information, image and installation details.
           </DialogDescription>
         </DialogHeader>
@@ -167,11 +170,11 @@ export function EditSiteDialog({ siteId, onClose }: EditSiteDialogProps) {
 
               <TabsContent value="image" className="overflow-y-auto py-5">
                 <SiteImageField
-                  imageUrl={site.imageUrls[0]}
+                  images={site.images}
                   isUploading={isUploading}
-                  onFileSelected={(file) => void handleImage(file)}
-                  onRemove={() => {
-                    if (siteId !== null) void removeSiteImage({ id: siteId });
+                  onFilesSelected={(files) => void handleImages(files)}
+                  onRemove={(storageId) => {
+                    if (siteId !== null) void removeSiteImage({ id: siteId, storage_id: storageId });
                   }}
                 />
               </TabsContent>
@@ -248,10 +251,19 @@ export function EditSiteDialog({ siteId, onClose }: EditSiteDialogProps) {
         )}
 
         <DialogFooter>
-          <Button variant="outline" disabled={isSaving} onClick={onClose}>
+          <Button
+            variant="outline"
+            className="h-[38px] rounded-lg"
+            disabled={isSaving}
+            onClick={onClose}
+          >
             Cancel
           </Button>
-          <Button disabled={isSaving || site == null} onClick={() => void handleSave()}>
+          <Button
+            className="h-[38px] rounded-lg"
+            disabled={isSaving || site == null}
+            onClick={() => void handleSave()}
+          >
             {isSaving ? "Saving…" : "Save Changes"}
           </Button>
         </DialogFooter>

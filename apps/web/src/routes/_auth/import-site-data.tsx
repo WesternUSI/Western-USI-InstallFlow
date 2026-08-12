@@ -6,8 +6,12 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { ExcelDropzone } from "@/components/excel-dropzone";
+import { type UploadError, UploadErrorDialog } from "@/components/upload-error-dialog";
+import { UPLOAD_BATCH_SIZE, chunk } from "@/lib/chunk";
+import { detectWorkbookKind } from "@/lib/excelParsing";
 import { ImportSummaryCard } from "@/components/import-summary-card";
 import { PageHeader } from "@/components/page-header";
+import type { SearchOption } from "@/components/search-input";
 import { type SiteTableRow, SiteTable } from "@/components/site-table";
 import { type ParsedSiteRow, parseSiteDatabase } from "@/lib/parseSiteDatabase";
 
@@ -16,6 +20,25 @@ export const Route = createFileRoute("/_auth/import-site-data")({
 });
 
 const PAGE_SIZE = 25;
+
+/** Turns a parse failure into something that names the actual problem. */
+function describeSiteFailure(buffer: ArrayBuffer, error: unknown): UploadError {
+  if (detectWorkbookKind(buffer) === "work_order") {
+    return {
+      title: "That's the Installation Schedule file",
+      description:
+        "This looks like a daily Installation Schedule, not the Go Site Database. Import it under Import Work Orders, then come back here for the site data.",
+      action: { to: "/import-work-orders", label: "Import Work Orders" },
+    };
+  }
+
+  return {
+    title: "This isn't a Site Database",
+    description: `No LOCATION and PANEL ID columns were found, so this file can't be read as site data. (${
+      error instanceof Error ? error.message : "Unreadable file"
+    })`,
+  };
+}
 
 interface ParsedFile {
   fileName: string;
@@ -27,11 +50,13 @@ interface ParsedFile {
 function ImportSiteDataPage() {
   const navigate = useNavigate();
   const upsertSites = useMutation(api.sites.upsertSites);
+  const recordSiteImport = useMutation(api.sites.recordSiteImport);
   const user = useQuery(api.users.currentUser);
 
   const [parsed, setParsed] = useState<ParsedFile | null>(null);
-  const [parseError, setParseError] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<UploadError | null>(null);
   const [isImporting, setIsImporting] = useState(false);
+  const [progress, setProgress] = useState(0);
 
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -50,6 +75,25 @@ function ImportSiteDataPage() {
     }));
   }, [parsed]);
 
+  // Built from the parsed file rather than the database — these rows have not
+  // been imported yet, and suggesting from them costs nothing.
+  const searchOptions = useMemo(() => {
+    const seen = new Map<string, SearchOption>();
+    const add = (value: string | undefined, kind: string) => {
+      const trimmed = value?.trim();
+      if (!trimmed) return;
+      const key = `${kind}:${trimmed.toLowerCase()}`;
+      if (!seen.has(key)) seen.set(key, { value: trimmed, kind });
+    };
+
+    for (const row of tableRows) {
+      add(row.area, "Location");
+      add(row.site, "Details");
+      add(row.panel_id, "Panel ID");
+    }
+    return [...seen.values()];
+  }, [tableRows]);
+
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
     if (needle === "") return tableRows;
@@ -64,12 +108,16 @@ function ImportSiteDataPage() {
   const pageRows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   function handleFile(file: File) {
-    setParseError(null);
+    setUploadError(null);
     void file.arrayBuffer().then((buffer) => {
       try {
         const result = parseSiteDatabase(buffer);
         if (result.rows.length === 0) {
-          setParseError("No site rows were found in that file.");
+          setUploadError({
+            title: "That file has no sites",
+            description:
+              "The Site Database columns were found, but every row was empty or missing a Panel ID. Check the file and try again.",
+          });
           return;
         }
         setParsed({
@@ -81,7 +129,7 @@ function ImportSiteDataPage() {
         setSearch("");
         setPage(1);
       } catch (error) {
-        setParseError(error instanceof Error ? error.message : "Failed to read that file.");
+        setUploadError(describeSiteFailure(buffer, error));
       }
     });
   }
@@ -90,11 +138,30 @@ function ImportSiteDataPage() {
     if (parsed === null) return;
 
     setIsImporting(true);
+    setProgress(0);
     try {
-      const { inserted, updated } = await upsertSites({
-        rows: parsed.rows,
+      // Applied in batches: one Convex mutation is a single transaction, and a
+      // full Site Database is far too many rows for one of them.
+      const batches = chunk(parsed.rows, UPLOAD_BATCH_SIZE);
+      let inserted = 0;
+      let updated = 0;
+      let done = 0;
+
+      for (const rows of batches) {
+        const result = await upsertSites({ rows });
+        inserted += result.inserted;
+        updated += result.updated;
+        done += rows.length;
+        setProgress(done);
+      }
+
+      await recordSiteImport({
         file_name: parsed.fileName,
+        total_rows: parsed.rows.length,
+        inserted,
+        updated,
       });
+
       toast.success(
         `Site database updated: ${inserted.toLocaleString()} added, ${updated.toLocaleString()} updated`,
       );
@@ -118,9 +185,10 @@ function ImportSiteDataPage() {
             label="Upload File"
             dropText="Drag and drop your file here"
             onFileSelected={handleFile}
-            error={parseError}
+            onReject={setUploadError}
           />
         </div>
+        <UploadErrorDialog error={uploadError} onClose={() => setUploadError(null)} />
       </>
     );
   }
@@ -150,15 +218,22 @@ function ImportSiteDataPage() {
         <SiteTable
           title="Site Details"
           rows={pageRows}
-          total={filtered.length}
-          page={page}
-          pageSize={PAGE_SIZE}
           search={search}
+          searchOptions={searchOptions}
+          pagination={{
+            shown: pageRows.length,
+            total: filtered.length,
+            page,
+            pageSize: PAGE_SIZE,
+            hasPrevious: page > 1,
+            hasNext: page * PAGE_SIZE < filtered.length,
+            onPrevious: () => setPage(page - 1),
+            onNext: () => setPage(page + 1),
+          }}
           onSearchChange={(next) => {
             setSearch(next);
             setPage(1);
           }}
-          onPageChange={setPage}
         />
 
         <ImportSummaryCard
@@ -173,13 +248,15 @@ function ImportSiteDataPage() {
             disabled={isImporting}
             onClick={() => {
               setParsed(null);
-              setParseError(null);
+              setUploadError(null);
             }}
           >
             Cancel
           </Button>
           <Button disabled={isImporting} onClick={() => void handleConfirm()}>
-            {isImporting ? "Importing…" : "Confirm Import"}
+            {isImporting
+              ? `Importing… ${progress.toLocaleString()} / ${parsed.rows.length.toLocaleString()}`
+              : "Confirm Import"}
           </Button>
         </div>
       </div>

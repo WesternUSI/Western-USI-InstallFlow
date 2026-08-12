@@ -43,9 +43,19 @@ export default defineSchema({
     photo_saved: v.boolean(), // derived: site_img is non-empty
     map_saved: v.boolean(), // derived: location is non-empty
     missing_value: v.boolean(), // panel_id is a placeholder such as "???"
+    // Written by every mutation that touches this row so filtering happens in
+    // an index rather than after a page has been read. See convex/derive.ts.
+    search_text: v.optional(v.string()),
+    detail_key: v.optional(v.string()), // "completed" | "incomplete" | "missing"
   })
     .index("by_panel_id", ["panel_id"])
-    .index("by_panel_id_site", ["panel_id", "site"]),
+    .index("by_panel_id_site", ["panel_id", "site"])
+    .index("by_area", ["area"])
+    .index("by_detail_key_area", ["detail_key", "area"])
+    .searchIndex("by_search", {
+      searchField: "search_text",
+      filterFields: ["detail_key", "area"],
+    }),
 
   /**
    * One Site Database upload. Sites themselves are upserted rather than kept as
@@ -107,9 +117,19 @@ export default defineSchema({
     // Snapshot of the matched site's `area_progress` taken at import time, so
     // listing and grouping never need to join back to `sites`.
     train_line: v.optional(v.string()),
+    // Written by every mutation that touches this row so filtering happens in
+    // an index rather than after a page has been read. See convex/derive.ts.
+    search_text: v.optional(v.string()),
+    status_key: v.optional(v.string()), // completed | missing_site | pending | allocated | not_allocated
   })
     .index("by_import_id", ["import_id"])
     .index("by_upload_date", ["upload_date"])
     .index("by_site_id", ["site_id"])
-    .index("by_panel_split", ["panel_split"]),
+    .index("by_panel_split", ["panel_split"])
+    .index("by_status_key", ["status_key"])
+    .index("by_import_status", ["import_id", "status_key"])
+    .searchIndex("by_search", {
+      searchField: "search_text",
+      filterFields: ["status_key", "import_id"],
+    }),
 });

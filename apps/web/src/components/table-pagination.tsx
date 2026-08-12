@@ -1,96 +1,85 @@
 import {
   Pagination,
   PaginationContent,
-  PaginationEllipsis,
   PaginationItem,
-  PaginationLink,
   PaginationNext,
   PaginationPrevious,
 } from "@usi-installer/ui/components/pagination";
 
-interface TablePaginationProps {
+export interface TablePaginationProps {
+  /** Rows on the page currently shown. */
+  shown: number;
+  /** Total matching rows, from the counts query. */
   total: number;
   page: number;
   pageSize: number;
-  onPageChange: (page: number) => void;
+  hasPrevious: boolean;
+  hasNext: boolean;
+  onPrevious: () => void;
+  onNext: () => void;
 }
 
-/** Page numbers with an ellipsis before the last page, as in the design. */
-function pageNumbers(page: number, pageCount: number): (number | "ellipsis")[] {
-  if (pageCount <= 5) {
-    return Array.from({ length: pageCount }, (_, index) => index + 1);
-  }
-
-  const window = [page - 1, page, page + 1].filter((n) => n > 1 && n < pageCount);
-  const items: (number | "ellipsis")[] = [1, ...window];
-
-  if (page + 1 < pageCount - 1) items.push("ellipsis");
-  items.push(pageCount);
-
-  return items;
-}
-
-/** "Showing 1 to 25 of 608 rows" plus the pager, shared by both review tables. */
-export function TablePagination({ total, page, pageSize, onPageChange }: TablePaginationProps) {
+/**
+ * Row counter and pager for a cursor-paginated table.
+ *
+ * Convex cursors move one page at a time, so this offers Previous and Next
+ * rather than the numbered jump-to-page links — there is no cursor for a page
+ * that has not been walked to.
+ */
+export function TablePagination({
+  shown,
+  total,
+  page,
+  pageSize,
+  hasPrevious,
+  hasNext,
+  onPrevious,
+  onNext,
+}: TablePaginationProps) {
+  const firstRow = shown === 0 ? 0 : (page - 1) * pageSize + 1;
+  const lastRow = shown === 0 ? 0 : firstRow + shown - 1;
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
-  const firstRow = total === 0 ? 0 : (page - 1) * pageSize + 1;
-  const lastRow = Math.min(page * pageSize, total);
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-6 py-4">
       <p className="text-sm text-slate-500">
-        Showing {firstRow} to {lastRow} of {total.toLocaleString()} rows
+        Showing {firstRow.toLocaleString()} to {lastRow.toLocaleString()} of{" "}
+        {total.toLocaleString()} rows
       </p>
-      <Pagination className="mx-0 w-auto justify-end">
-        <PaginationContent>
-          <PaginationItem>
-            <PaginationPrevious
-              href="#"
-              text=""
-              aria-disabled={page === 1}
-              className={page === 1 ? "pointer-events-none opacity-40" : undefined}
-              onClick={(event) => {
-                event.preventDefault();
-                onPageChange(page - 1);
-              }}
-            />
-          </PaginationItem>
-          {pageNumbers(page, pageCount).map((item, index) =>
-            item === "ellipsis" ? (
-              // biome-ignore lint/suspicious/noArrayIndexKey: an ellipsis has no stable id
-              <PaginationItem key={`ellipsis-${index}`}>
-                <PaginationEllipsis />
-              </PaginationItem>
-            ) : (
-              <PaginationItem key={item}>
-                <PaginationLink
-                  href="#"
-                  isActive={item === page}
-                  className="text-sm"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    onPageChange(item);
-                  }}
-                >
-                  {item}
-                </PaginationLink>
-              </PaginationItem>
-            ),
-          )}
-          <PaginationItem>
-            <PaginationNext
-              href="#"
-              text=""
-              aria-disabled={page === pageCount}
-              className={page === pageCount ? "pointer-events-none opacity-40" : undefined}
-              onClick={(event) => {
-                event.preventDefault();
-                onPageChange(page + 1);
-              }}
-            />
-          </PaginationItem>
-        </PaginationContent>
-      </Pagination>
+
+      <div className="flex items-center gap-4">
+        <p className="text-sm text-slate-500">
+          Page {page.toLocaleString()} of {pageCount.toLocaleString()}
+        </p>
+        <Pagination className="mx-0 w-auto justify-end">
+          <PaginationContent>
+            <PaginationItem>
+              <PaginationPrevious
+                href="#"
+                text=""
+                aria-disabled={!hasPrevious}
+                className={!hasPrevious ? "pointer-events-none opacity-40" : undefined}
+                onClick={(event) => {
+                  event.preventDefault();
+                  onPrevious();
+                }}
+              />
+            </PaginationItem>
+            <PaginationItem>
+              <PaginationNext
+                href="#"
+                text=""
+                aria-disabled={!hasNext}
+                className={!hasNext ? "pointer-events-none opacity-40" : undefined}
+                onClick={(event) => {
+                  event.preventDefault();
+                  onNext();
+                }}
+              />
+            </PaginationItem>
+          </PaginationContent>
+        </Pagination>
+      </div>
     </div>
   );
 }

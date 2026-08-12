@@ -1,29 +1,35 @@
 import { Button } from "@usi-installer/ui/components/button";
-import { Input } from "@usi-installer/ui/components/input";
-import { ListFilter, Search } from "lucide-react";
+import { ListFilter } from "lucide-react";
+
+import { type SearchOption, SearchInput } from "@/components/search-input";
 
 interface TableToolbarProps {
   title: string;
   search: string;
   placeholder: string;
+  searchOptions: SearchOption[] | undefined;
   onSearchChange: (search: string) => void;
 }
 
 /** Card heading with the search box and Filters button, shared by both review tables. */
-export function TableToolbar({ title, search, placeholder, onSearchChange }: TableToolbarProps) {
+export function TableToolbar({
+  title,
+  search,
+  placeholder,
+  searchOptions,
+  onSearchChange,
+}: TableToolbarProps) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
       <h2 className="text-base font-bold text-gray-900">{title}</h2>
       <div className="flex items-center gap-3">
-        <div className="relative">
-          <Search className="absolute top-1/2 left-3 size-5 -translate-y-1/2 text-slate-400" />
-          <Input
-            value={search}
-            onChange={(event) => onSearchChange(event.target.value)}
-            placeholder={placeholder}
-            className="h-[38px] w-80 rounded-lg pl-10 text-sm"
-          />
-        </div>
+        <SearchInput
+          value={search}
+          placeholder={placeholder}
+          options={searchOptions}
+          onChange={onSearchChange}
+          className="w-80"
+        />
         <Button variant="outline" className="h-[38px] gap-2 rounded-lg">
           <ListFilter className="size-4" />
           Filters

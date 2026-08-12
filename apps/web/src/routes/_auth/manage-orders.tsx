@@ -8,6 +8,8 @@ import { PageHeader } from "@/components/page-header";
 import { WorkOrderStats } from "@/components/work-order-stats";
 import { type WorkOrderTableRow, WorkOrderTable } from "@/components/work-order-table";
 import { WorkOrderTableSkeleton } from "@/components/work-order-table-skeleton";
+import { useCursorPagination } from "@/hooks/use-cursor-pagination";
+import { useDebouncedValue, useStickyValue } from "@/hooks/use-debounced-value";
 import type { WorkOrderStatusTab } from "@/lib/workOrderStatus";
 
 export const Route = createFileRoute("/_auth/manage-orders")({
@@ -27,19 +29,37 @@ const EMPTY_COUNTS = {
 function ManageOrdersPage() {
   const [status, setStatus] = useState<WorkOrderStatusTab>("all");
   const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
 
-  // Filtering and paging happen server-side so the browser never holds the
-  // whole table — imports keep accumulating as history.
-  const result = useQuery(api.workorders.list, {
-    status: status === "all" ? undefined : status,
-    search,
-    page,
-    page_size: PAGE_SIZE,
-  });
+  // The box updates instantly; the queries follow once typing pauses, so a
+  // word typed out is one round trip rather than one per letter.
+  const debouncedSearch = useDebouncedValue(search);
+
+  // Keyed on the debounced term, not the raw one, so the cursor is dropped at
+  // the same moment the query arguments actually change.
+  const { paginationOpts, page, hasPrevious, next, previous } = useCursorPagination(
+    PAGE_SIZE,
+    `${status}|${debouncedSearch}`,
+  );
+
+  // Rows come back one cursor page at a time; totals need their own pass over
+  // the table, so the tab counts and the row counter are a separate query.
+  // `useStickyValue` keeps the current page on screen while the next one loads
+  // instead of dropping back to the skeleton on every change.
+  const result = useStickyValue(
+    useQuery(api.workorders.list, {
+      paginationOpts,
+      status: status === "all" ? undefined : status,
+      search: debouncedSearch,
+    }),
+  );
+  const counts = useStickyValue(useQuery(api.workorders.counts, { search: debouncedSearch }));
+
+  // No arguments, so Convex computes this once per data change and shares it —
+  // filtering as the user types happens in the browser.
+  const searchOptions = useQuery(api.workorders.searchOptions);
 
   const rows: WorkOrderTableRow[] =
-    result?.rows.map((row) => ({
+    result?.page.map((row) => ({
       key: row._id,
       status: row.status,
       site: row.site,
@@ -64,21 +84,22 @@ function ManageOrdersPage() {
           <WorkOrderTable
             title="Order Details"
             rows={rows}
-            counts={result.counts ?? EMPTY_COUNTS}
-            total={result.total}
-            page={page}
-            pageSize={PAGE_SIZE}
+            counts={counts ?? EMPTY_COUNTS}
             status={status}
             search={search}
-            onStatusChange={(next) => {
-              setStatus(next);
-              setPage(1);
+            searchOptions={searchOptions}
+            pagination={{
+              shown: rows.length,
+              total: counts?.[status === "all" ? "all" : status] ?? 0,
+              page,
+              pageSize: PAGE_SIZE,
+              hasPrevious,
+              hasNext: !result.isDone,
+              onPrevious: previous,
+              onNext: () => next(result.continueCursor),
             }}
-            onSearchChange={(next) => {
-              setSearch(next);
-              setPage(1);
-            }}
-            onPageChange={setPage}
+            onStatusChange={setStatus}
+            onSearchChange={setSearch}
           />
         )}
 

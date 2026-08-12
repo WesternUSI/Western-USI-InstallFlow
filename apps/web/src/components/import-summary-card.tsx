@@ -1,5 +1,7 @@
 import { Badge } from "@usi-installer/ui/components/badge";
-import { AlertTriangle, FileSpreadsheet } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
+
+import { ExcelIcon } from "@/components/excel-icon";
 
 interface ImportSummaryCardProps {
   name: string;
@@ -25,9 +27,7 @@ export function ImportSummaryCard({ name, badgeText, lines, stats }: ImportSumma
     <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-4 px-6 py-4">
         <div className="flex min-w-0 items-center gap-3">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded bg-green-50 text-green-600">
-            <FileSpreadsheet className="size-5" />
-          </span>
+          <ExcelIcon className="size-10 shrink-0" />
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <p className="truncate text-base font-bold text-gray-900">{name}</p>

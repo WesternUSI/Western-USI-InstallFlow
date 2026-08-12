@@ -1,13 +1,16 @@
 import { Button } from "@usi-installer/ui/components/button";
 import { cn } from "@usi-installer/ui/lib/utils";
-import { FileSpreadsheet } from "lucide-react";
 import { useRef, useState } from "react";
+
+import { ExcelIcon } from "@/components/excel-icon";
+import type { UploadError } from "@/components/upload-error-dialog";
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 
 interface ExcelDropzoneProps {
   onFileSelected: (file: File) => void;
-  error?: string | null;
+  /** Reported for files rejected before parsing, so the screen can show its dialog. */
+  onReject: (error: UploadError) => void;
   label?: string;
   dropText?: string;
 }
@@ -15,24 +18,28 @@ interface ExcelDropzoneProps {
 /** Drag-and-drop .xlsx picker used by both import screens. */
 export function ExcelDropzone({
   onFileSelected,
-  error,
+  onReject,
   label = "Upload Excel File",
   dropText = "Drag and drop your Excel file here",
 }: ExcelDropzoneProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [localError, setLocalError] = useState<string | null>(null);
 
   function accept(file: File | undefined) {
-    setLocalError(null);
     if (!file) return;
 
     if (!file.name.toLowerCase().endsWith(".xlsx")) {
-      setLocalError("Only .xlsx files are accepted.");
+      onReject({
+        title: "That's not an Excel file",
+        description: `Only .xlsx files can be imported, and "${file.name}" isn't one. If it's an older .xls or a .csv, open it in Excel and save it as .xlsx first.`,
+      });
       return;
     }
     if (file.size > MAX_FILE_BYTES) {
-      setLocalError("That file is larger than 10MB.");
+      onReject({
+        title: "That file is too large",
+        description: `The limit is 10MB and "${file.name}" is ${(file.size / 1024 / 1024).toFixed(1)}MB.`,
+      });
       return;
     }
 
@@ -59,9 +66,7 @@ export function ExcelDropzone({
           isDragging ? "border-blue-400 bg-blue-50/60" : "border-slate-300 bg-white",
         )}
       >
-        <span className="flex size-12 items-center justify-center rounded bg-green-50 text-green-600">
-          <FileSpreadsheet className="size-6" />
-        </span>
+        <ExcelIcon className="size-12" />
         <p className="mt-4 text-sm font-medium text-gray-700">{dropText}</p>
         <p className="my-2 text-sm text-gray-400">or</p>
 
@@ -70,7 +75,12 @@ export function ExcelDropzone({
           type="file"
           accept=".xlsx"
           className="hidden"
-          onChange={(event) => accept(event.target.files?.[0])}
+          onChange={(event) => {
+            accept(event.target.files?.[0]);
+            // Clearing the value lets the same file be picked again after a
+            // Cancel — otherwise the browser sees no change and never fires.
+            event.target.value = "";
+          }}
         />
         <Button className="h-[38px] rounded-lg" onClick={() => inputRef.current?.click()}>
           Choose File
@@ -80,10 +90,6 @@ export function ExcelDropzone({
           Accepted format: .xlsx only &nbsp;·&nbsp; Max file size: 10MB
         </p>
       </div>
-
-      {(localError ?? error) && (
-        <p className="mt-2 text-sm text-red-600">{localError ?? error}</p>
-      )}
     </div>
   );
 }

@@ -7,7 +7,8 @@ import {
   TableRow,
 } from "@usi-installer/ui/components/table";
 
-import { TablePagination } from "@/components/table-pagination";
+import type { SearchOption } from "@/components/search-input";
+import { TablePagination, type TablePaginationProps } from "@/components/table-pagination";
 import { TableToolbar } from "@/components/table-toolbar";
 
 export interface SiteTableRow {
@@ -23,12 +24,10 @@ export interface SiteTableRow {
 interface SiteTableProps {
   title: string;
   rows: SiteTableRow[];
-  total: number;
-  page: number;
-  pageSize: number;
   search: string;
+  searchOptions: SearchOption[] | undefined;
+  pagination: TablePaginationProps;
   onSearchChange: (search: string) => void;
-  onPageChange: (page: number) => void;
 }
 
 const HEADINGS = ["Location", "Details", "Panel ID", "Qty", "Material Size"];
@@ -36,18 +35,17 @@ const HEADINGS = ["Location", "Details", "Panel ID", "Qty", "Material Size"];
 export function SiteTable({
   title,
   rows,
-  total,
-  page,
-  pageSize,
   search,
+  searchOptions,
+  pagination,
   onSearchChange,
-  onPageChange,
 }: SiteTableProps) {
   return (
     <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
       <TableToolbar
         title={title}
         search={search}
+        searchOptions={searchOptions}
         placeholder="Search by location, panel ID, details"
         onSearchChange={onSearchChange}
       />
@@ -96,7 +94,7 @@ export function SiteTable({
         </TableBody>
       </Table>
 
-      <TablePagination total={total} page={page} pageSize={pageSize} onPageChange={onPageChange} />
+      <TablePagination {...pagination} />
     </section>
   );
 }
