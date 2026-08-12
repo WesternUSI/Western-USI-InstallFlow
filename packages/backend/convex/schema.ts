@@ -38,6 +38,7 @@ export default defineSchema({
     install_notes: v.optional(v.string()), // Install Notes
     equipment_needed: v.array(v.string()), // Equipment, comma-separated
     location: v.optional(v.string()), // GPS co-ordinates
+    additional_notes: v.optional(v.string()), // free text added in the admin panel
     site_img: v.array(v.id("_storage")),
     photo_saved: v.boolean(), // derived: site_img is non-empty
     map_saved: v.boolean(), // derived: location is non-empty
@@ -47,11 +48,41 @@ export default defineSchema({
     .index("by_panel_id_site", ["panel_id", "site"]),
 
   /**
+   * One Site Database upload. Sites themselves are upserted rather than kept as
+   * history, so this only records what each upload did.
+   */
+  site_imports: defineTable({
+    file_name: v.string(),
+    uploaded_at: v.number(),
+    uploaded_by_name: v.string(),
+    total_rows: v.number(),
+    inserted: v.number(),
+    updated: v.number(),
+  }).index("by_uploaded_at", ["uploaded_at"]),
+
+  /**
+   * One daily Installation Schedule upload. Each import keeps its own summary
+   * so the dashboard can show what was brought in, by whom, and how much of it
+   * failed to match a site.
+   */
+  imports: defineTable({
+    name: v.string(), // "Import-Data-12-Aug-2026"
+    file_name: v.string(),
+    upload_date: v.string(), // YYYY-MM-DD
+    imported_at: v.number(), // Date.now()
+    imported_by: v.optional(v.id("users")),
+    imported_by_name: v.string(),
+    total_rows: v.number(),
+    missing_sites: v.number(),
+  }).index("by_imported_at", ["imported_at"]),
+
+  /**
    * One panel's installation for one campaign, sourced from the Installation
    * Schedule sheet. Every daily upload inserts a fresh set of rows tagged with
    * `upload_date`; previous uploads are retained as history.
    */
   workorders: defineTable({
+    import_id: v.id("imports"),
     contract_id: v.string(), // CONTRACT
     advertiser_campaign: v.string(), // ADVERTISER / CAMPAIGN
     contracted_panel_id: v.string(), // CONTRACTED PANEL ID
@@ -73,7 +104,11 @@ export default defineSchema({
     assigned_team: v.array(v.string()),
     site_id: v.optional(v.id("sites")), // panel_split matched to sites.panel_id
     missing_value: v.boolean(), // no site matched panel_split
+    // Snapshot of the matched site's `area_progress` taken at import time, so
+    // listing and grouping never need to join back to `sites`.
+    train_line: v.optional(v.string()),
   })
+    .index("by_import_id", ["import_id"])
     .index("by_upload_date", ["upload_date"])
     .index("by_site_id", ["site_id"])
     .index("by_panel_split", ["panel_split"]),

@@ -10,6 +10,8 @@
 
 import type * as healthCheck from "../healthCheck.js";
 import type * as http from "../http.js";
+import type * as imports from "../imports.js";
+import type * as panelIds from "../panelIds.js";
 import type * as privateData from "../privateData.js";
 import type * as sites from "../sites.js";
 import type * as users from "../users.js";
@@ -24,6 +26,8 @@ import type {
 declare const fullApi: ApiFromModules<{
   healthCheck: typeof healthCheck;
   http: typeof http;
+  imports: typeof imports;
+  panelIds: typeof panelIds;
   privateData: typeof privateData;
   sites: typeof sites;
   users: typeof users;
