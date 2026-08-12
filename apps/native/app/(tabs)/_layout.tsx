@@ -81,6 +81,12 @@ function TabsNavigator() {
           href: null,
         }}
       />
+      <Tabs.Screen
+        name="work-orders"
+        options={{
+          href: null,
+        }}
+      />
     </Tabs>
   );
 }

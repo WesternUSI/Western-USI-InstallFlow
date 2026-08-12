@@ -9,7 +9,6 @@ const teamName = v.union(
   v.literal("Team 5"),
 );
 
-export const userRole = v.union(v.literal("admin"), v.literal("worker"));
 
 export const workOrderStatus = v.union(
   v.literal("pending"),

@@ -60,8 +60,7 @@ export const listSites = query({
     if (identity === null) {
       throw new Error("Not authenticated");
     }
-
-    const sites = await ctx.db.query("sites").collect();
+    const sites = await ctx.db.query("sites").order("desc").collect();
     return sites.map(publicFields);
   },
 });
