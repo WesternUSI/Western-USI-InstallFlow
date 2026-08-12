@@ -14,6 +14,9 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { openMapsDirections, openMapsSearch } from "@/lib/openMapsLocation";
+import { parseDmsCoordinates } from "@/lib/parseDmsCoordinates";
+
 type DetailTab = "image" | "details";
 
 function DetailPill({ children }: { children: React.ReactNode }) {
@@ -24,13 +27,32 @@ function DetailPill({ children }: { children: React.ReactNode }) {
   );
 }
 
-function MapActions() {
+function MapActions({ location }: { location?: string }) {
+  const coords = React.useMemo(
+    () => (location ? parseDmsCoordinates(location) : null),
+    [location],
+  );
+
+  const openInMaps = () => {
+    if (!coords) return;
+    openMapsSearch(coords);
+  };
+
+  const openNavigation = () => {
+    if (!coords) return;
+    openMapsDirections(coords);
+  };
+
   return (
     <View className="mt-3 flex-row gap-3">
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Google Maps"
-        className="h-[48px] flex-1 flex-row items-center justify-center rounded-xl border border-[#e2e8f0] bg-white"
+        disabled={!coords}
+        onPress={openInMaps}
+        className={`h-[48px] flex-1 flex-row items-center justify-center rounded-xl border border-[#e2e8f0] bg-white ${
+          coords ? "" : "opacity-40"
+        }`}
       >
         <Ionicons name="location" size={18} color="#ea4335" />
         <Text className="ml-2 text-[14px] font-semibold text-[#1a1c1e]">Google Maps</Text>
@@ -38,7 +60,11 @@ function MapActions() {
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Navigate"
-        className="h-[48px] flex-1 flex-row items-center justify-center rounded-xl bg-[#2563eb]"
+        disabled={!coords}
+        onPress={openNavigation}
+        className={`h-[48px] flex-1 flex-row items-center justify-center rounded-xl bg-[#2563eb] ${
+          coords ? "" : "opacity-40"
+        }`}
       >
         <Ionicons name="navigate" size={18} color="#ffffff" />
         <Text className="ml-2 text-[14px] font-semibold text-white">Navigate</Text>
@@ -184,55 +210,55 @@ export default function SiteDetailScreen() {
 
             <View className="mt-4 rounded-2xl border border-[#e2e8f0] bg-white p-3">
               <ImageCarousel urls={site.imageUrls} />
-              <MapActions />
+              <MapActions location={site.location} />
             </View>
 
             {tab === "details" && (
               <View className="mt-5">
-                {site.installation_notes ? (
+                {site.install_notes ? (
                   <View className="mb-4">
                     <Text className="mb-2 text-[11px] font-bold tracking-[1px] text-[#94a3b8]">
                       INSTALLATION NOTES
                     </Text>
                     <View className="flex-row flex-wrap">
-                      <DetailPill>{site.installation_notes}</DetailPill>
+                      <DetailPill>{site.install_notes}</DetailPill>
                     </View>
                   </View>
                 ) : null}
 
-                {site.equipment.length > 0 ? (
+                {site.equipment_needed.length > 0 ? (
                   <View className="mb-4">
                     <Text className="mb-2 text-[11px] font-bold tracking-[1px] text-[#94a3b8]">
                       EQUIPMENT REQUIRED
                     </Text>
                     <View className="flex-row flex-wrap">
-                      {site.equipment.map((item) => (
+                      {site.equipment_needed.map((item) => (
                         <DetailPill key={item}>{item}</DetailPill>
                       ))}
                     </View>
                   </View>
                 ) : null}
 
-                {site.panel_qty != null ? (
+                {site.quantity != null ? (
                   <View className="mb-4">
                     <Text className="mb-2 text-[11px] font-bold tracking-[1px] text-[#94a3b8]">
                       PANEL QUANTITY
                     </Text>
                     <View className="flex-row flex-wrap">
                       <DetailPill>
-                        {site.panel_qty} {site.panel_qty === 1 ? "Panel" : "Panels"}
+                        {site.quantity} {site.quantity === 1 ? "Panel" : "Panels"}
                       </DetailPill>
                     </View>
                   </View>
                 ) : null}
 
-                {site.panel_size ? (
+                {site.size ? (
                   <View className="mb-4">
                     <Text className="mb-2 text-[11px] font-bold tracking-[1px] text-[#94a3b8]">
                       SIZE
                     </Text>
                     <View className="flex-row flex-wrap">
-                      <DetailPill>{site.panel_size}</DetailPill>
+                      <DetailPill>{site.size}</DetailPill>
                     </View>
                   </View>
                 ) : null}

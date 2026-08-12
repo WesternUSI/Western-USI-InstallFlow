@@ -9,7 +9,6 @@ const teamName = v.union(
   v.literal("Team 5"),
 );
 
-export const userRole = v.union(v.literal("admin"), v.literal("worker"));
 
 export const workOrderStatus = v.union(
   v.literal("pending"),
@@ -23,8 +22,18 @@ export default defineSchema({
     email: v.string(),
     name: v.optional(v.string()),
     image_url: v.optional(v.string()),
-    team: v.array(teamName),
-    role: userRole,
+    role: v.optional(
+      v.union(v.literal("installer"), v.literal("office_staff"), v.literal("admin")),
+    ),
+    team: v.optional(
+      v.union(
+        v.literal("Team 1"),
+        v.literal("Team 2"),
+        v.literal("Team 3"),
+        v.literal("Team 4"),
+        v.literal("Team 5"),
+      ),
+    ),
   }).index("by_clerk_id", ["clerk_id"]),
 
   /** One physical advertising panel, sourced from the Go Site Database sheet. */

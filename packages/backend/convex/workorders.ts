@@ -197,3 +197,52 @@ export const byArea = query({
       .sort((a, b) => a.train_line.localeCompare(b.train_line));
   },
 });
+
+/**
+ * The active work order set for Browse Work Orders: only the most recent
+ * upload (uploads are permanent history, so older ones are superseded, not
+ * deleted) and only orders not yet completed, newest-first.
+ *
+ * `site` is resolved through `site_id` into the sites table's own `site`
+ * field — the authoritative name — rather than trusting the raw LOCATION
+ * text stored on the work order row. Rows with no matched site (`site_id`
+ * unset) fall back to that raw text.
+ */
+export const listActiveWorkOrders = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+
+    const latest = await ctx.db.query("workorders").withIndex("by_upload_date").order("desc").first();
+    if (!latest) {
+      return [];
+    }
+
+    const rows = await ctx.db
+      .query("workorders")
+      .withIndex("by_upload_date", (q) => q.eq("upload_date", latest.upload_date))
+      .order("desc")
+      .collect();
+
+    const active = rows.filter((row) => row.current_status !== "completed");
+    const sites = await Promise.all(
+      active.map((row) => (row.site_id ? ctx.db.get(row.site_id) : null)),
+    );
+
+    return active.map((row, index) => ({
+      _id: row._id,
+      _creationTime: row._creationTime,
+      contracted_panel_id: row.contracted_panel_id,
+      advertiser_campaign: row.advertiser_campaign,
+      panel_split: row.panel_split,
+      panel_name: row.panel_name,
+      site: sites[index]?.site ?? row.site,
+      area_progress: row.area_progress,
+      priority: row.priority,
+      missing_value: row.missing_value,
+    }));
+  },
+});

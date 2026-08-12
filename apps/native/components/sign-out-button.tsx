@@ -1,9 +1,8 @@
 import { useClerk } from "@clerk/expo";
 import { useRouter } from "expo-router";
-import { Text, TouchableOpacity } from "react-native";
+import { Pressable, Text } from "react-native";
 
-export const SignOutButton = () => {
-  // Use `useClerk()` to access the `signOut()` function
+export function SignOutButton() {
   const { signOut } = useClerk();
   const router = useRouter();
 
@@ -19,8 +18,12 @@ export const SignOutButton = () => {
   };
 
   return (
-    <TouchableOpacity onPress={handleSignOut}>
-      <Text>Sign out</Text>
-    </TouchableOpacity>
+    <Pressable
+      accessibilityRole="button"
+      onPress={handleSignOut}
+      className="h-[46px] items-center justify-center rounded-xl bg-[#2563eb] px-6"
+    >
+      <Text className="text-[15px] font-semibold text-white">Sign Out</Text>
+    </Pressable>
   );
-};
+}

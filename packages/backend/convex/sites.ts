@@ -94,7 +94,7 @@ export const listSites = query({
   handler: async (ctx) => {
     await requireIdentity(ctx);
 
-    const sites = await ctx.db.query("sites").collect();
+    const sites = await ctx.db.query("sites").order("desc").collect();
     return sites.map(publicFields);
   },
 });

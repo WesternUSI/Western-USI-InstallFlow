@@ -4,6 +4,8 @@ import { Authenticated, AuthLoading, Unauthenticated } from "convex/react";
 import { Text, View } from "react-native";
 
 import { AuthLoadingView } from "@/components/auth-loading";
+import { NoAccessCard } from "@/components/no-access-card";
+import { useCurrentUser } from "@/hooks/use-current-user";
 
 function SyncTabButton({ focused }: { focused: boolean }) {
   return (
@@ -79,15 +81,35 @@ function TabsNavigator() {
           href: null,
         }}
       />
+      <Tabs.Screen
+        name="work-orders"
+        options={{
+          href: null,
+        }}
+      />
     </Tabs>
   );
+}
+
+function AuthorizedGate() {
+  const { isLoaded, role } = useCurrentUser();
+
+  if (!isLoaded) {
+    return <AuthLoadingView />;
+  }
+
+  if (role !== "installer") {
+    return <NoAccessCard />;
+  }
+
+  return <TabsNavigator />;
 }
 
 export default function TabsLayout() {
   return (
     <>
       <Authenticated>
-        <TabsNavigator />
+        <AuthorizedGate />
       </Authenticated>
       <Unauthenticated>
         <Redirect href="/(auth)/sign-in" />
