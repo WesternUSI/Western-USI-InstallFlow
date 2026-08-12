@@ -10,12 +10,24 @@
     "slug": "usi-installer",
     "android": {
       "edgeToEdgeEnabled": true,
-      "backgroundColor": "#8AAAFA"
+      "backgroundColor": "#8AAAFA",
+      "package": "com.slidingscale.usiinstaller"
     },
-    "plugins": ["expo-font"],
+    "plugins": [
+      "expo-font",
+      [
+        "@clerk/expo",
+        {
+          "appleSignIn": false
+        }
+      ]
+    ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "ios": {
+      "bundleIdentifier": "com.slidingscale.usiinstaller"
     }
   }
 }
