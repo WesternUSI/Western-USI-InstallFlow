@@ -7,6 +7,9 @@ export default defineSchema({
     email: v.string(),
     name: v.optional(v.string()),
     image_url: v.optional(v.string()),
+    role: v.optional(
+      v.union(v.literal("installer"), v.literal("office_staff"), v.literal("admin")),
+    ),
     team: v.optional(
       v.union(
         v.literal("Team 1"),
