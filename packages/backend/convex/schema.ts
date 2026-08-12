@@ -1,15 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
-const teamName = v.union(
-  v.literal("Team 1"),
-  v.literal("Team 2"),
-  v.literal("Team 3"),
-  v.literal("Team 4"),
-  v.literal("Team 5"),
-);
-
-
 export const workOrderStatus = v.union(
   v.literal("pending"),
   v.literal("in_progress"),

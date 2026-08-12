@@ -49,6 +49,13 @@ const NAV_GROUPS = [
   },
 ] as const;
 
+/** Display names for the roles defined on the users table. */
+const ROLE_LABELS = {
+  admin: "Administrator",
+  office_staff: "Office Staff",
+  installer: "Installer",
+} as const;
+
 function initials(name: string): string {
   return name
     .split(/\s+/)
@@ -107,7 +114,7 @@ export function AdminSidebar() {
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <p className="truncate text-sm font-bold text-white">{user?.name ?? " "}</p>
             <p className="truncate text-xs text-[#DDDDDD] capitalize">
-              {user?.role === "admin" ? "Administrator" : (user?.role ?? " ")}
+              {user?.role === undefined ? "" : ROLE_LABELS[user.role]}
             </p>
           </div>
           <ChevronRight className="size-4 shrink-0 text-[#9CA3AF]" />
