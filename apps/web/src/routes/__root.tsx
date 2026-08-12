@@ -2,7 +2,6 @@ import { HeadContent, Outlet, createRootRouteWithContext } from "@tanstack/react
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 import { Toaster } from "@usi-installer/ui/components/sonner";
 
-import Header from "@/components/header";
 import { ThemeProvider } from "@/components/theme-provider";
 
 import "../index.css";
@@ -40,12 +39,9 @@ function RootComponent() {
         disableTransitionOnChange
         storageKey="vite-ui-theme"
       >
-        <div className="grid grid-rows-[auto_1fr] h-svh">
-          <Header />
-          <div className="row-start-2 min-h-0">
-            <Outlet />
-          </div>
-        </div>
+        {/* The admin panel supplies its own sidebar chrome; only the signed-out
+            routes fall back to the plain header. */}
+        <Outlet />
         <Toaster richColors />
       </ThemeProvider>
       <TanStackRouterDevtools position="bottom-left" />
