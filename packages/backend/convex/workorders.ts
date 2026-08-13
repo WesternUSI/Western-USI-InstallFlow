@@ -129,7 +129,6 @@ export const listActiveWorkOrders = query({
 
     return active.map((row, index) => ({
       _id: row._id,
-      _creationTime: row._creationTime,
       contracted_panel_id: row.contracted_panel_id,
       advertiser_campaign: row.advertiser_campaign,
       panel_split: row.panel_split,

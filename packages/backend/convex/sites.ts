@@ -60,8 +60,14 @@ export const listSites = query({
     if (identity === null) {
       throw new Error("Not authenticated");
     }
-    const sites = await ctx.db.query("sites").order("desc").collect();
-    return sites.map(publicFields);
+
+    const sites = await ctx.db.query("sites").collect();
+    const sorted = sites.slice().sort((a, b) => {
+      const areaCompare = a.area.localeCompare(b.area);
+      return areaCompare !== 0 ? areaCompare : a.panel_id.localeCompare(b.panel_id);
+    });
+
+    return sorted.map(publicFields);
   },
 });
 
