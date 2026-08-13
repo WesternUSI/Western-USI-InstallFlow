@@ -25,7 +25,7 @@ function WorkOrderCardView({ card }: { card: WorkOrderCard }) {
         </View>
         {card.priority && (
           <View className="rounded-full bg-[#fee2e2] px-3.5 py-1.5">
-            <Text className="text-[13px] font-semibold text-[#dc2626]">Priority</Text>
+            <Text className="text-[13px] font-semibold text-[#dc2626]">Priority Pulldown</Text>
           </View>
         )}
       </View>
