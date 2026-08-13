@@ -1,95 +1,274 @@
+import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import type { Doc, Id } from "./_generated/dataModel";
+import { type QueryCtx, mutation, query } from "./_generated/server";
+import { type WorkOrderStatus, deriveWorkOrderStatus } from "./derive";
 
-const workOrderRowValidator = v.object({
-  contract_id: v.string(),
-  advertiser_campaign: v.string(),
-  contracted_panel_id: v.string(),
-  panel_split: v.string(),
-  site: v.string(),
-  panel_name: v.string(),
-  quantity: v.optional(v.number()),
-  format: v.optional(v.string()),
-  size: v.optional(v.string()),
-  proposed_install_date: v.optional(v.string()),
-  end_date: v.optional(v.string()),
-  comments: v.optional(v.string()),
-  existing_advertiser: v.optional(v.string()),
-  area_progress: v.optional(v.string()),
-  schedule: v.optional(v.string()),
-  priority: v.boolean(),
-});
+export type { WorkOrderStatus } from "./derive";
 
-/**
- * Strips a trailing bracketed sub-panel marker: "TJDP-ES (1L)" -> "TJDP-ES".
- * Ids without one, such as "PPCF26-27", are returned unchanged.
- */
-function basePanelId(panelSplit: string): string {
-  return panelSplit.replace(/\s*\([^)]*\)\s*$/, "").trim();
+export const workOrderStatusValidator = v.union(
+  v.literal("completed"),
+  v.literal("missing_site"),
+  v.literal("pending"),
+  v.literal("allocated"),
+  v.literal("not_allocated"),
+);
+
+/** Prefers the stored key, falling back for rows written before it existed. */
+export function deriveStatus(workOrder: Doc<"workorders">): WorkOrderStatus {
+  return (workOrder.status_key as WorkOrderStatus | undefined) ?? deriveWorkOrderStatus(workOrder);
+}
+
+function toRow(workOrder: Doc<"workorders">) {
+  return {
+    _id: workOrder._id,
+    status: deriveStatus(workOrder),
+    site: workOrder.site,
+    panel_split: workOrder.panel_split,
+    contracted_panel_id: workOrder.contracted_panel_id,
+    advertiser_campaign: workOrder.advertiser_campaign,
+    existing_advertiser: workOrder.existing_advertiser,
+    train_line: workOrder.train_line,
+    panel_name: workOrder.panel_name,
+    proposed_install_date: workOrder.proposed_install_date,
+    end_date: workOrder.end_date,
+    schedule: workOrder.schedule,
+    assigned_team: workOrder.assigned_team,
+    priority: workOrder.priority,
+    upload_date: workOrder.upload_date,
+  };
+}
+
+function emptyCounts() {
+  return { all: 0, completed: 0, allocated: 0, not_allocated: 0, missing_site: 0, pending: 0 };
+}
+
+/** Ceiling on rows counted for a search term, so one query stays bounded. */
+const COUNT_LIMIT = 2000;
+
+async function requireIdentity(ctx: QueryCtx) {
+  const identity = await ctx.auth.getUserIdentity();
+  if (identity === null) {
+    throw new Error("Not authenticated");
+  }
+}
+
+function fetchAll(ctx: QueryCtx, importId: Id<"imports"> | undefined) {
+  if (importId === undefined) {
+    return ctx.db.query("workorders").collect();
+  }
+  return ctx.db
+    .query("workorders")
+    .withIndex("by_import_id", (q) => q.eq("import_id", importId))
+    .collect();
+}
+
+/** Matches the free-text search box above the table. */
+function matchesSearch(workOrder: Doc<"workorders">, search: string): boolean {
+  const needle = search.trim().toLowerCase();
+  if (needle === "") return true;
+
+  return [
+    workOrder.site,
+    workOrder.panel_split,
+    workOrder.contracted_panel_id,
+    workOrder.advertiser_campaign,
+    workOrder.existing_advertiser,
+    workOrder.panel_name,
+    workOrder.train_line,
+  ].some((field) => field !== undefined && field.toLowerCase().includes(needle));
 }
 
 /**
- * Records one daily Installation Schedule upload.
+ * One page of work orders using Convex cursor pagination.
  *
- * Every upload is kept as history: rows are always inserted, tagged with a
- * shared `upload_date`, and start at `pending` with no team assigned. Rows from
- * previous uploads are left untouched.
- *
- * `site_id` is resolved in two passes: first on the full `panel_split`, then —
- * for ids like "TJDP-ES (1L)" that name a sub-panel of a single site — on the
- * id with its bracketed suffix removed. Rows that match neither are flagged
- * with `missing_value`.
+ * Both the search term and the status tab are resolved inside an index, so a
+ * page always comes back full of real matches. Filtering after reading a page
+ * cannot work here: a selective term would leave page after page empty while
+ * the matches sat further down the table.
  */
-export const insertWorkOrders = mutation({
+export const list = query({
   args: {
-    rows: v.array(workOrderRowValidator),
-    upload_date: v.string(),
+    paginationOpts: paginationOptsValidator,
+    import_id: v.optional(v.id("imports")),
+    status: v.optional(workOrderStatusValidator),
+    search: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (identity === null) {
-      throw new Error("Not authenticated");
+    await requireIdentity(ctx);
+
+    const term = args.search?.trim() ?? "";
+    const importId = args.import_id;
+    const status = args.status;
+
+    if (term !== "") {
+      const result = await ctx.db
+        .query("workorders")
+        .withSearchIndex("by_search", (q) => {
+          let search = q.search("search_text", term);
+          if (status !== undefined) search = search.eq("status_key", status);
+          if (importId !== undefined) search = search.eq("import_id", importId);
+          return search;
+        })
+        .paginate(args.paginationOpts);
+
+      return { ...result, page: result.page.map(toRow) };
     }
 
-    const findByPanelId = (panelId: string) =>
-      ctx.db
-        .query("sites")
-        .withIndex("by_panel_id", (q) => q.eq("panel_id", panelId))
-        .first();
+    const stream = (() => {
+      if (importId !== undefined && status !== undefined) {
+        return ctx.db
+          .query("workorders")
+          .withIndex("by_import_status", (q) =>
+            q.eq("import_id", importId).eq("status_key", status),
+          );
+      }
+      if (importId !== undefined) {
+        return ctx.db
+          .query("workorders")
+          .withIndex("by_import_id", (q) => q.eq("import_id", importId));
+      }
+      if (status !== undefined) {
+        return ctx.db.query("workorders").withIndex("by_status_key", (q) =>
+          q.eq("status_key", status),
+        );
+      }
+      return ctx.db.query("workorders");
+    })();
 
-    const exactMatches = await Promise.all(
-      args.rows.map((row) => findByPanelId(row.panel_split)),
-    );
+    const result = await stream.order("desc").paginate(args.paginationOpts);
+    return { ...result, page: result.page.map(toRow) };
+  },
+});
 
-    const sites = await Promise.all(
-      args.rows.map(async (row, index) => {
-        const exact = exactMatches[index];
-        if (exact) return exact;
+/**
+ * Distinct values the search box can suggest.
+ *
+ * Takes no arguments on purpose: Convex caches a query per argument set, so one
+ * shared result is computed when the table changes and reused by everyone. The
+ * browser then filters it as the user types, which costs the backend nothing
+ * per keystroke.
+ */
+export const searchOptions = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireIdentity(ctx);
 
-        const base = basePanelId(row.panel_split);
-        return base === row.panel_split ? null : await findByPanelId(base);
-      }),
-    );
+    const all = await ctx.db.query("workorders").collect();
+    const seen = new Map<string, { value: string; kind: string }>();
 
-    let inserted = 0;
-    let unlinked = 0;
+    const add = (value: string | undefined, kind: string) => {
+      const trimmed = value?.trim();
+      if (!trimmed) return;
+      const key = `${kind}:${trimmed.toLowerCase()}`;
+      if (!seen.has(key)) seen.set(key, { value: trimmed, kind });
+    };
 
-    for (let i = 0; i < args.rows.length; i++) {
-      const site = sites[i];
-      if (!site) unlinked++;
-
-      await ctx.db.insert("workorders", {
-        ...args.rows[i],
-        upload_date: args.upload_date,
-        current_status: "pending",
-        assigned_team: [],
-        site_id: site?._id,
-        missing_value: site === null,
-      });
-      inserted++;
+    for (const workOrder of all) {
+      add(workOrder.site, "Location");
+      add(workOrder.panel_split, "Panel ID");
+      add(workOrder.advertiser_campaign, "Advertiser");
+      add(workOrder.existing_advertiser, "Existing Advertiser");
     }
 
-    return { inserted, unlinked };
+    return [...seen.values()];
+  },
+});
+
+/**
+ * Per-status totals for the tab bar and the row counter. Kept apart from `list`
+ * because a cursor page cannot know totals, and this walks every matching row.
+ */
+export const counts = query({
+  args: {
+    import_id: v.optional(v.id("imports")),
+    search: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx);
+
+    const term = args.search?.trim() ?? "";
+    const importId = args.import_id;
+
+    // Counted through the same search index the table pages through, so the tab
+    // numbers can never disagree with the rows shown.
+    const rows =
+      term === ""
+        ? await fetchAll(ctx, importId)
+        : await ctx.db
+            .query("workorders")
+            .withSearchIndex("by_search", (q) => {
+              const search = q.search("search_text", term);
+              return importId === undefined ? search : search.eq("import_id", importId);
+            })
+            .take(COUNT_LIMIT);
+
+    const counts = emptyCounts();
+    for (const workOrder of rows) {
+      counts.all++;
+      counts[deriveStatus(workOrder)]++;
+    }
+
+    return counts;
+  },
+});
+
+/** The four headline numbers on the dashboard. */
+export const dashboardStats = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireIdentity(ctx);
+
+    const all = await ctx.db.query("workorders").collect();
+    const counts = emptyCounts();
+    for (const workOrder of all) {
+      counts.all++;
+      counts[deriveStatus(workOrder)]++;
+    }
+
+    return {
+      imported: counts.not_allocated,
+      allocated: counts.allocated,
+      completed: counts.completed,
+      pending: counts.pending,
+      missing_sites: counts.missing_site,
+      total: counts.all,
+    };
+  },
+});
+
+/** "Work Orders by Area" — one row per train line, with a completion percentage. */
+export const byArea = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireIdentity(ctx);
+
+    const all = await ctx.db.query("workorders").collect();
+    const byLine = new Map<string, { imported: number; allocated: number; completed: number }>();
+
+    for (const workOrder of all) {
+      const line = workOrder.train_line ?? "Unassigned";
+      const entry = byLine.get(line) ?? { imported: 0, allocated: 0, completed: 0 };
+
+      entry.imported++;
+      const status = deriveStatus(workOrder);
+      if (status === "completed") {
+        entry.completed++;
+        entry.allocated++;
+      } else if (status === "allocated") {
+        entry.allocated++;
+      }
+
+      byLine.set(line, entry);
+    }
+
+    return [...byLine.entries()]
+      .map(([train_line, entry]) => ({
+        train_line,
+        ...entry,
+        progress: entry.imported === 0 ? 0 : Math.round((entry.completed / entry.imported) * 100),
+      }))
+      .sort((a, b) => a.train_line.localeCompare(b.train_line));
   },
 });
 
@@ -137,6 +316,69 @@ export const listActiveWorkOrders = query({
       area_progress: row.area_progress,
       priority: row.priority,
       missing_value: row.missing_value,
+      size: row.size,
+      assigned_team: row.assigned_team,
     }));
+  },
+});
+
+const teamValidator = v.union(
+  v.literal("Team 1"),
+  v.literal("Team 2"),
+  v.literal("Team 3"),
+  v.literal("Team 4"),
+  v.literal("Team 5"),
+);
+
+/**
+ * Adds `team` to each work order's `assigned_team` set and recomputes
+ * `status_key` alongside it, since allocation status is derived from
+ * `assigned_team` (see convex/derive.ts) and the status index reads the
+ * stored key rather than computing it live.
+ */
+export const allocateWorkOrders = mutation({
+  args: { ids: v.array(v.id("workorders")), team: teamValidator },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+
+    for (const id of args.ids) {
+      const workOrder = await ctx.db.get(id);
+      if (workOrder === null) continue;
+
+      const assigned_team = workOrder.assigned_team.includes(args.team)
+        ? workOrder.assigned_team
+        : [...workOrder.assigned_team, args.team];
+
+      await ctx.db.patch(id, {
+        assigned_team,
+        status_key: deriveWorkOrderStatus({ ...workOrder, assigned_team }),
+      });
+    }
+  },
+});
+
+/** Removes `team` from each work order's `assigned_team` set. */
+export const unallocateWorkOrders = mutation({
+  args: { ids: v.array(v.id("workorders")), team: teamValidator },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+
+    for (const id of args.ids) {
+      const workOrder = await ctx.db.get(id);
+      if (workOrder === null) continue;
+
+      const assigned_team = workOrder.assigned_team.filter((t) => t !== args.team);
+
+      await ctx.db.patch(id, {
+        assigned_team,
+        status_key: deriveWorkOrderStatus({ ...workOrder, assigned_team }),
+      });
+    }
   },
 });

@@ -75,6 +75,44 @@ export function toCommaSeparatedList(value: unknown): string[] {
     .filter((item) => item !== "");
 }
 
+/** Which of the two known workbooks a file is, used to explain a wrong upload. */
+export type WorkbookKind = "site_database" | "work_order" | "unknown";
+
+/**
+ * Identifies an uploaded workbook from its header row, so an import screen can
+ * say "that's the other file" instead of a generic parse error. Only called
+ * once parsing has already failed, so the cost of re-reading does not matter.
+ */
+export function detectWorkbookKind(buffer: ArrayBuffer): WorkbookKind {
+  let headers: Set<string>;
+  try {
+    const workbook = XLSX.read(buffer, { type: "array" });
+    headers = new Set<string>();
+    for (const name of workbook.SheetNames) {
+      const grid = XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets[name], {
+        header: 1,
+        raw: true,
+        defval: "",
+      });
+      for (const row of grid.slice(0, 20)) {
+        if (!Array.isArray(row)) continue;
+        for (const cell of row) {
+          headers.add(normalizeHeader(cell));
+        }
+      }
+    }
+  } catch {
+    return "unknown";
+  }
+
+  // Checked first because the Installation Schedule also has a LOCATION column.
+  if (headers.has("contracted panel id")) return "work_order";
+  if (headers.has("gps co-ordinates") || (headers.has("details") && headers.has("panel id"))) {
+    return "site_database";
+  }
+  return "unknown";
+}
+
 /** Finds the first sheet whose header row contains `requiredHeader` (normalized), returning both the raw sheet (for cell-level lookups like styles) and its header:1 grid. */
 export function findDataSheet(
   workbook: XLSX.WorkBook,

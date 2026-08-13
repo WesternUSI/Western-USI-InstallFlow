@@ -83,6 +83,7 @@ export default function WorkOrdersScreen() {
             icon="person-add"
             title="Allocate Installs"
             subtitle="Allocate work orders to teams"
+            onPress={() => router.push("/work-orders/allocate" as Href)}
           />
           <NavCard
             accent="#7c3aed"
