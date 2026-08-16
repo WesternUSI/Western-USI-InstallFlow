@@ -1,10 +1,11 @@
 /** Mirrors the derived detail status returned by `api.sites.list`. */
 export type SiteDetailStatus = "completed" | "incomplete" | "missing";
 
+/** Row pills. The tabs use their own, slightly longer wording. */
 export const SITE_DETAIL_STATUS_LABELS: Record<SiteDetailStatus, string> = {
-  completed: "Completed",
+  completed: "Complete",
   incomplete: "Incomplete",
-  missing: "Missing",
+  missing: "Missing Site",
 };
 
 export const SITE_DETAIL_STATUS_CLASSES: Record<SiteDetailStatus, string> = {

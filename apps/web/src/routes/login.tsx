@@ -47,6 +47,11 @@ function LoginForm() {
   const [rememberMe, setRememberMe] = React.useState(false);
   const [isPasswordVisible, setIsPasswordVisible] = React.useState(false);
   const [statusMessage, setStatusMessage] = React.useState<string | null>(null);
+  // Clerk's "Client Trust" check: a password sign-in from a browser Clerk
+  // hasn't seen before comes back `needs_client_trust` rather than `complete`,
+  // and is resolved with an emailed code rather than the password step itself.
+  const [needsDeviceCode, setNeedsDeviceCode] = React.useState(false);
+  const [deviceCode, setDeviceCode] = React.useState("");
 
   // Pre-fill the email from the last "Remember me" sign-in.
   React.useEffect(() => {
@@ -68,6 +73,20 @@ function LoginForm() {
     }
   };
 
+  const finishSignIn = async () => {
+    persistRememberedEmail();
+    await signIn.finalize({
+      navigate: ({ session }) => {
+        if (session?.currentTask) {
+          console.log(session.currentTask);
+          return;
+        }
+
+        navigate({ to: "/dashboard" });
+      },
+    });
+  };
+
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setStatusMessage(null);
@@ -79,23 +98,53 @@ function LoginForm() {
       return;
     }
 
-    if (signIn.status !== "complete") {
-      setStatusMessage("Sign-in could not be completed. Please contact the office.");
+    if (signIn.status === "needs_client_trust") {
+      const hasEmailCode = signIn.supportedSecondFactors?.some(
+        (factor) => factor.strategy === "email_code",
+      );
+      if (!hasEmailCode) {
+        setStatusMessage(
+          "This sign-in needs a verification method that isn't set up on this account. Please contact the office.",
+        );
+        return;
+      }
+
+      await signIn.mfa.sendEmailCode();
+      setNeedsDeviceCode(true);
       return;
     }
 
-    persistRememberedEmail();
+    if (signIn.status !== "complete") {
+      console.log("Clerk sign-in did not complete:", signIn);
+      setStatusMessage(
+        `Sign-in could not be completed (status: ${signIn.status ?? "unknown"}). Please contact the office.`,
+      );
+      return;
+    }
 
-    await signIn.finalize({
-      navigate: ({ session }) => {
-        if (session?.currentTask) {
-          console.log(session.currentTask);
-          return;
-        }
+    await finishSignIn();
+  };
 
-        navigate({ to: "/dashboard" });
-      },
-    });
+  const handleVerifyDevice = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setStatusMessage(null);
+
+    const { error } = await signIn.mfa.verifyEmailCode({ code: deviceCode });
+
+    if (error) {
+      setStatusMessage(error.longMessage ?? "That code didn't match. Please try again.");
+      return;
+    }
+
+    if (signIn.status !== "complete") {
+      console.log("Clerk sign-in did not complete after device verification:", signIn);
+      setStatusMessage(
+        `Sign-in could not be completed (status: ${signIn.status ?? "unknown"}). Please contact the office.`,
+      );
+      return;
+    }
+
+    await finishSignIn();
   };
 
   return (
@@ -113,86 +162,146 @@ function LoginForm() {
 
       <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-4 sm:px-6">
         <div className="w-full max-w-md py-4">
-          <h1 className="text-[26px] leading-[32px] font-extrabold text-[#1a1c1e] sm:text-[34px] sm:leading-[44px]">
-            Sign in to your
-            <br />
-            Account
-          </h1>
-          <p className="mt-2 text-sm font-medium text-[#6c7278] sm:mt-3 sm:text-[15px]">
-            Enter your credentials to log in
-          </p>
+          {needsDeviceCode ? (
+            <>
+              <h1 className="text-[26px] leading-[32px] font-extrabold text-[#1a1c1e] sm:text-[34px] sm:leading-[44px]">
+                Verify this
+                <br />
+                Device
+              </h1>
+              <p className="mt-2 text-sm font-medium text-[#6c7278] sm:mt-3 sm:text-[15px]">
+                We sent a code to {emailAddress} — this device hasn't signed in before.
+              </p>
 
-          {statusMessage && (
-            <p className="mt-4 text-sm font-medium text-[#d32f2f]">{statusMessage}</p>
-          )}
-
-          <form className="mt-5 flex flex-col gap-3 sm:mt-7" onSubmit={handleSubmit}>
-          <div className="flex items-center rounded-[14px] border border-white bg-white px-4 shadow-sm">
-            <Input
-              className="h-[52px] border-none bg-transparent p-0 text-[15px] font-medium text-[#1a1c1e] shadow-none placeholder:text-[#acb5bb] focus-visible:ring-0"
-              autoCapitalize="none"
-              autoComplete="email"
-              type="email"
-              placeholder="Email"
-              value={emailAddress}
-              onChange={(event) => setEmailAddress(event.target.value)}
-            />
-          </div>
-          {errors.fields.identifier && (
-            <p className="text-xs font-medium text-[#d32f2f]">
-              {errors.fields.identifier.message}
-            </p>
-          )}
-
-          <div className="flex items-center rounded-[14px] border border-white bg-white px-4 shadow-sm">
-            <Input
-              className="h-[52px] flex-1 border-none bg-transparent p-0 text-[15px] font-medium text-[#1a1c1e] shadow-none placeholder:text-[#acb5bb] focus-visible:ring-0"
-              autoCapitalize="none"
-              autoComplete="current-password"
-              type={isPasswordVisible ? "text" : "password"}
-              placeholder="Password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-            />
-            <button
-              type="button"
-              aria-label={isPasswordVisible ? "Hide password" : "Show password"}
-              onClick={() => setIsPasswordVisible((visible) => !visible)}
-            >
-              {isPasswordVisible ? (
-                <EyeOff size={20} color="#6c7278" />
-              ) : (
-                <Eye size={20} color="#6c7278" />
+              {statusMessage && (
+                <p className="mt-4 text-sm font-medium text-[#d32f2f]">{statusMessage}</p>
               )}
-            </button>
-          </div>
-          {errors.fields.password && (
-            <p className="text-xs font-medium text-[#d32f2f]">{errors.fields.password.message}</p>
+
+              <form className="mt-5 flex flex-col gap-3 sm:mt-7" onSubmit={handleVerifyDevice}>
+                <div className="flex items-center rounded-[14px] border border-white bg-white px-4 shadow-sm">
+                  <Input
+                    className="h-[52px] border-none bg-transparent p-0 text-[15px] font-medium tracking-[4px] text-[#1a1c1e] shadow-none placeholder:text-[#acb5bb] placeholder:tracking-normal focus-visible:ring-0"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    placeholder="Verification code"
+                    value={deviceCode}
+                    onChange={(event) => setDeviceCode(event.target.value)}
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => void signIn.mfa.sendEmailCode()}
+                  className="w-fit text-[13px] font-semibold text-[#4d81e7]"
+                >
+                  Resend code
+                </button>
+
+                <Button
+                  type="submit"
+                  className="mt-5 h-[54px] rounded-[14px] bg-[#2f5fe0] text-[17px] font-bold text-white hover:bg-[#2f5fe0]/90"
+                  disabled={!deviceCode || isSubmitting}
+                >
+                  Verify
+                </Button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNeedsDeviceCode(false);
+                    setDeviceCode("");
+                    setStatusMessage(null);
+                  }}
+                  className="mt-1 w-fit text-[13px] font-medium text-[#6c7278]"
+                >
+                  Back to sign in
+                </button>
+              </form>
+            </>
+          ) : (
+            <>
+              <h1 className="text-[26px] leading-[32px] font-extrabold text-[#1a1c1e] sm:text-[34px] sm:leading-[44px]">
+                Sign in to your
+                <br />
+                Account
+              </h1>
+              <p className="mt-2 text-sm font-medium text-[#6c7278] sm:mt-3 sm:text-[15px]">
+                Enter your credentials to log in
+              </p>
+
+              {statusMessage && (
+                <p className="mt-4 text-sm font-medium text-[#d32f2f]">{statusMessage}</p>
+              )}
+
+              <form className="mt-5 flex flex-col gap-3 sm:mt-7" onSubmit={handleSubmit}>
+              <div className="flex items-center rounded-[14px] border border-white bg-white px-4 shadow-sm">
+                <Input
+                  className="h-[52px] border-none bg-transparent p-0 text-[15px] font-medium text-[#1a1c1e] shadow-none placeholder:text-[#acb5bb] focus-visible:ring-0"
+                  autoCapitalize="none"
+                  autoComplete="email"
+                  type="email"
+                  placeholder="Email"
+                  value={emailAddress}
+                  onChange={(event) => setEmailAddress(event.target.value)}
+                />
+              </div>
+              {errors.fields.identifier && (
+                <p className="text-xs font-medium text-[#d32f2f]">
+                  {errors.fields.identifier.message}
+                </p>
+              )}
+
+              <div className="flex items-center rounded-[14px] border border-white bg-white px-4 shadow-sm">
+                <Input
+                  className="h-[52px] flex-1 border-none bg-transparent p-0 text-[15px] font-medium text-[#1a1c1e] shadow-none placeholder:text-[#acb5bb] focus-visible:ring-0"
+                  autoCapitalize="none"
+                  autoComplete="current-password"
+                  type={isPasswordVisible ? "text" : "password"}
+                  placeholder="Password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                />
+                <button
+                  type="button"
+                  aria-label={isPasswordVisible ? "Hide password" : "Show password"}
+                  onClick={() => setIsPasswordVisible((visible) => !visible)}
+                >
+                  {isPasswordVisible ? (
+                    <EyeOff size={20} color="#6c7278" />
+                  ) : (
+                    <Eye size={20} color="#6c7278" />
+                  )}
+                </button>
+              </div>
+              {errors.fields.password && (
+                <p className="text-xs font-medium text-[#d32f2f]">{errors.fields.password.message}</p>
+              )}
+
+              <div className="mt-2 flex items-center justify-between">
+                <Label htmlFor="remember-me" className="cursor-pointer">
+                  <Checkbox
+                    id="remember-me"
+                    checked={rememberMe}
+                    onCheckedChange={(checked) => setRememberMe(checked)}
+                    className="size-5 rounded-[5px] border-[1.5px] border-[#acb5bb] data-checked:border-[#2563eb] data-checked:bg-[#2563eb]"
+                  />
+                  <span className="text-[13px] font-medium text-[#6c7278]">Remember me</span>
+                </Label>
+
+                {/* Reset flow is not built yet — intentionally inert, matches native. */}
+                <span className="text-[13px] font-semibold text-[#4d81e7]">Forgot Password ?</span>
+              </div>
+
+                <Button
+                  type="submit"
+                  className="mt-5 h-[54px] rounded-[14px] bg-[#2f5fe0] text-[17px] font-bold text-white hover:bg-[#2f5fe0]/90"
+                  disabled={!canSubmit}
+                >
+                  Log In
+                </Button>
+              </form>
+            </>
           )}
-
-          <div className="mt-2 flex items-center justify-between">
-            <Label htmlFor="remember-me" className="cursor-pointer">
-              <Checkbox
-                id="remember-me"
-                checked={rememberMe}
-                onCheckedChange={(checked) => setRememberMe(checked)}
-                className="size-5 rounded-[5px] border-[1.5px] border-[#acb5bb] data-checked:border-[#2563eb] data-checked:bg-[#2563eb]"
-              />
-              <span className="text-[13px] font-medium text-[#6c7278]">Remember me</span>
-            </Label>
-
-            {/* Reset flow is not built yet — intentionally inert, matches native. */}
-            <span className="text-[13px] font-semibold text-[#4d81e7]">Forgot Password ?</span>
-          </div>
-
-            <Button
-              type="submit"
-              className="mt-5 h-[54px] rounded-[14px] bg-[#2f5fe0] text-[17px] font-bold text-white hover:bg-[#2f5fe0]/90"
-              disabled={!canSubmit}
-            >
-              Log In
-            </Button>
-          </form>
         </div>
       </div>
     </div>

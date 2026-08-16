@@ -25,6 +25,20 @@ export default defineSchema({
         v.literal("Team 5"),
       ),
     ),
+    // Set by the admin when the account is invited or created, so the Teams
+    // and Users screens can show it back to whoever has to hand it over.
+    // Clerk only keeps a hash, so it cannot be read back from there.
+    password: v.optional(v.string()),
+    // Free-text contact email, separate from the Clerk login email. Never sent
+    // to Clerk.
+    personal_email: v.optional(v.string()),
+    // Set (and refreshed) whenever an admin reveals this account's credentials
+    // via Invite / Resend Invite / Send Updated Credentials. Stands in for a
+    // real invite-acceptance signal until an email provider is wired up.
+    invited_at: v.optional(v.number()),
+    // Set by the `session.created` Clerk webhook the first time this account
+    // actually signs in, distinguishing "Invitation Sent" from "Active".
+    last_sign_in_at: v.optional(v.number()),
     // Teams merged in via the Allocate Installs "Save" action, on top of the
     // admin-assigned primary `team`. Never set directly by an admin.
     additional_teams: v.optional(
@@ -123,9 +137,8 @@ export default defineSchema({
     // Snapshot of the matched site's `area_progress` taken at import time, so
     // listing and grouping never need to join back to `sites`.
     train_line: v.optional(v.string()),
-    // Written by every mutation that touches this row so filtering happens in
-    // an index rather than after a page has been read. See convex/derive.ts.
-    search_text: v.optional(v.string()),
+    // Written by every mutation that touches this row so the status tabs filter
+    // through an index rather than after a page has been read.
     status_key: v.optional(v.string()), // completed | missing_site | pending | allocated | not_allocated
   })
     .index("by_import_id", ["import_id"])
@@ -134,8 +147,7 @@ export default defineSchema({
     .index("by_panel_split", ["panel_split"])
     .index("by_status_key", ["status_key"])
     .index("by_import_status", ["import_id", "status_key"])
-    .searchIndex("by_search", {
-      searchField: "search_text",
-      filterFields: ["status_key", "import_id"],
-    }),
+    // Lets the Duration filter run as an index range, on its own or combined
+    // with a status tab.
+    .index("by_status_upload", ["status_key", "upload_date"]),
 });

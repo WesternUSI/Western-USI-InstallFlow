@@ -63,30 +63,18 @@ export function deriveSiteDetailStatus(site: SiteDetailInput): SiteDetailStatus 
   return "incomplete";
 }
 
-function joinSearchable(parts: (string | undefined)[]): string {
-  return parts
-    .map((part) => part?.trim())
-    .filter((part): part is string => part !== undefined && part !== "")
-    .join(" ");
-}
+/**
+ * Free-text search is matched in memory across several columns rather than
+ * through a Convex search index: a search index carries exactly one search
+ * field, so covering location, panel id and advertiser at once would mean
+ * denormalising them into a combined column. Scanning is bounded by the
+ * transaction limits (32,000 documents / 16 MiB) and gives plain substring
+ * matching, which a tokenised index cannot.
+ */
+export function matchesTerm(fields: (string | undefined)[], search: string): boolean {
+  const needle = search.trim().toLowerCase();
+  if (needle === "") return true;
 
-export function workOrderSearchText(workOrder: {
-  site: string;
-  panel_split: string;
-  contracted_panel_id: string;
-  advertiser_campaign: string;
-  existing_advertiser?: string;
-  panel_name: string;
-  train_line?: string;
-}): string {
-  return joinSearchable([
-    workOrder.site,
-    workOrder.panel_split,
-    workOrder.contracted_panel_id,
-    workOrder.advertiser_campaign,
-    workOrder.existing_advertiser,
-    workOrder.panel_name,
-    workOrder.train_line,
-  ]);
+  return fields.some((field) => field !== undefined && field.toLowerCase().includes(needle));
 }
 

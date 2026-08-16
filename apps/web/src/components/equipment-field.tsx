@@ -24,31 +24,31 @@ export function EquipmentField({ items, onChange }: EquipmentFieldProps) {
 
   return (
     <div>
-      <p className="text-sm font-semibold text-gray-900">Equipment Required</p>
-      <p className="mt-0.5 text-xs text-gray-500">List all equipment required for installation.</p>
+      <p className="text-base font-bold text-slate-900">Equipment Required</p>
+      <p className="mt-0.5 text-sm text-slate-500">List all equipment required for installation.</p>
 
       {items.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="mt-4 flex flex-wrap gap-2">
           {items.map((item) => (
             <span
               key={item}
-              className="inline-flex items-center gap-1.5 rounded-md bg-blue-50 py-1 pr-1.5 pl-2.5 text-xs font-medium text-blue-700 ring-1 ring-blue-200 ring-inset"
+              className="group inline-flex items-center gap-1.5 rounded-md bg-blue-50 py-1.5 pr-2 pl-3 text-sm font-medium text-blue-700"
             >
               {item}
               <button
                 type="button"
                 aria-label={`Remove ${item}`}
                 onClick={() => onChange(items.filter((existing) => existing !== item))}
-                className="rounded-sm p-0.5 text-blue-500 hover:bg-blue-100 hover:text-blue-800"
+                className="rounded-sm p-0.5 text-blue-400 transition-colors hover:bg-blue-100 hover:text-blue-800"
               >
-                <X className="size-3" />
+                <X className="size-3.5" />
               </button>
             </span>
           ))}
         </div>
       )}
 
-      <div className="mt-3 flex gap-2">
+      <div className="mt-4 flex gap-2">
         <Input
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
@@ -59,10 +59,10 @@ export function EquipmentField({ items, onChange }: EquipmentFieldProps) {
             }
           }}
           placeholder="Add equipment item"
-          className="h-9 flex-1 text-sm"
+          className="h-[38px] flex-1 rounded-lg text-sm"
         />
-        <Button variant="outline" size="sm" className="gap-1.5" onClick={add}>
-          <Plus className="size-3.5" />
+        <Button variant="outline" className="h-[38px] gap-1.5 rounded-lg" onClick={add}>
+          <Plus className="size-4" />
           Add Item
         </Button>
       </div>

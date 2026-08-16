@@ -16,9 +16,13 @@ interface ClerkUserData {
   image_url?: string | null;
 }
 
+interface ClerkSessionData {
+  user_id: string;
+}
+
 interface ClerkWebhookPayload {
   type: string;
-  data: ClerkUserData;
+  data: ClerkUserData | ClerkSessionData;
 }
 
 function extractEmail(data: ClerkUserData): string {
@@ -43,17 +47,26 @@ http.route({
     switch (payload.type) {
       case "user.created":
       case "user.updated": {
+        const data = payload.data as ClerkUserData;
         await ctx.runMutation(internal.users.upsertUser, {
-          clerk_id: payload.data.id,
-          email: extractEmail(payload.data),
-          name: extractName(payload.data),
-          image_url: payload.data.image_url ?? undefined,
+          clerk_id: data.id,
+          email: extractEmail(data),
+          name: extractName(data),
+          image_url: data.image_url ?? undefined,
         });
         break;
       }
       case "user.deleted": {
+        const data = payload.data as ClerkUserData;
         await ctx.runMutation(internal.users.deleteUser, {
-          clerk_id: payload.data.id,
+          clerk_id: data.id,
+        });
+        break;
+      }
+      case "session.created": {
+        const data = payload.data as ClerkSessionData;
+        await ctx.runMutation(internal.users.markSignedIn, {
+          clerk_id: data.user_id,
         });
         break;
       }

@@ -4,6 +4,12 @@ import { useQuery } from "convex/react";
 import { Info } from "lucide-react";
 import { useState } from "react";
 
+import {
+  ALL_TIME,
+  type Duration,
+  DurationSelect,
+  durationRange,
+} from "@/components/duration-select";
 import { PageHeader } from "@/components/page-header";
 import { WorkOrderStats } from "@/components/work-order-stats";
 import { type WorkOrderTableRow, WorkOrderTable } from "@/components/work-order-table";
@@ -29,16 +35,18 @@ const EMPTY_COUNTS = {
 function ManageOrdersPage() {
   const [status, setStatus] = useState<WorkOrderStatusTab>("all");
   const [search, setSearch] = useState("");
+  const [duration, setDuration] = useState<Duration>(ALL_TIME);
 
   // The box updates instantly; the queries follow once typing pauses, so a
   // word typed out is one round trip rather than one per letter.
   const debouncedSearch = useDebouncedValue(search);
+  const { since, until } = durationRange(duration);
 
   // Keyed on the debounced term, not the raw one, so the cursor is dropped at
   // the same moment the query arguments actually change.
   const { paginationOpts, page, hasPrevious, next, previous } = useCursorPagination(
     PAGE_SIZE,
-    `${status}|${debouncedSearch}`,
+    `${status}|${debouncedSearch}|${since ?? ""}|${until ?? ""}`,
   );
 
   // Rows come back one cursor page at a time; totals need their own pass over
@@ -50,9 +58,13 @@ function ManageOrdersPage() {
       paginationOpts,
       status: status === "all" ? undefined : status,
       search: debouncedSearch,
+      since,
+      until,
     }),
   );
-  const counts = useStickyValue(useQuery(api.workorders.counts, { search: debouncedSearch }));
+  const counts = useStickyValue(
+    useQuery(api.workorders.counts, { search: debouncedSearch, since, until }),
+  );
 
   // No arguments, so Convex computes this once per data change and shares it —
   // filtering as the user types happens in the browser.
@@ -88,6 +100,7 @@ function ManageOrdersPage() {
             status={status}
             search={search}
             searchOptions={searchOptions}
+            action={<DurationSelect value={duration} onChange={setDuration} />}
             pagination={{
               shown: rows.length,
               total: counts?.[status === "all" ? "all" : status] ?? 0,

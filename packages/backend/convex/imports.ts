@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, mutation, query } from "./_generated/server";
-import { deriveWorkOrderStatus, workOrderSearchText } from "./derive";
+import { deriveWorkOrderStatus } from "./derive";
 import { findSiteForPanelSplit } from "./panelIds";
 
 const workOrderRowValidator = v.object({
@@ -118,8 +118,8 @@ export const addWorkOrders = mutation({
 
       await ctx.db.insert("workorders", {
         ...row,
-        // Filtering happens inside an index, so these are written with the row.
-        search_text: workOrderSearchText(row),
+        // The status tabs filter through an index, so the key is written with
+        // the row rather than computed at read time.
         status_key: deriveWorkOrderStatus(row),
       });
     }

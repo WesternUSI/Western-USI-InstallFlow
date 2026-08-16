@@ -7,6 +7,7 @@ import {
   TableRow,
 } from "@usi-installer/ui/components/table";
 import { Tabs, TabsList, TabsTrigger } from "@usi-installer/ui/components/tabs";
+import type { ReactNode } from "react";
 
 import type { SearchOption } from "@/components/search-input";
 import { TablePagination, type TablePaginationProps } from "@/components/table-pagination";
@@ -45,19 +46,22 @@ interface WorkOrderTableProps {
   status: WorkOrderStatusTab;
   search: string;
   searchOptions: SearchOption[] | undefined;
+  /** Control beside the search box — the Duration filter on Manage Orders. */
+  action?: ReactNode;
   pagination: TablePaginationProps;
   onStatusChange: (status: WorkOrderStatusTab) => void;
   onSearchChange: (search: string) => void;
 }
 
-const HEADINGS = [
-  "Status",
-  "Location",
-  "Panel ID",
-  "Advertiser",
-  "Existing Advertiser",
-  "Train Line",
-];
+/** Widths add up to 100% so the table never overflows its card. */
+const COLUMNS = [
+  { label: "Status", width: "w-[13%]", padding: "px-6" },
+  { label: "Location", width: "w-[22%]", padding: "px-4" },
+  { label: "Panel ID", width: "w-[12%]", padding: "px-4" },
+  { label: "Advertiser", width: "w-[19%]", padding: "px-4" },
+  { label: "Existing Advertiser", width: "w-[19%]", padding: "px-4" },
+  { label: "Train Line", width: "w-[15%]", padding: "px-4" },
+] as const;
 
 function StatusPill({ status }: { status: WorkOrderStatus }) {
   return (
@@ -76,6 +80,7 @@ export function WorkOrderTable({
   status,
   search,
   searchOptions,
+  action,
   pagination,
   onStatusChange,
   onSearchChange,
@@ -86,6 +91,7 @@ export function WorkOrderTable({
         title={title}
         search={search}
         searchOptions={searchOptions}
+        action={action}
         placeholder="Search by location, panel ID, advertiser"
         onSearchChange={onSearchChange}
       />
@@ -97,7 +103,7 @@ export function WorkOrderTable({
       >
         <TabsList
           variant="line"
-          className="h-auto gap-10 border-b border-gray-200 bg-gray-50/50 px-8 pt-4 pb-0"
+          className="h-auto gap-10 border-b border-gray-200 bg-gray-50/50 px-6 pt-4 pb-0"
         >
           {WORK_ORDER_STATUS_TABS.map((tab) => (
             <TabsTrigger
@@ -111,15 +117,17 @@ export function WorkOrderTable({
         </TabsList>
       </Tabs>
 
-      <Table>
+      {/* Fixed layout with explicit widths so the row always fits the card and
+          long values truncate instead of forcing a sideways scroll. */}
+      <Table className="table-fixed">
         <TableHeader>
           <TableRow className="border-slate-200 bg-gray-50 hover:bg-gray-50">
-            {HEADINGS.map((heading) => (
+            {COLUMNS.map((column) => (
               <TableHead
-                key={heading}
-                className="px-6 py-5 text-[11px] font-bold tracking-[0.55px] text-slate-500 uppercase"
+                key={column.label}
+                className={`${column.width} ${column.padding} py-5 text-[11px] font-bold tracking-[0.55px] text-slate-500 uppercase`}
               >
-                {heading}
+                {column.label}
               </TableHead>
             ))}
           </TableRow>
@@ -142,22 +150,22 @@ export function WorkOrderTable({
               <TableCell
                 className={
                   row.status === "missing_site"
-                    ? "px-6 py-4 text-sm font-medium text-red-600"
-                    : "px-6 py-4 text-sm text-slate-700"
+                    ? "truncate px-4 py-4 text-sm font-medium text-red-600"
+                    : "truncate px-4 py-4 text-sm text-slate-700"
                 }
               >
                 {row.site}
               </TableCell>
-              <TableCell className="px-6 py-4 text-sm font-medium text-slate-700">
+              <TableCell className="truncate px-4 py-4 text-sm font-medium text-slate-700">
                 {row.panel_split}
               </TableCell>
-              <TableCell className="px-6 py-4 text-sm text-slate-700">
+              <TableCell className="truncate px-4 py-4 text-sm text-slate-700">
                 {row.advertiser_campaign}
               </TableCell>
-              <TableCell className="px-6 py-4 text-sm text-slate-500">
+              <TableCell className="truncate px-4 py-4 text-sm text-slate-500">
                 {row.existing_advertiser ?? "—"}
               </TableCell>
-              <TableCell className="px-6 py-4 text-sm text-slate-500">
+              <TableCell className="truncate px-4 py-4 text-sm text-slate-500">
                 {formatTrainLine(row.train_line)}
               </TableCell>
             </TableRow>

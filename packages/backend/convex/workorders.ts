@@ -2,7 +2,7 @@ import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, mutation, query } from "./_generated/server";
-import { type WorkOrderStatus, deriveWorkOrderStatus } from "./derive";
+import { type WorkOrderStatus, deriveWorkOrderStatus, matchesTerm } from "./derive";
 
 export type { WorkOrderStatus } from "./derive";
 
@@ -43,9 +43,6 @@ function emptyCounts() {
   return { all: 0, completed: 0, allocated: 0, not_allocated: 0, missing_site: 0, pending: 0 };
 }
 
-/** Ceiling on rows counted for a search term, so one query stays bounded. */
-const COUNT_LIMIT = 2000;
-
 async function requireIdentity(ctx: QueryCtx) {
   const identity = await ctx.auth.getUserIdentity();
   if (identity === null) {
@@ -63,29 +60,42 @@ function fetchAll(ctx: QueryCtx, importId: Id<"imports"> | undefined) {
     .collect();
 }
 
+/** Inclusive `upload_date` window behind the Duration filter. */
+function withinRange(
+  workOrder: Doc<"workorders">,
+  since: string | undefined,
+  until: string | undefined,
+): boolean {
+  if (since !== undefined && workOrder.upload_date < since) return false;
+  if (until !== undefined && workOrder.upload_date > until) return false;
+  return true;
+}
+
 /** Matches the free-text search box above the table. */
 function matchesSearch(workOrder: Doc<"workorders">, search: string): boolean {
-  const needle = search.trim().toLowerCase();
-  if (needle === "") return true;
-
-  return [
-    workOrder.site,
-    workOrder.panel_split,
-    workOrder.contracted_panel_id,
-    workOrder.advertiser_campaign,
-    workOrder.existing_advertiser,
-    workOrder.panel_name,
-    workOrder.train_line,
-  ].some((field) => field !== undefined && field.toLowerCase().includes(needle));
+  return matchesTerm(
+    [
+      workOrder.site,
+      workOrder.panel_split,
+      workOrder.contracted_panel_id,
+      workOrder.advertiser_campaign,
+      workOrder.existing_advertiser,
+      workOrder.panel_name,
+      workOrder.train_line,
+    ],
+    search,
+  );
 }
 
 /**
- * One page of work orders using Convex cursor pagination.
+ * One page of work orders.
  *
- * Both the search term and the status tab are resolved inside an index, so a
- * page always comes back full of real matches. Filtering after reading a page
- * cannot work here: a selective term would leave page after page empty while
- * the matches sat further down the table.
+ * Without a search term the status tab filters through an index and Convex
+ * cursor pagination does the paging. With one, the term is matched in memory
+ * across several columns (a Convex search index covers exactly one field), so
+ * the page is cut from the matched set and the cursor carries an offset instead
+ * — filtering *after* a cursor page is read cannot work, because a selective
+ * term leaves page after page empty while the matches sit further down.
  */
 export const list = query({
   args: {
@@ -93,6 +103,9 @@ export const list = query({
     import_id: v.optional(v.id("imports")),
     status: v.optional(workOrderStatusValidator),
     search: v.optional(v.string()),
+    /** Inclusive `upload_date` bounds as YYYY-MM-DD. Drives the Duration filter. */
+    since: v.optional(v.string()),
+    until: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx);
@@ -100,19 +113,25 @@ export const list = query({
     const term = args.search?.trim() ?? "";
     const importId = args.import_id;
     const status = args.status;
+    const { since, until } = args;
 
     if (term !== "") {
-      const result = await ctx.db
-        .query("workorders")
-        .withSearchIndex("by_search", (q) => {
-          let search = q.search("search_text", term);
-          if (status !== undefined) search = search.eq("status_key", status);
-          if (importId !== undefined) search = search.eq("import_id", importId);
-          return search;
-        })
-        .paginate(args.paginationOpts);
+      const matches = (await fetchAll(ctx, importId)).filter(
+        (workOrder) =>
+          matchesSearch(workOrder, term) &&
+          (status === undefined || deriveStatus(workOrder) === status) &&
+          withinRange(workOrder, since, until),
+      );
 
-      return { ...result, page: result.page.map(toRow) };
+      const offset = Number(args.paginationOpts.cursor ?? "0") || 0;
+      const page = matches.slice(offset, offset + args.paginationOpts.numItems);
+      const nextOffset = offset + page.length;
+
+      return {
+        page: page.map(toRow),
+        isDone: nextOffset >= matches.length,
+        continueCursor: String(nextOffset),
+      };
     }
 
     const stream = (() => {
@@ -128,10 +147,30 @@ export const list = query({
           .query("workorders")
           .withIndex("by_import_id", (q) => q.eq("import_id", importId));
       }
+      // `upload_date` is a YYYY-MM-DD string, so a range on it is a plain
+      // lexicographic comparison and stays inside the index.
       if (status !== undefined) {
-        return ctx.db.query("workorders").withIndex("by_status_key", (q) =>
-          q.eq("status_key", status),
-        );
+        return ctx.db
+          .query("workorders")
+          .withIndex("by_status_upload", (q) => {
+            const scoped = q.eq("status_key", status);
+            if (since !== undefined && until !== undefined) {
+              return scoped.gte("upload_date", since).lte("upload_date", until);
+            }
+            if (since !== undefined) return scoped.gte("upload_date", since);
+            if (until !== undefined) return scoped.lte("upload_date", until);
+            return scoped;
+          });
+      }
+      if (since !== undefined || until !== undefined) {
+        return ctx.db.query("workorders").withIndex("by_upload_date", (q) => {
+          if (since !== undefined && until !== undefined) {
+            return q.gte("upload_date", since).lte("upload_date", until);
+          }
+          return since !== undefined
+            ? q.gte("upload_date", since)
+            : q.lte("upload_date", until as string);
+        });
       }
       return ctx.db.query("workorders");
     })();
@@ -183,28 +222,20 @@ export const counts = query({
   args: {
     import_id: v.optional(v.id("imports")),
     search: v.optional(v.string()),
+    since: v.optional(v.string()),
+    until: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx);
 
+    // Matched exactly the way `list` matches, so the tab numbers can never
+    // disagree with the rows shown.
     const term = args.search?.trim() ?? "";
-    const importId = args.import_id;
-
-    // Counted through the same search index the table pages through, so the tab
-    // numbers can never disagree with the rows shown.
-    const rows =
-      term === ""
-        ? await fetchAll(ctx, importId)
-        : await ctx.db
-            .query("workorders")
-            .withSearchIndex("by_search", (q) => {
-              const search = q.search("search_text", term);
-              return importId === undefined ? search : search.eq("import_id", importId);
-            })
-            .take(COUNT_LIMIT);
-
     const counts = emptyCounts();
-    for (const workOrder of rows) {
+
+    for (const workOrder of await fetchAll(ctx, args.import_id)) {
+      if (!matchesSearch(workOrder, term)) continue;
+      if (!withinRange(workOrder, args.since, args.until)) continue;
       counts.all++;
       counts[deriveStatus(workOrder)]++;
     }

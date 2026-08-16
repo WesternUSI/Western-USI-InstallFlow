@@ -2,7 +2,7 @@ import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, mutation, query } from "./_generated/server";
-import { type SiteDetailStatus, deriveSiteDetailStatus } from "./derive";
+import { type SiteDetailStatus, deriveSiteDetailStatus, matchesTerm } from "./derive";
 import { findSiteForPanelSplit } from "./panelIds";
 
 async function requireIdentity(ctx: QueryCtx | MutationCtx) {
@@ -144,12 +144,24 @@ export const getSite = query({
 });
 
 function matchesSearch(site: Doc<"sites">, search: string): boolean {
-  const needle = search.trim().toLowerCase();
-  if (needle === "") return true;
+  return matchesTerm([site.area, site.site, site.panel_id, site.size, site.area_progress], search);
+}
 
-  return [site.area, site.site, site.panel_id, site.size, site.area_progress].some(
-    (field) => field !== undefined && field.toLowerCase().includes(needle),
-  );
+/**
+ * Inclusive window behind the Duration filter.
+ *
+ * Sites are upserted rather than kept as history, so there is no upload date on
+ * the row — `_creationTime` is when the site first entered the database, which
+ * makes this "sites added in the last N days".
+ */
+function withinCreated(
+  site: Doc<"sites">,
+  sinceMs: number | undefined,
+  untilMs: number | undefined,
+): boolean {
+  if (sinceMs !== undefined && site._creationTime < sinceMs) return false;
+  if (untilMs !== undefined && site._creationTime > untilMs) return false;
+  return true;
 }
 
 /** The four headline numbers above the Manage Site Data table. */
@@ -198,23 +210,42 @@ export const list = query({
     status: v.optional(siteDetailStatusValidator),
     area: v.optional(v.string()),
     search: v.optional(v.string()),
+    /** Inclusive `_creationTime` bounds, in epoch ms. Drives the Duration filter. */
+    since_ms: v.optional(v.number()),
+    until_ms: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx);
 
     const term = args.search?.trim() ?? "";
-    const { area, status } = args;
+    const { area, status, since_ms, until_ms } = args;
+    const isDated = since_ms !== undefined || until_ms !== undefined;
 
-    if (term !== "") {
-      const all = await ctx.db.query("sites").collect();
-      const matches = all.filter(
+    // A search term and the Duration window are both matched in memory, so they
+    // share one path: collect, filter, then cut the page by offset. Filtering
+    // *after* reading a cursor page would leave pages empty while matches sat
+    // further down. The sites table is a fixed asset list of a few hundred rows,
+    // comfortably inside one query's read budget.
+    if (term !== "" || isDated) {
+      const matches = (await ctx.db.query("sites").collect()).filter(
         (site) =>
           matchesSearch(site, term) &&
+          withinCreated(site, since_ms, until_ms) &&
           (status === undefined || deriveDetailStatus(site) === status) &&
           (area === undefined || site.area === area),
       );
 
-      return { page: matches.map(publicFields), isDone: true, continueCursor: "" };
+      // The cursor carries an offset into the matched set rather than a Convex
+      // cursor, so the pager keeps working while search is in memory.
+      const offset = Number(args.paginationOpts.cursor ?? "0") || 0;
+      const page = matches.slice(offset, offset + args.paginationOpts.numItems);
+      const nextOffset = offset + page.length;
+
+      return {
+        page: page.map(publicFields),
+        isDone: nextOffset >= matches.length,
+        continueCursor: String(nextOffset),
+      };
     }
 
     const stream = (() => {
@@ -279,18 +310,23 @@ export const counts = query({
   args: {
     area: v.optional(v.string()),
     search: v.optional(v.string()),
+    since_ms: v.optional(v.number()),
+    until_ms: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     await requireIdentity(ctx);
 
     const term = args.search?.trim() ?? "";
-    const { area } = args;
+    const { area, since_ms, until_ms } = args;
 
     // Same in-memory match as `list`, so the tab numbers can never disagree
     // with the rows shown.
     const all = await ctx.db.query("sites").collect();
     const rows = all.filter(
-      (site) => (area === undefined || site.area === area) && matchesSearch(site, term),
+      (site) =>
+        (area === undefined || site.area === area) &&
+        matchesSearch(site, term) &&
+        withinCreated(site, since_ms, until_ms),
     );
 
     const counts = { all: 0, completed: 0, incomplete: 0, missing: 0 };

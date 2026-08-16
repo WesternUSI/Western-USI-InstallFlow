@@ -1,5 +1,4 @@
-import { Button } from "@usi-installer/ui/components/button";
-import { ListFilter } from "lucide-react";
+import type { ReactNode } from "react";
 
 import { type SearchOption, SearchInput } from "@/components/search-input";
 
@@ -8,15 +7,18 @@ interface TableToolbarProps {
   search: string;
   placeholder: string;
   searchOptions: SearchOption[] | undefined;
+  /** Control shown beside the search box. Omitted on the import previews. */
+  action?: ReactNode;
   onSearchChange: (search: string) => void;
 }
 
-/** Card heading with the search box and Filters button, shared by both review tables. */
+/** Card heading with the search box, shared by both table cards. */
 export function TableToolbar({
   title,
   search,
   placeholder,
   searchOptions,
+  action,
   onSearchChange,
 }: TableToolbarProps) {
   return (
@@ -30,10 +32,7 @@ export function TableToolbar({
           onChange={onSearchChange}
           className="w-80"
         />
-        <Button variant="outline" className="h-[38px] gap-2 rounded-lg">
-          <ListFilter className="size-4" />
-          Filters
-        </Button>
+        {action}
       </div>
     </div>
   );

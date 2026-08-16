@@ -16,6 +16,7 @@ import type * as migrations from "../migrations.js";
 import type * as panelIds from "../panelIds.js";
 import type * as privateData from "../privateData.js";
 import type * as sites from "../sites.js";
+import type * as teams from "../teams.js";
 import type * as users from "../users.js";
 import type * as workorders from "../workorders.js";
 
@@ -34,6 +35,7 @@ declare const fullApi: ApiFromModules<{
   panelIds: typeof panelIds;
   privateData: typeof privateData;
   sites: typeof sites;
+  teams: typeof teams;
   users: typeof users;
   workorders: typeof workorders;
 }>;

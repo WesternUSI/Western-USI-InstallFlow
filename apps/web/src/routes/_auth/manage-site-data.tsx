@@ -1,7 +1,6 @@
 import { api } from "@usi-installer/backend/convex/_generated/api";
 import type { Id } from "@usi-installer/backend/convex/_generated/dataModel";
-import { createFileRoute } from "@tanstack/react-router";
-import { Button } from "@usi-installer/ui/components/button";
+import { Link, createFileRoute } from "@tanstack/react-router";
 import {
   Table,
   TableBody,
@@ -12,10 +11,14 @@ import {
 } from "@usi-installer/ui/components/table";
 import { Tabs, TabsList, TabsTrigger } from "@usi-installer/ui/components/tabs";
 import { useQuery } from "convex/react";
-import { ListFilter } from "lucide-react";
 import { useState } from "react";
 
-import { EditSiteDialog } from "@/components/edit-site-dialog";
+import {
+  ALL_TIME,
+  type Duration,
+  DurationSelect,
+  durationRangeMs,
+} from "@/components/duration-select";
 import { FilterSelect } from "@/components/filter-select";
 import { ImportSummaryCard } from "@/components/import-summary-card";
 import { PageHeader } from "@/components/page-header";
@@ -38,33 +41,48 @@ export const Route = createFileRoute("/_auth/manage-site-data")({
 const PAGE_SIZE = 25;
 const ALL_LOCATIONS = "__all__";
 
+/** Widths add up to 100% so the table never overflows its card. */
+const COLUMNS = [
+  { label: "Location", width: "w-[20%]", padding: "px-6" },
+  { label: "Site Details", width: "w-[26%]", padding: "px-4" },
+  { label: "Panel ID", width: "w-[13%]", padding: "px-4" },
+  { label: "Material Size", width: "w-[14%]", padding: "px-4" },
+  { label: "Details Status", width: "w-[14%]", padding: "px-4" },
+  { label: "Actions", width: "w-[13%]", padding: "px-4" },
+] as const;
+
 function FilterBar({
   search,
   searchOptions,
   area,
   areas,
   status,
+  duration,
   onSearchChange,
   onAreaChange,
   onStatusChange,
+  onDurationChange,
 }: {
   search: string;
   searchOptions: SearchOption[] | undefined;
   area: string;
   areas: string[] | undefined;
   status: SiteDetailStatusTab;
+  duration: Duration;
   onSearchChange: (value: string) => void;
   onAreaChange: (value: string) => void;
   onStatusChange: (value: SiteDetailStatusTab) => void;
+  onDurationChange: (value: Duration) => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 p-4">
+    // px-6 lines the controls up with the tabs and the table columns below.
+    <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 px-6 py-4">
       <SearchInput
         value={search}
         options={searchOptions}
         placeholder="Search by location, panel ID, details"
         onChange={onSearchChange}
-        className="max-w-md min-w-56 flex-1"
+        className="min-w-56 flex-1"
       />
 
       <FilterSelect
@@ -87,10 +105,7 @@ function FilterBar({
         onChange={(next) => onStatusChange(next as SiteDetailStatusTab)}
       />
 
-      <Button variant="outline" className="h-[38px] gap-2 rounded-lg">
-        <ListFilter className="size-4" />
-        More Filters
-      </Button>
+      <DurationSelect value={duration} onChange={onDurationChange} />
     </div>
   );
 }
@@ -99,18 +114,19 @@ function ManageSiteDataPage() {
   const [status, setStatus] = useState<SiteDetailStatusTab>("all");
   const [area, setArea] = useState(ALL_LOCATIONS);
   const [search, setSearch] = useState("");
-  const [editingId, setEditingId] = useState<Id<"sites"> | null>(null);
+  const [duration, setDuration] = useState<Duration>(ALL_TIME);
 
   // The box updates instantly; the queries follow once typing pauses, so a
   // word typed out is one round trip rather than one per letter.
   const debouncedSearch = useDebouncedValue(search);
   const scopedArea = area === ALL_LOCATIONS ? undefined : area;
+  const { sinceMs, untilMs } = durationRangeMs(duration);
 
   // Keyed on the debounced term, not the raw one, so the cursor is dropped at
   // the same moment the query arguments actually change.
   const { paginationOpts, page, hasPrevious, next, previous } = useCursorPagination(
     PAGE_SIZE,
-    `${status}|${area}|${debouncedSearch}`,
+    `${status}|${area}|${debouncedSearch}|${sinceMs ?? ""}|${untilMs ?? ""}`,
   );
 
   const areas = useQuery(api.sites.areas);
@@ -124,10 +140,17 @@ function ManageSiteDataPage() {
       status: status === "all" ? undefined : status,
       area: scopedArea,
       search: debouncedSearch,
+      since_ms: sinceMs,
+      until_ms: untilMs,
     }),
   );
   const counts = useStickyValue(
-    useQuery(api.sites.counts, { area: scopedArea, search: debouncedSearch }),
+    useQuery(api.sites.counts, {
+      area: scopedArea,
+      search: debouncedSearch,
+      since_ms: sinceMs,
+      until_ms: untilMs,
+    }),
   );
 
   // No arguments, so Convex computes this once per data change and shares it —
@@ -161,9 +184,11 @@ function ManageSiteDataPage() {
             area={area}
             areas={areas}
             status={status}
+            duration={duration}
             onSearchChange={setSearch}
             onAreaChange={setArea}
             onStatusChange={setStatus}
+            onDurationChange={setDuration}
           />
 
           <Tabs
@@ -173,7 +198,7 @@ function ManageSiteDataPage() {
           >
             <TabsList
               variant="line"
-              className="h-auto gap-10 border-b border-gray-200 bg-gray-50/50 px-8 pt-4 pb-0"
+              className="h-auto gap-10 border-b border-gray-200 bg-gray-50/50 px-6 pt-4 pb-0"
             >
               {SITE_DETAIL_STATUS_TABS.map((tab) => (
                 <TabsTrigger
@@ -187,22 +212,19 @@ function ManageSiteDataPage() {
             </TabsList>
           </Tabs>
 
-          <Table>
+          {/* Fixed layout with explicit widths so the row always fits the card
+              and long values truncate instead of forcing a sideways scroll. */}
+          <Table className="table-fixed">
             <TableHeader>
               <TableRow className="border-slate-200 bg-gray-50 hover:bg-gray-50">
-                {["Location", "Site Details", "Panel ID", "Material Size", "Details Status"].map(
-                  (heading) => (
-                    <TableHead
-                      key={heading}
-                      className="px-6 py-5 text-[11px] font-bold tracking-[0.55px] text-slate-500 uppercase"
-                    >
-                      {heading}
-                    </TableHead>
-                  ),
-                )}
-                <TableHead className="px-6 py-5 text-right text-[11px] font-bold tracking-[0.55px] text-slate-500 uppercase">
-                  Actions
-                </TableHead>
+                {COLUMNS.map((column) => (
+                  <TableHead
+                    key={column.label}
+                    className={`${column.width} ${column.padding} py-5 text-[11px] font-bold tracking-[0.55px] text-slate-500 uppercase`}
+                  >
+                    {column.label}
+                  </TableHead>
+                ))}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -222,31 +244,33 @@ function ManageSiteDataPage() {
               )}
               {result?.page.map((row) => (
                 <TableRow key={row._id} className="border-slate-100">
-                  <TableCell className="px-6 py-4 text-sm text-slate-700">{row.area}</TableCell>
-                  <TableCell className="max-w-64 truncate px-6 py-4 text-sm text-slate-700">
+                  <TableCell className="truncate px-6 py-4 text-sm text-slate-700">
+                    {row.area}
+                  </TableCell>
+                  <TableCell className="truncate px-4 py-4 text-sm text-slate-700">
                     {row.site}
                   </TableCell>
-                  <TableCell className="px-6 py-4 text-sm font-medium text-slate-700">
+                  <TableCell className="truncate px-4 py-4 text-sm font-medium text-slate-700">
                     {row.panel_id}
                   </TableCell>
-                  <TableCell className="px-6 py-4 text-sm text-slate-500">
+                  <TableCell className="truncate px-4 py-4 text-sm text-slate-500">
                     {row.size ?? "—"}
                   </TableCell>
-                  <TableCell className="px-6 py-4">
+                  <TableCell className="px-4 py-4">
                     <span
                       className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${SITE_DETAIL_STATUS_CLASSES[row.detail_status]}`}
                     >
                       {SITE_DETAIL_STATUS_LABELS[row.detail_status]}
                     </span>
                   </TableCell>
-                  <TableCell className="px-6 py-4 text-right">
-                    <button
-                      type="button"
-                      onClick={() => setEditingId(row._id)}
-                      className="text-sm font-medium text-blue-600 hover:text-blue-700"
+                  <TableCell className="px-4 py-4">
+                    <Link
+                      to="/edit-site/$siteId"
+                      params={{ siteId: row._id }}
+                      className="inline-block rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium whitespace-nowrap text-slate-700 transition-colors hover:border-slate-400 hover:bg-slate-50"
                     >
-                      Edit Details
-                    </button>
+                      Add Images
+                    </Link>
                   </TableCell>
                 </TableRow>
               ))}
@@ -274,7 +298,6 @@ function ManageSiteDataPage() {
         )}
       </div>
 
-      <EditSiteDialog siteId={editingId} onClose={() => setEditingId(null)} />
     </>
   );
 }

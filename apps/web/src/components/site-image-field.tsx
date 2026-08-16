@@ -1,7 +1,7 @@
 import type { Id } from "@usi-installer/backend/convex/_generated/dataModel";
 import { cn } from "@usi-installer/ui/lib/utils";
-import { Trash2, UploadCloud } from "lucide-react";
-import { useRef, useState } from "react";
+import { ChevronLeft, ChevronRight, Pencil, Plus, Trash2, UploadCloud } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
@@ -17,18 +17,29 @@ interface SiteImageFieldProps {
   onRemove: (storageId: Id<"_storage">) => void;
 }
 
-/** Site photos: a gallery of everything uploaded plus a dropzone to add more. */
+/**
+ * Site photos: a dropzone until the first one is added, then a large preview
+ * with a thumbnail strip. The pencil replaces the picture on show; the tile at
+ * the end of the strip adds more.
+ */
 export function SiteImageField({
   images,
   isUploading,
   onFilesSelected,
   onRemove,
 }: SiteImageFieldProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
+  const addRef = useRef<HTMLInputElement>(null);
+  const replaceRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [index, setIndex] = useState(0);
 
-  function accept(files: FileList | null) {
+  // Keep the shown picture in range as images are added and removed.
+  useEffect(() => {
+    setIndex((current) => Math.min(current, Math.max(0, images.length - 1)));
+  }, [images.length]);
+
+  function accept(files: FileList | null, replacing = false) {
     setError(null);
     if (!files || files.length === 0) return;
 
@@ -45,18 +56,23 @@ export function SiteImageField({
           : `${rejected.length} file${rejected.length === 1 ? "" : "s"} skipped — images up to 10MB only.`,
       );
     }
-    if (allowed.length > 0) onFilesSelected(allowed);
+    if (allowed.length === 0) return;
+
+    // Replacing drops the picture on show once the new one has been added.
+    const replaced = replacing ? images[index] : undefined;
+    onFilesSelected(allowed);
+    if (replaced) onRemove(replaced.storage_id);
   }
+
+  const current = images[index];
 
   return (
     <div>
-      <p className="text-sm font-semibold text-gray-900">Site Image</p>
-      <p className="mt-0.5 text-xs text-gray-500">
-        Upload or update the images of the site / panel. You can add more than one.
-      </p>
+      <p className="text-base font-bold text-slate-900">Site Image</p>
+      <p className="mt-0.5 text-sm text-slate-500">Upload or update the image of the site / panel</p>
 
       <input
-        ref={inputRef}
+        ref={addRef}
         type="file"
         accept="image/*"
         multiple
@@ -66,62 +82,123 @@ export function SiteImageField({
           event.target.value = "";
         }}
       />
+      <input
+        ref={replaceRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(event) => {
+          accept(event.target.files, true);
+          event.target.value = "";
+        }}
+      />
 
-      {images.length > 0 && (
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          {images.map((image) => (
-            <div
-              key={image.storage_id}
-              className="group relative overflow-hidden rounded-lg border border-slate-200"
+      {current === undefined ? (
+        // biome-ignore lint/a11y/noStaticElementInteractions: drag target; the button inside is the accessible control
+        <div
+          onDragOver={(event) => {
+            event.preventDefault();
+            setIsDragging(true);
+          }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={(event) => {
+            event.preventDefault();
+            setIsDragging(false);
+            accept(event.dataTransfer.files);
+          }}
+          className={cn(
+            "mt-4 flex flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-14 transition-colors",
+            isDragging ? "border-blue-400 bg-blue-50/60" : "border-slate-200 bg-white",
+          )}
+        >
+          <UploadCloud className="size-8 text-blue-500" />
+          <button
+            type="button"
+            disabled={isUploading}
+            onClick={() => addRef.current?.click()}
+            className="mt-4 text-sm text-slate-600 hover:text-slate-900"
+          >
+            {isUploading ? "Uploading…" : "Drag and drop images here, or click to browse"}
+          </button>
+          <p className="mt-1.5 text-xs text-slate-400">JPG, PNG up to 10MB</p>
+        </div>
+      ) : (
+        <div className="mt-4">
+          <div className="relative overflow-hidden rounded-xl border border-slate-200">
+            <img src={current.url} alt="Site" className="h-72 w-full object-cover" />
+
+            <button
+              type="button"
+              aria-label="Replace this image"
+              disabled={isUploading}
+              onClick={() => replaceRef.current?.click()}
+              className="absolute top-3 right-3 rounded-md bg-white/90 p-2 text-slate-600 shadow-sm transition-colors hover:bg-white hover:text-slate-900"
             >
-              <img src={image.url} alt="Site" className="h-40 w-full object-cover" />
-              <button
-                type="button"
-                aria-label="Remove image"
-                disabled={isUploading}
-                onClick={() => onRemove(image.storage_id)}
-                className="absolute top-2 right-2 rounded-md bg-white/90 p-1.5 text-slate-600 shadow-sm transition-colors hover:bg-white hover:text-red-600"
-              >
-                <Trash2 className="size-4" />
-              </button>
-            </div>
-          ))}
+              <Pencil className="size-4" />
+            </button>
+
+            {images.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  aria-label="Previous image"
+                  onClick={() => setIndex((current) => (current - 1 + images.length) % images.length)}
+                  className="absolute top-1/2 left-3 -translate-y-1/2 rounded-full bg-white/90 p-2 text-slate-700 shadow-sm transition-colors hover:bg-white"
+                >
+                  <ChevronLeft className="size-4" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Next image"
+                  onClick={() => setIndex((current) => (current + 1) % images.length)}
+                  className="absolute top-1/2 right-3 -translate-y-1/2 rounded-full bg-white/90 p-2 text-slate-700 shadow-sm transition-colors hover:bg-white"
+                >
+                  <ChevronRight className="size-4" />
+                </button>
+              </>
+            )}
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-3">
+            {images.map((image, thumbIndex) => (
+              <div key={image.storage_id} className="group relative">
+                <button
+                  type="button"
+                  aria-label={`Show image ${thumbIndex + 1}`}
+                  onClick={() => setIndex(thumbIndex)}
+                  className={cn(
+                    "size-16 overflow-hidden rounded-lg border transition-colors",
+                    thumbIndex === index
+                      ? "border-blue-500 ring-2 ring-blue-200"
+                      : "border-slate-200 hover:border-slate-300",
+                  )}
+                >
+                  <img src={image.url} alt="" className="size-full object-cover" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Remove image"
+                  disabled={isUploading}
+                  onClick={() => onRemove(image.storage_id)}
+                  className="absolute -top-1.5 -right-1.5 hidden rounded-full bg-white p-1 text-slate-500 shadow-sm hover:text-red-600 group-hover:block"
+                >
+                  <Trash2 className="size-3" />
+                </button>
+              </div>
+            ))}
+
+            <button
+              type="button"
+              aria-label="Add more images"
+              disabled={isUploading}
+              onClick={() => addRef.current?.click()}
+              className="flex size-16 items-center justify-center rounded-lg border border-dashed border-slate-300 text-blue-500 transition-colors hover:border-blue-400 hover:bg-blue-50/60"
+            >
+              <Plus className="size-5" />
+            </button>
+          </div>
         </div>
       )}
-
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: drag target; the button inside is the accessible control */}
-      <div
-        onDragOver={(event) => {
-          event.preventDefault();
-          setIsDragging(true);
-        }}
-        onDragLeave={() => setIsDragging(false)}
-        onDrop={(event) => {
-          event.preventDefault();
-          setIsDragging(false);
-          accept(event.dataTransfer.files);
-        }}
-        className={cn(
-          "mt-3 flex flex-col items-center justify-center rounded-lg border-2 border-dashed transition-colors",
-          images.length > 0 ? "px-6 py-6" : "px-6 py-10",
-          isDragging ? "border-blue-400 bg-blue-50/60" : "border-slate-300 bg-white",
-        )}
-      >
-        <UploadCloud className="size-7 text-blue-500" />
-        <button
-          type="button"
-          disabled={isUploading}
-          onClick={() => inputRef.current?.click()}
-          className="mt-3 text-sm text-gray-600 hover:text-gray-900"
-        >
-          {isUploading
-            ? "Uploading…"
-            : images.length > 0
-              ? "Add more images"
-              : "Drag and drop images here, or click to browse"}
-        </button>
-        <p className="mt-1.5 text-xs text-gray-400">JPG, PNG up to 10MB each</p>
-      </div>
 
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
     </div>

@@ -72,7 +72,9 @@ export function AdminSidebar() {
     <aside className="flex w-64 shrink-0 flex-col bg-[#0F172A] text-slate-300">
       <div className="flex h-20 shrink-0 items-center border-b border-[#1F2937] px-6">
         <div className="flex flex-col gap-1">
-          <img src={logo} alt="Western USI" className="h-5 w-auto" />
+          {/* The source logo is black-on-transparent, made for a light
+              background; inverted to read white on the dark sidebar. */}
+          <img src={logo} alt="Western USI" className="h-5 w-auto brightness-0 invert" />
           <p className="text-[10px] tracking-[1px] text-[#9CA3AF]">ADMIN PANEL</p>
         </div>
       </div>
