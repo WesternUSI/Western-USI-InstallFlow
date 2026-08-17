@@ -1,30 +1,31 @@
+import { api } from "@usi-installer/backend/convex/_generated/api";
 import { Ionicons } from "@expo/vector-icons";
+import { useQuery } from "convex/react";
 import { type Href, useRouter } from "expo-router";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import React from "react";
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { useTeamContext } from "@/contexts/team-context";
 import { NavCard } from "@/components/nav-card";
 
-/** Placeholder rows — real per-area counts land once work order querying/grouping is wired up. */
-const STATIC_AREA_PROGRESS = [
-  { area: "Mandurah Line", completed: 1, total: 5 },
-  { area: "Yanchep Line", completed: 1, total: 4 },
-  { area: "Midland Yard", completed: 3, total: 7 },
-  { area: "Fremantle Bridge", completed: 4, total: 6 },
-];
+const PAGE_SIZE = 4;
 
 function AreaProgressRow({
   area,
   completed,
   total,
+  onPress,
 }: {
   area: string;
   completed: number;
   total: number;
+  onPress: () => void;
 }) {
   return (
     <Pressable
       accessibilityRole="button"
+      onPress={onPress}
       className="mb-3 flex-row items-center justify-between rounded-2xl border border-[#e2e8f0] bg-white px-4 py-4"
     >
       <Text className="text-[15px] font-bold text-[#1a1c1e]">{area}</Text>
@@ -41,6 +42,19 @@ function AreaProgressRow({
 export default function WorkOrdersScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { checkedTeams } = useTeamContext();
+
+  const [visibleCount, setVisibleCount] = React.useState(PAGE_SIZE);
+
+  const areaProgress = useQuery(
+    api.workorders.byAreaForTeams,
+    checkedTeams.size === 0
+      ? "skip"
+      : { teams: [...checkedTeams] as ("Team 1" | "Team 2" | "Team 3" | "Team 4" | "Team 5")[] },
+  );
+  const rows = areaProgress ?? [];
+  const visibleRows = rows.slice(0, visibleCount);
+  const canShowMore = visibleCount < rows.length;
 
   return (
     <View className="flex-1 bg-[#f7f9fb]" style={{ paddingTop: insets.top }}>
@@ -64,6 +78,16 @@ export default function WorkOrdersScreen() {
               Manage and complete your orders
             </Text>
           </View>
+          {checkedTeams.size > 0 && (
+            <View className="mt-1.5 rounded-full bg-[#e8f0ff] px-3 py-1.5">
+              <Text className="text-[12px] font-bold text-[#2563eb]">
+                {`Team ${[...checkedTeams]
+                  .map((team) => team.replace("Team ", ""))
+                  .sort((a, b) => Number(a) - Number(b))
+                  .join(",")}`}
+              </Text>
+            </View>
+          )}
         </View>
 
         <View className="mt-5 gap-4 px-4">
@@ -92,6 +116,7 @@ export default function WorkOrdersScreen() {
             icon="construct"
             title="Equipment Needed"
             subtitle="View equipment for installs"
+            onPress={() => router.push("/work-orders/equipment" as Href)}
           />
           <NavCard
             accent="#16a34a"
@@ -100,6 +125,7 @@ export default function WorkOrdersScreen() {
             icon="clipboard"
             title="Complete Installs"
             subtitle="Choose installation orders to complete"
+            onPress={() => router.push("/work-orders/complete" as Href)}
           />
         </View>
 
@@ -111,17 +137,40 @@ export default function WorkOrdersScreen() {
         </View>
 
         <View className="mt-4 px-4">
-          {STATIC_AREA_PROGRESS.map((row) => (
-            <AreaProgressRow key={row.area} {...row} />
-          ))}
+          {areaProgress === undefined ? (
+            <View className="mt-6 items-center">
+              <ActivityIndicator color="#2563eb" />
+            </View>
+          ) : rows.length === 0 ? (
+            <Text className="text-[13px] font-medium text-[#6c7278]">
+              No allocated work for your team(s) yet.
+            </Text>
+          ) : (
+            visibleRows.map((row) => (
+              <AreaProgressRow
+                key={row.train_line}
+                area={row.train_line}
+                completed={row.completed}
+                total={row.total}
+                onPress={() =>
+                  router.push(
+                    `/work-orders/area-completed?area=${encodeURIComponent(row.train_line)}` as Href,
+                  )
+                }
+              />
+            ))
+          )}
         </View>
 
-        <Pressable
-          accessibilityRole="button"
-          className="mx-4 mt-2 h-[52px] items-center justify-center rounded-2xl bg-[#2563eb]"
-        >
-          <Text className="text-[16px] font-bold text-white">Show More</Text>
-        </Pressable>
+        {canShowMore && (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setVisibleCount((count) => count + PAGE_SIZE)}
+            className="mx-4 mt-2 h-[52px] items-center justify-center rounded-2xl bg-[#2563eb]"
+          >
+            <Text className="text-[16px] font-bold text-white">Show More</Text>
+          </Pressable>
+        )}
       </ScrollView>
     </View>
   );

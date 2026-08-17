@@ -3,14 +3,15 @@ import type { Id } from "@usi-installer/backend/convex/_generated/dataModel";
 import { Ionicons } from "@expo/vector-icons";
 import { useMutation, useQuery } from "convex/react";
 import { useRouter } from "expo-router";
+import { useToast } from "heroui-native";
 import React from "react";
 import { ActivityIndicator, Alert, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { TEAMS as ALL_TEAMS, useTeamContext } from "@/contexts/team-context";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { listWorkOrderCards, type WorkOrderCard } from "@/lib/groupWorkOrders";
 
-const ALL_TEAMS = ["Team 1", "Team 2", "Team 3", "Team 4", "Team 5"] as const;
 const ALL_AREAS = "All areas";
 const ALL_ADVERTISERS = "All advertisers";
 const PAGE_SIZE = 5;
@@ -206,7 +207,9 @@ function WorkOrderAllocateCard({
           <View className="mt-2 items-end" style={{ gap: 5 }}>
             {isAllocated && (
               <View className="rounded-full bg-[#dcfce7] px-2.5 py-1">
-                <Text className="text-[10px] font-semibold text-[#16a34a]">Allocated</Text>
+                <Text className="text-[10px] font-semibold text-[#16a34a]">
+                  Allocated · {card.assignedTeam.join(" & ")}
+                </Text>
               </View>
             )}
             {card.priority && (
@@ -239,7 +242,9 @@ function WorkOrderAllocateCard({
 export default function AllocateInstallsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { convexUser, isLoaded: userLoaded } = useCurrentUser();
+  const { isLoaded: userLoaded } = useCurrentUser();
+  const { primaryTeam, checkedTeams, toggleTeam, savedAdditionalTeams } = useTeamContext();
+  const { toast } = useToast();
 
   const rows = useQuery(api.workorders.listActiveWorkOrders);
   const byArea = useQuery(api.workorders.byArea);
@@ -248,13 +253,6 @@ export default function AllocateInstallsScreen() {
   const allocateWorkOrders = useMutation(api.workorders.allocateWorkOrders);
   const unallocateWorkOrders = useMutation(api.workorders.unallocateWorkOrders);
 
-  const primaryTeam = convexUser?.team;
-  const savedAdditionalTeams = React.useMemo(
-    () => convexUser?.additional_teams ?? [],
-    [convexUser?.additional_teams],
-  );
-
-  const [checkedTeams, setCheckedTeams] = React.useState<Set<string>>(new Set());
   const [checkedOrderIds, setCheckedOrderIds] = React.useState<Set<string>>(new Set());
   const [visibleCount, setVisibleCount] = React.useState(PAGE_SIZE);
   const [busy, setBusy] = React.useState(false);
@@ -265,11 +263,6 @@ export default function AllocateInstallsScreen() {
 
   const toggleDropdown = (name: Exclude<OpenDropdown, null>) =>
     setOpenDropdown((current) => (current === name ? null : name));
-
-  React.useEffect(() => {
-    if (primaryTeam === undefined) return;
-    setCheckedTeams(new Set([primaryTeam, ...savedAdditionalTeams]));
-  }, [primaryTeam, savedAdditionalTeams]);
 
   const areaOptions = React.useMemo(() => {
     if (!rows) return [ALL_AREAS];
@@ -294,9 +287,13 @@ export default function AllocateInstallsScreen() {
         selectedArea === ALL_AREAS || (row.area_progress?.trim() || "Unassigned") === selectedArea;
       const advertiserMatches =
         selectedAdvertiser === ALL_ADVERTISERS || row.advertiser_campaign === selectedAdvertiser;
-      return areaMatches && advertiserMatches;
+      // Work orders already allocated to a team the user isn't currently
+      // checked into are none of their business — only unallocated rows and
+      // rows for checked teams show up.
+      const teamVisible = row.assigned_team === undefined || checkedTeams.has(row.assigned_team);
+      return areaMatches && advertiserMatches && teamVisible;
     });
-  }, [rows, selectedArea, selectedAdvertiser]);
+  }, [rows, selectedArea, selectedAdvertiser, checkedTeams]);
 
   const cards = React.useMemo(() => listWorkOrderCards(filteredRows), [filteredRows]);
   const visibleCards = cards.slice(0, visibleCount);
@@ -349,19 +346,6 @@ export default function AllocateInstallsScreen() {
     );
   }
 
-  const toggleTeam = (team: string) => {
-    if (team === primaryTeam) return;
-    setCheckedTeams((current) => {
-      const next = new Set(current);
-      if (next.has(team)) {
-        next.delete(team);
-      } else {
-        next.add(team);
-      }
-      return next;
-    });
-  };
-
   const toggleOrder = (key: string) => {
     setCheckedOrderIds((current) => {
       const next = new Set(current);
@@ -399,8 +383,20 @@ export default function AllocateInstallsScreen() {
             try {
               await mergeTeams({ checkedTeams: [...checkedTeams] as (typeof ALL_TEAMS)[number][] });
               setOpenDropdown(null);
+              toast.show({
+                label: "Teams saved",
+                description:
+                  currentAdditional.length > 0
+                    ? `Merged with ${additionalList}.`
+                    : `Back to ${primaryTeam} only.`,
+                variant: "success",
+              });
             } catch (error) {
-              Alert.alert("Couldn't save", error instanceof Error ? error.message : "Try again.");
+              toast.show({
+                label: "Couldn't save",
+                description: error instanceof Error ? error.message : "Try again.",
+                variant: "danger",
+              });
             } finally {
               setBusy(false);
             }
@@ -452,8 +448,19 @@ export default function AllocateInstallsScreen() {
         for (const card of targetCards) next.delete(card.key);
         return next;
       });
+      toast.show({
+        label: action === "allocate" ? "Allocated" : "Unallocated",
+        description: `${targetCards.length} install${targetCards.length === 1 ? "" : "s"} ${
+          action === "allocate" ? "allocated to" : "removed from"
+        } ${team}.`,
+        variant: "success",
+      });
     } catch (error) {
-      Alert.alert("Couldn't update", error instanceof Error ? error.message : "Try again.");
+      toast.show({
+        label: action === "allocate" ? "Couldn't allocate" : "Couldn't unallocate",
+        description: error instanceof Error ? error.message : "Try again.",
+        variant: "danger",
+      });
     } finally {
       setBusy(false);
     }

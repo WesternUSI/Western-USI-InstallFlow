@@ -6,9 +6,12 @@ interface WorkOrderRow {
   site: string;
   panel_name: string;
   area_progress?: string;
+  train_line?: string;
   priority: boolean;
   size?: string;
-  assigned_team?: string[];
+  assigned_team?: string;
+  distance_km?: number | null;
+  status?: "completed" | "allocated";
 }
 
 export interface WorkOrderCard {
@@ -21,6 +24,10 @@ export interface WorkOrderCard {
   priority: boolean;
   size?: string;
   assignedTeam: string[];
+  /** Distance from East Perth Station, in km — null when the site has no (or unparseable) GPS coordinates. */
+  distanceKm: number | null;
+  /** Only set when every merged row carries a status — "completed" only if all of them are. */
+  status?: "completed" | "allocated";
 }
 
 export interface WorkOrderAreaGroup {
@@ -79,7 +86,15 @@ function mergeAndSortCards(rows: WorkOrderRow[]): WorkOrderCard[] {
         advertisersLabel: uniqueInOrder(mergedRows.map((r) => r.advertiser_campaign)).join(" & "),
         priority: mergedRows.some((r) => r.priority),
         size: sizes[0],
-        assignedTeam: [...new Set(mergedRows.flatMap((r) => r.assigned_team ?? []))],
+        assignedTeam: uniqueInOrder(
+          mergedRows.map((r) => r.assigned_team).filter((t): t is string => t !== undefined),
+        ),
+        distanceKm: mergedRows[0].distance_km ?? null,
+        status: mergedRows.some((r) => r.status === undefined)
+          ? undefined
+          : mergedRows.every((r) => r.status === "completed")
+            ? ("completed" as const)
+            : ("allocated" as const),
       },
       panelSortKey: panelIds[0] ?? "",
     };
@@ -94,10 +109,14 @@ function mergeAndSortCards(rows: WorkOrderRow[]): WorkOrderCard[] {
 }
 
 /**
- * Groups work orders by `area_progress` — areas are left in whatever order
- * they're first encountered, no sort applied at that level — then merges
- * and sorts cards within each area. See `mergeAndSortCards` for the merge
- * and sort rules.
+ * Groups work orders by `area_progress` — the SRS's "Train Line" maps to
+ * this field (schema comment: `// Line`, the raw per-row import value), kept
+ * consistent with the Area Progress widgets and Installation Area filters
+ * elsewhere. Not `train_line`, this codebase's own later addition that
+ * snapshots the matched site's *Area* instead and can disagree with it.
+ * Areas are left in whatever order they're first encountered, no sort
+ * applied at that level — then merges and sorts cards within each area. See
+ * `mergeAndSortCards` for the merge and sort rules.
  */
 export function groupWorkOrders(rows: WorkOrderRow[]): WorkOrderAreaGroup[] {
   const byArea = new Map<string, WorkOrderRow[]>();

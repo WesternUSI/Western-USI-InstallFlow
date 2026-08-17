@@ -9,6 +9,8 @@
  */
 
 import type * as derive from "../derive.js";
+import type * as email from "../email.js";
+import type * as geo from "../geo.js";
 import type * as healthCheck from "../healthCheck.js";
 import type * as http from "../http.js";
 import type * as imports from "../imports.js";
@@ -28,6 +30,8 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   derive: typeof derive;
+  email: typeof email;
+  geo: typeof geo;
   healthCheck: typeof healthCheck;
   http: typeof http;
   imports: typeof imports;

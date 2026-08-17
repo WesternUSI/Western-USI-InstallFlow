@@ -131,12 +131,27 @@ export default defineSchema({
     upload_date: v.string(), // YYYY-MM-DD, shared by every row in one upload
     priority: v.boolean(), // every non-empty cell in the row had a red fill
     current_status: workOrderStatus,
-    assigned_team: v.array(v.string()),
+    // A work order can only ever have one team, so allocating simply sets
+    // this and unallocating clears it back to undefined.
+    assigned_team: v.optional(
+      v.union(
+        v.literal("Team 1"),
+        v.literal("Team 2"),
+        v.literal("Team 3"),
+        v.literal("Team 4"),
+        v.literal("Team 5"),
+      ),
+    ),
     site_id: v.optional(v.id("sites")), // panel_split matched to sites.panel_id
     missing_value: v.boolean(), // no site matched panel_split
     // Snapshot of the matched site's `area_progress` taken at import time, so
     // listing and grouping never need to join back to `sites`.
     train_line: v.optional(v.string()),
+    // Set together by Complete Installs' photo submission, once per work
+    // order — the site's reference photos live on `sites.site_img` instead.
+    completion_photo: v.optional(v.id("_storage")),
+    completion_notes: v.optional(v.string()),
+    completed_at: v.optional(v.number()),
     // Written by every mutation that touches this row so the status tabs filter
     // through an index rather than after a page has been read.
     status_key: v.optional(v.string()), // completed | missing_site | pending | allocated | not_allocated

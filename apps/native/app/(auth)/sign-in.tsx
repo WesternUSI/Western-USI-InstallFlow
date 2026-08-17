@@ -1,6 +1,6 @@
 import { useSignIn } from "@clerk/expo";
 import { Ionicons } from "@expo/vector-icons";
-import { Redirect, useRouter } from "expo-router";
+import { type Href, Redirect, useRouter } from "expo-router";
 import { Authenticated, AuthLoading, Unauthenticated } from "convex/react";
 import React from "react";
 import {
@@ -250,8 +250,13 @@ function LoginForm() {
             <Text className="ml-2.5 text-[13px] font-medium text-[#6c7278]">Remember me</Text>
           </Pressable>
 
-          {/* Reset flow is not built yet — intentionally inert. */}
-          <Text className="text-[13px] font-semibold text-[#4d81e7]">Forgot Password ?</Text>
+          <Pressable
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={() => router.push("/forgot-password" as Href)}
+          >
+            <Text className="text-[13px] font-semibold text-[#4d81e7]">Forgot Password ?</Text>
+          </Pressable>
         </View>
 
         <Pressable

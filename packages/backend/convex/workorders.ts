@@ -1,8 +1,10 @@
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type QueryCtx, mutation, query } from "./_generated/server";
+import { type QueryCtx, internalQuery, mutation, query } from "./_generated/server";
 import { type WorkOrderStatus, deriveWorkOrderStatus, matchesTerm } from "./derive";
+import { distanceFromEastPerthKm } from "./geo";
 
 export type { WorkOrderStatus } from "./derive";
 
@@ -277,8 +279,11 @@ export const byArea = query({
     const all = await ctx.db.query("workorders").collect();
     const byLine = new Map<string, { imported: number; allocated: number; completed: number }>();
 
+    // SRS's "Train Line" maps to this field (schema comment: `// Line`) — the
+    // raw per-row import value, not `train_line` (this codebase's own later
+    // addition, snapshotting the matched site's *Area* instead).
     for (const workOrder of all) {
-      const line = workOrder.train_line ?? "Unassigned";
+      const line = workOrder.area_progress ?? "Unassigned";
       const entry = byLine.get(line) ?? { imported: 0, allocated: 0, completed: 0 };
 
       entry.imported++;
@@ -299,6 +304,38 @@ export const byArea = query({
         ...entry,
         progress: entry.imported === 0 ? 0 : Math.round((entry.completed / entry.imported) * 100),
       }))
+      .sort((a, b) => a.train_line.localeCompare(b.train_line));
+  },
+});
+
+/**
+ * The Work Orders home screen's "Area Progress" widget — unlike `byArea`
+ * (which reports every work order regardless of team, for Allocate/Complete
+ * Installs), this is scoped to the given teams' own allocated workload: both
+ * the completed count and the total are of work orders assigned to one of
+ * `teams`, so it reads as "how much of *my* work in this area is done."
+ */
+export const byAreaForTeams = query({
+  args: { teams: v.array(v.union(v.literal("Team 1"), v.literal("Team 2"), v.literal("Team 3"), v.literal("Team 4"), v.literal("Team 5"))) },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx);
+
+    const teamSet = new Set<string>(args.teams);
+    const all = await ctx.db.query("workorders").collect();
+    const byLine = new Map<string, { total: number; completed: number }>();
+
+    for (const workOrder of all) {
+      if (workOrder.assigned_team === undefined || !teamSet.has(workOrder.assigned_team)) continue;
+
+      const line = workOrder.area_progress ?? "Unassigned";
+      const entry = byLine.get(line) ?? { total: 0, completed: 0 };
+      entry.total++;
+      if (deriveStatus(workOrder) === "completed") entry.completed++;
+      byLine.set(line, entry);
+    }
+
+    return [...byLine.entries()]
+      .map(([train_line, entry]) => ({ train_line, ...entry }))
       .sort((a, b) => a.train_line.localeCompare(b.train_line));
   },
 });
@@ -345,11 +382,170 @@ export const listActiveWorkOrders = query({
       panel_name: row.panel_name,
       site: sites[index]?.site ?? row.site,
       area_progress: row.area_progress,
+      train_line: row.train_line,
       priority: row.priority,
       missing_value: row.missing_value,
       size: row.size,
       assigned_team: row.assigned_team,
     }));
+  },
+});
+
+/**
+ * Merged detail for Install Detail — `ids` is a card's full `workOrderIds`
+ * set (several panel-split rows sharing one `contracted_panel_id` show as one
+ * install), so fields that can differ per row are joined into one label the
+ * same way `groupWorkOrders.ts` merges cards for the list screens. Equipment
+ * and installation notes live on the matched site, not the work order rows.
+ */
+export const getWorkOrderDetail = query({
+  args: { ids: v.array(v.id("workorders")) },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx);
+
+    const rows = (await Promise.all(args.ids.map((id) => ctx.db.get(id)))).filter(
+      (row): row is Doc<"workorders"> => row !== null,
+    );
+    if (rows.length === 0) {
+      throw new Error("Work order not found");
+    }
+
+    const siteId = rows.find((row) => row.site_id !== undefined)?.site_id;
+    const site = siteId !== undefined ? await ctx.db.get(siteId) : null;
+
+    const joinUnique = (values: (string | undefined)[]) =>
+      [...new Set(values.filter((value): value is string => !!value))].join(" & ");
+
+    const images = (
+      await Promise.all(
+        (site?.site_img ?? []).map(async (storageId) => ({
+          storage_id: storageId,
+          url: await ctx.storage.getUrl(storageId),
+        })),
+      )
+    ).filter((image): image is { storage_id: typeof image.storage_id; url: string } =>
+      Boolean(image.url),
+    );
+
+    return {
+      panel_name: joinUnique(rows.map((r) => r.panel_name)),
+      site: site?.site ?? rows[0].site,
+      panel_split: [...new Set(rows.map((r) => r.panel_split))]
+        .sort((a, b) => a.localeCompare(b))
+        .join(" & "),
+      advertiser_campaign: joinUnique(rows.map((r) => r.advertiser_campaign)),
+      existing_advertiser: joinUnique(rows.map((r) => r.existing_advertiser)),
+      comments: joinUnique(rows.map((r) => r.comments)),
+      quantity: rows.reduce((sum, r) => sum + (r.quantity ?? 0), 0),
+      size: joinUnique(rows.map((r) => r.size)),
+      priority: rows.some((r) => r.priority),
+      assigned_team: joinUnique(rows.map((r) => r.assigned_team)),
+      equipment_needed: site?.equipment_needed ?? [],
+      install_notes: site?.install_notes,
+      location: site?.location,
+      images,
+    };
+  },
+});
+
+/** Storage upload URL for a completion photo — a plain passthrough to Convex file storage, same as `sites.generateUploadUrl`. */
+export const generateUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+/**
+ * Marks every work order in `ids` (one card's merged panel-split rows)
+ * completed with the same photo and notes, since they represent one physical
+ * install photographed once. Rejects anything already completed rather than
+ * silently overwriting an earlier completion's photo.
+ */
+export const completeWorkOrder = mutation({
+  args: {
+    ids: v.array(v.id("workorders")),
+    photo: v.id("_storage"),
+    notes: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+
+    const workOrders = await Promise.all(args.ids.map((id) => ctx.db.get(id)));
+
+    for (const workOrder of workOrders) {
+      if (workOrder !== null && workOrder.current_status === "completed") {
+        throw new Error(`${workOrder.contracted_panel_id} is already completed`);
+      }
+    }
+
+    const completed_at = Date.now();
+    for (const workOrder of workOrders) {
+      if (workOrder === null) continue;
+
+      const patch = {
+        current_status: "completed" as const,
+        completion_photo: args.photo,
+        completion_notes: args.notes,
+        completed_at,
+      };
+      await ctx.db.patch(workOrder._id, {
+        ...patch,
+        status_key: deriveWorkOrderStatus({ ...workOrder, ...patch }),
+      });
+      // SRS FR-CE-1: one completion email per work order, scheduled rather
+      // than sent inline since a mutation can't make outbound HTTP calls.
+      await ctx.scheduler.runAfter(0, internal.email.sendCompletionEmail, {
+        workOrderId: workOrder._id,
+      });
+    }
+  },
+});
+
+/**
+ * Everything `email.sendCompletionEmail` (a "use node" action, which can't
+ * touch the database directly) needs for one completion email. Recipients
+ * are every user with the `admin` role (there can be more than one) — per
+ * SRS NFR-M-3 ("Email recipients ... configurable without code changes"),
+ * adding/removing one is a Users-screen change, not a deploy.
+ */
+export const getCompletionEmailData = internalQuery({
+  args: { workOrderId: v.id("workorders") },
+  handler: async (ctx, args) => {
+    const workOrder = await ctx.db.get(args.workOrderId);
+    if (workOrder === null) return null;
+
+    const site = workOrder.site_id !== undefined ? await ctx.db.get(workOrder.site_id) : null;
+    const photoUrl =
+      workOrder.completion_photo !== undefined
+        ? await ctx.storage.getUrl(workOrder.completion_photo)
+        : null;
+
+    const users = await ctx.db.query("users").collect();
+    const recipients = users.filter((user) => user.role === "admin").map((user) => user.email);
+
+    return {
+      // The SRS reference doc's deviation note claims "Contract Number" maps
+      // to `contracted_panel_id`, but real data contradicts that: `contract_id`
+      // is the value shared across every panel on the same contract (e.g. every
+      // "TABTouch AFL Finals" row has contract_id "1124"), while
+      // `contracted_panel_id` varies per row and matches `panel_split` — a
+      // panel identifier, not a contract number.
+      contract_id: workOrder.contract_id, // SRS "Contract Number"
+      advertiser_campaign: workOrder.advertiser_campaign,
+      panel_split: workOrder.panel_split, // SRS "Panel ID"
+      site: site?.site ?? workOrder.site, // SRS "Location"
+      completion_notes: workOrder.completion_notes,
+      photoUrl,
+      recipients,
+    };
   },
 });
 
@@ -362,10 +558,14 @@ const teamValidator = v.union(
 );
 
 /**
- * Adds `team` to each work order's `assigned_team` set and recomputes
+ * Sets each work order's `assigned_team` to `team` and recomputes
  * `status_key` alongside it, since allocation status is derived from
  * `assigned_team` (see convex/derive.ts) and the status index reads the
  * stored key rather than computing it live.
+ *
+ * A work order can only ever have one team: if any id is already assigned to
+ * a *different* team, the whole batch is rejected rather than silently
+ * overwriting someone else's allocation.
  */
 export const allocateWorkOrders = mutation({
   args: { ids: v.array(v.id("workorders")), team: teamValidator },
@@ -375,15 +575,25 @@ export const allocateWorkOrders = mutation({
       throw new Error("Not authenticated");
     }
 
-    for (const id of args.ids) {
-      const workOrder = await ctx.db.get(id);
+    const workOrders = await Promise.all(args.ids.map((id) => ctx.db.get(id)));
+
+    for (const workOrder of workOrders) {
+      if (
+        workOrder !== null &&
+        workOrder.assigned_team !== undefined &&
+        workOrder.assigned_team !== args.team
+      ) {
+        throw new Error(
+          `${workOrder.contracted_panel_id} is already assigned to ${workOrder.assigned_team}`,
+        );
+      }
+    }
+
+    for (const workOrder of workOrders) {
       if (workOrder === null) continue;
 
-      const assigned_team = workOrder.assigned_team.includes(args.team)
-        ? workOrder.assigned_team
-        : [...workOrder.assigned_team, args.team];
-
-      await ctx.db.patch(id, {
+      const assigned_team = args.team;
+      await ctx.db.patch(workOrder._id, {
         assigned_team,
         status_key: deriveWorkOrderStatus({ ...workOrder, assigned_team }),
       });
@@ -391,7 +601,153 @@ export const allocateWorkOrders = mutation({
   },
 });
 
-/** Removes `team` from each work order's `assigned_team` set. */
+/**
+ * Consolidated equipment list for every allocated (not completed, not
+ * pending, not missing-site) work order across the given teams. Each
+ * equipment name appears once no matter how many matching work orders need
+ * it — two work orders both needing a ladder still add just one "Ladder".
+ */
+export const equipmentNeeded = query({
+  args: { teams: v.array(teamValidator) },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx);
+
+    const teamSet = new Set<string>(args.teams);
+    const workOrders = await ctx.db.query("workorders").collect();
+    const siteIds = new Set<Id<"sites">>();
+
+    for (const workOrder of workOrders) {
+      if (
+        workOrder.assigned_team !== undefined &&
+        teamSet.has(workOrder.assigned_team) &&
+        workOrder.site_id !== undefined &&
+        deriveStatus(workOrder) === "allocated"
+      ) {
+        siteIds.add(workOrder.site_id);
+      }
+    }
+
+    const sites = await Promise.all([...siteIds].map((id) => ctx.db.get(id)));
+    const equipment = new Set<string>();
+    for (const site of sites) {
+      if (site === null) continue;
+      for (const item of site.equipment_needed) {
+        const trimmed = item.trim();
+        if (trimmed !== "") equipment.add(trimmed);
+      }
+    }
+
+    return [...equipment].sort((a, b) => a.localeCompare(b));
+  },
+});
+
+/**
+ * The allocated (not completed, not pending, not missing-site) work order set
+ * for Complete Installs. Scoped to the same "most recent upload" window as
+ * `listActiveWorkOrders`, and further filtered to the given teams — Complete
+ * Installs shows the union of whatever teams the installer currently has
+ * checked, the same way Equipment Needed does.
+ */
+export const listAllocatedWorkOrders = query({
+  args: { teams: v.array(teamValidator) },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+
+    const teamSet = new Set<string>(args.teams);
+
+    const latest = await ctx.db.query("workorders").withIndex("by_upload_date").order("desc").first();
+    if (!latest) {
+      return [];
+    }
+
+    const rows = await ctx.db
+      .query("workorders")
+      .withIndex("by_upload_date", (q) => q.eq("upload_date", latest.upload_date))
+      .order("desc")
+      .collect();
+
+    const allocated = rows.filter(
+      (row) =>
+        row.assigned_team !== undefined &&
+        teamSet.has(row.assigned_team) &&
+        deriveStatus(row) === "allocated",
+    );
+
+    const sites = await Promise.all(
+      allocated.map((row) => (row.site_id ? ctx.db.get(row.site_id) : null)),
+    );
+
+    return allocated.map((row, index) => ({
+      _id: row._id,
+      contracted_panel_id: row.contracted_panel_id,
+      advertiser_campaign: row.advertiser_campaign,
+      panel_split: row.panel_split,
+      panel_name: row.panel_name,
+      site: sites[index]?.site ?? row.site,
+      area_progress: row.area_progress,
+      train_line: row.train_line,
+      priority: row.priority,
+      missing_value: row.missing_value,
+      size: row.size,
+      assigned_team: row.assigned_team,
+      // SRS FR-CI-6: Complete Installs orders by distance from East Perth.
+      distance_km: distanceFromEastPerthKm(sites[index]?.location),
+    }));
+  },
+});
+
+/**
+ * Drill-down for one Area Progress row on the Work Orders home screen — every
+ * one of the team's allocated-or-completed work orders for the tapped area
+ * (scoped to the same team set the row's "x/y comp" count came from, via
+ * `byAreaForTeams`), each tagged with its status so the screen can render
+ * completed ones read-only and let the rest go through Complete Installation.
+ * Not restricted to the latest upload, since `byAreaForTeams` isn't either.
+ *
+ * The `train_line` arg is named for the value it carries (whatever
+ * `byAreaForTeams` labelled the row with) rather than the schema field it's
+ * matched against — see that query's comment for why it reads `area_progress`.
+ */
+export const listWorkOrdersForArea = query({
+  args: { train_line: v.string(), teams: v.array(teamValidator) },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx);
+
+    const teamSet = new Set<string>(args.teams);
+    const all = await ctx.db.query("workorders").collect();
+    const rows = all.filter((row) => {
+      if ((row.area_progress ?? "Unassigned") !== args.train_line) return false;
+      if (row.assigned_team === undefined || !teamSet.has(row.assigned_team)) return false;
+      const status = deriveStatus(row);
+      return status === "completed" || status === "allocated";
+    });
+
+    const sites = await Promise.all(
+      rows.map((row) => (row.site_id ? ctx.db.get(row.site_id) : null)),
+    );
+
+    return rows
+      .map((row, index) => ({
+        _id: row._id,
+        contracted_panel_id: row.contracted_panel_id,
+        advertiser_campaign: row.advertiser_campaign,
+        panel_split: row.panel_split,
+        panel_name: row.panel_name,
+        site: sites[index]?.site ?? row.site,
+        priority: row.priority,
+        size: row.size,
+        assigned_team: row.assigned_team,
+        completed_at: row.completed_at,
+        status: deriveStatus(row) as "completed" | "allocated",
+      }))
+      .sort((a, b) => (b.completed_at ?? 0) - (a.completed_at ?? 0));
+  },
+});
+
+/** Clears `assigned_team` on each work order currently assigned to `team`. */
 export const unallocateWorkOrders = mutation({
   args: { ids: v.array(v.id("workorders")), team: teamValidator },
   handler: async (ctx, args) => {
@@ -402,10 +758,9 @@ export const unallocateWorkOrders = mutation({
 
     for (const id of args.ids) {
       const workOrder = await ctx.db.get(id);
-      if (workOrder === null) continue;
+      if (workOrder === null || workOrder.assigned_team !== args.team) continue;
 
-      const assigned_team = workOrder.assigned_team.filter((t) => t !== args.team);
-
+      const assigned_team = undefined;
       await ctx.db.patch(id, {
         assigned_team,
         status_key: deriveWorkOrderStatus({ ...workOrder, assigned_team }),

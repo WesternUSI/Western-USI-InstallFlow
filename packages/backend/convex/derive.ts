@@ -25,7 +25,7 @@ export type WorkOrderStatus =
 interface WorkOrderStatusInput {
   current_status: "pending" | "in_progress" | "completed";
   missing_value: boolean;
-  assigned_team: string[];
+  assigned_team?: string;
 }
 
 /**
@@ -36,7 +36,7 @@ export function deriveWorkOrderStatus(workOrder: WorkOrderStatusInput): WorkOrde
   if (workOrder.current_status === "completed") return "completed";
   if (workOrder.missing_value) return "missing_site";
   if (workOrder.current_status === "in_progress") return "pending";
-  if (workOrder.assigned_team.length > 0) return "allocated";
+  if (workOrder.assigned_team !== undefined) return "allocated";
   return "not_allocated";
 }
 

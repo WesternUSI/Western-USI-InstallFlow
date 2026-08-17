@@ -81,12 +81,9 @@ function matchesSearch(workOrder: Doc<"workorders">, search: string): boolean {
 /**
  * One row per team for the Teams Management table, plus the headline totals.
  *
- * `assigned_team` has no index — it is an array, and allocation is written by
- * the native app one work order at a time — so this walks the table and tallies
- * in memory, the same way `workorders.counts` does.
- *
- * A work order allocated to two teams counts once for each of them but only
- * once in `totals`, so the tiles report work orders rather than assignments.
+ * `assigned_team` has no index — allocation is written by the native app one
+ * work order at a time — so this walks the table and tallies in memory, the
+ * same way `workorders.counts` does.
  */
 export const overview = query({
   args: {},
@@ -110,16 +107,14 @@ export const overview = query({
     const totals = { teams: TEAMS.length, allocated: 0, completed: 0, pending: 0 };
 
     for (const workOrder of workOrders) {
-      if (workOrder.assigned_team.length === 0) continue;
+      if (workOrder.assigned_team === undefined) continue;
 
       const status = deriveStatus(workOrder);
       if (!isTeamStatus(status)) continue;
 
       totals[status]++;
-      for (const team of workOrder.assigned_team) {
-        const row = byTeam.get(team);
-        if (row !== undefined) row[status]++;
-      }
+      const row = byTeam.get(workOrder.assigned_team);
+      if (row !== undefined) row[status]++;
     }
 
     for (const user of users) {
@@ -173,7 +168,7 @@ export const orders = query({
     const matches = all
       .filter(
         (workOrder) =>
-          workOrder.assigned_team.includes(args.team) &&
+          workOrder.assigned_team === args.team &&
           deriveStatus(workOrder) === args.status &&
           matchesSearch(workOrder, term),
       )

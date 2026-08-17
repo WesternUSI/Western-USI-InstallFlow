@@ -11,6 +11,7 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 
 import { AppThemeProvider } from "@/contexts/app-theme-context";
 import { SyncProvider } from "@/contexts/sync-context";
+import { TeamProvider } from "@/contexts/team-context";
 
 export const unstable_settings = {
   initialRouteName: "(tabs)",
@@ -48,7 +49,9 @@ export default function Layout() {
             <AppThemeProvider>
               <HeroUINativeProvider>
                 <SyncProvider>
-                  <StackLayout />
+                  <TeamProvider>
+                    <StackLayout />
+                  </TeamProvider>
                 </SyncProvider>
               </HeroUINativeProvider>
             </AppThemeProvider>

@@ -20,6 +20,12 @@
         {
           "appleSignIn": false
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera to take install completion photos."
+        }
       ]
     ],
     "experiments": {

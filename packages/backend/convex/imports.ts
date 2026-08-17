@@ -110,7 +110,7 @@ export const addWorkOrders = mutation({
         import_id: args.import_id,
         upload_date: importDoc.upload_date,
         current_status: "pending" as const,
-        assigned_team: [] as string[],
+        assigned_team: undefined,
         site_id: site?._id,
         missing_value: site === null,
         train_line: site?.area_progress,
