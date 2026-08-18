@@ -15,20 +15,17 @@ function EquipmentRow({ name, isLast }: { name: string; isLast: boolean }) {
   );
 }
 
-/**
- * Read-only — the team selection driving this list lives in TeamProvider
- * (checked on Allocate Installs), not on this screen.
- */
+/** Read-only — always scoped to the installer's primary team, never editable here. */
 export default function EquipmentNeededScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { isLoaded, primaryTeam, checkedTeams } = useTeamContext();
+  const { isLoaded, primaryTeam } = useTeamContext();
 
   const equipment = useQuery(
     api.workorders.equipmentNeeded,
-    checkedTeams.size === 0
+    primaryTeam === undefined
       ? "skip"
-      : { teams: [...checkedTeams] as ("Team 1" | "Team 2" | "Team 3" | "Team 4" | "Team 5")[] },
+      : { team: primaryTeam as "Team 1" | "Team 2" | "Team 3" | "Team 4" | "Team 5" },
   );
 
   const header = (

@@ -42,7 +42,7 @@ function AreaWorkOrderCard({ card, onComplete }: { card: WorkOrderCard; onComple
           )}
           {card.priority && (
             <View className="rounded-full bg-[#fee2e2] px-2.5 py-1">
-              <Text className="text-[10px] font-semibold text-[#dc2626]">Priority</Text>
+              <Text className="text-[10px] font-semibold text-[#dc2626]">Priority Pulldown</Text>
             </View>
           )}
         </View>
@@ -70,15 +70,15 @@ export default function AreaCompletedScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { area } = useLocalSearchParams<{ area: string }>();
-  const { isLoaded, checkedTeams } = useTeamContext();
+  const { isLoaded, primaryTeam } = useTeamContext();
 
   const rows = useQuery(
     api.workorders.listWorkOrdersForArea,
-    checkedTeams.size === 0 || !area
+    primaryTeam === undefined || !area
       ? "skip"
       : {
           train_line: area,
-          teams: [...checkedTeams] as ("Team 1" | "Team 2" | "Team 3" | "Team 4" | "Team 5")[],
+          team: primaryTeam as "Team 1" | "Team 2" | "Team 3" | "Team 4" | "Team 5",
         },
   );
 
@@ -109,7 +109,7 @@ export default function AreaCompletedScreen() {
     </View>
   );
 
-  const isLoading = !isLoaded || (checkedTeams.size > 0 && rows === undefined);
+  const isLoading = !isLoaded || (primaryTeam !== undefined && rows === undefined);
 
   return (
     <View className="flex-1 bg-[#f7f9fb]" style={{ paddingTop: insets.top }}>

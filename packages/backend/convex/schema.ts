@@ -39,19 +39,6 @@ export default defineSchema({
     // Set by the `session.created` Clerk webhook the first time this account
     // actually signs in, distinguishing "Invitation Sent" from "Active".
     last_sign_in_at: v.optional(v.number()),
-    // Teams merged in via the Allocate Installs "Save" action, on top of the
-    // admin-assigned primary `team`. Never set directly by an admin.
-    additional_teams: v.optional(
-      v.array(
-        v.union(
-          v.literal("Team 1"),
-          v.literal("Team 2"),
-          v.literal("Team 3"),
-          v.literal("Team 4"),
-          v.literal("Team 5"),
-        ),
-      ),
-    ),
   }).index("by_clerk_id", ["clerk_id"]),
 
   /** One physical advertising panel, sourced from the Go Site Database sheet. */

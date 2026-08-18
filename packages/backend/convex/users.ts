@@ -165,67 +165,6 @@ export const upsertUser = internalMutation({
   },
 });
 
-/**
- * Merges the caller's primary team into whichever other teams are checked on
- * the Allocate Installs screen.
- *
- * Scoped by primary `team`, not by current effective membership, so merges
- * never cascade transitively through someone else's earlier merge: every
- * user whose *admin-assigned* `team` matches the caller's gets their
- * `additional_teams` replaced with exactly the non-primary teams checked.
- * Saving with the primary as the only checked team clears `additional_teams`
- * again — this is how a merge gets undone (uncheck the extra team, Save).
- */
-export const mergeTeams = mutation({
-  args: {
-    checkedTeams: v.array(
-      v.union(
-        v.literal("Team 1"),
-        v.literal("Team 2"),
-        v.literal("Team 3"),
-        v.literal("Team 4"),
-        v.literal("Team 5"),
-      ),
-    ),
-  },
-  handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (identity === null) {
-      throw new Error("Not authenticated");
-    }
-
-    const actor = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerk_id", identity.subject))
-      .unique();
-
-    if (actor === null) {
-      throw new Error("User not found");
-    }
-    if (actor.team === undefined) {
-      throw new Error("Ask your admin to assign your primary team first");
-    }
-    if (!args.checkedTeams.includes(actor.team)) {
-      throw new Error("Your primary team cannot be unchecked");
-    }
-
-    const additionalTeams = [...new Set(args.checkedTeams.filter((t) => t !== actor.team))];
-
-    const teammates = await ctx.db
-      .query("users")
-      .filter((q) => q.eq(q.field("team"), actor.team))
-      .collect();
-
-    for (const teammate of teammates) {
-      await ctx.db.patch(teammate._id, {
-        additional_teams: additionalTeams.length > 0 ? additionalTeams : undefined,
-      });
-    }
-
-    return { updated: teammates.length, additionalTeams };
-  },
-});
-
 export const deleteUser = internalMutation({
   args: {
     clerk_id: v.string(),
@@ -511,8 +450,6 @@ export const applyAccountUpdate = internalMutation({
       name: args.name.trim() || undefined,
       personal_email: args.personal_email?.trim() || undefined,
       team: args.team,
-      // A changed primary team invalidates whatever was merged into the old one.
-      additional_teams: undefined,
     };
     if (args.email !== undefined) patch.email = args.email;
     if (args.password !== undefined) {

@@ -42,15 +42,15 @@ function AreaProgressRow({
 export default function WorkOrdersScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { checkedTeams } = useTeamContext();
+  const { primaryTeam } = useTeamContext();
 
   const [visibleCount, setVisibleCount] = React.useState(PAGE_SIZE);
 
   const areaProgress = useQuery(
-    api.workorders.byAreaForTeams,
-    checkedTeams.size === 0
+    api.workorders.byAreaForTeam,
+    primaryTeam === undefined
       ? "skip"
-      : { teams: [...checkedTeams] as ("Team 1" | "Team 2" | "Team 3" | "Team 4" | "Team 5")[] },
+      : { team: primaryTeam as "Team 1" | "Team 2" | "Team 3" | "Team 4" | "Team 5" },
   );
   const rows = areaProgress ?? [];
   const visibleRows = rows.slice(0, visibleCount);
@@ -78,14 +78,9 @@ export default function WorkOrdersScreen() {
               Manage and complete your orders
             </Text>
           </View>
-          {checkedTeams.size > 0 && (
+          {primaryTeam !== undefined && (
             <View className="mt-1.5 rounded-full bg-[#e8f0ff] px-3 py-1.5">
-              <Text className="text-[12px] font-bold text-[#2563eb]">
-                {`Team ${[...checkedTeams]
-                  .map((team) => team.replace("Team ", ""))
-                  .sort((a, b) => Number(a) - Number(b))
-                  .join(",")}`}
-              </Text>
+              <Text className="text-[12px] font-bold text-[#2563eb]">{primaryTeam}</Text>
             </View>
           )}
         </View>

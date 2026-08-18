@@ -5,7 +5,7 @@ import { useMutation, useQuery } from "convex/react";
 import { useRouter } from "expo-router";
 import { useToast } from "heroui-native";
 import React from "react";
-import { ActivityIndicator, Alert, Pressable, ScrollView, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { TEAMS as ALL_TEAMS, useTeamContext } from "@/contexts/team-context";
@@ -17,12 +17,6 @@ const ALL_ADVERTISERS = "All advertisers";
 const PAGE_SIZE = 5;
 
 type OpenDropdown = "team" | "area" | "advertiser" | null;
-
-function sameSet(a: string[], b: string[]): boolean {
-  if (a.length !== b.length) return false;
-  const bSet = new Set(b);
-  return a.every((value) => bSet.has(value));
-}
 
 /**
  * A dropdown that opens directly beneath its own input, as an overlay that
@@ -101,45 +95,6 @@ function OptionRow({
   );
 }
 
-function TeamCheckboxRow({
-  team,
-  checked,
-  locked,
-  onToggle,
-}: {
-  team: string;
-  checked: boolean;
-  locked: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="checkbox"
-      accessibilityState={{ checked, disabled: locked }}
-      onPress={locked ? undefined : onToggle}
-      className="flex-row items-center justify-between border-b border-[#f1f5f9] px-3.5 py-3"
-    >
-      <View className="flex-row items-center">
-        <Text className="text-[14px] font-semibold text-[#1a1c1e]">{team}</Text>
-        {locked && <Text className="ml-2 text-[12px] font-medium text-[#94a3b8]">Primary</Text>}
-      </View>
-      <View
-        className="items-center justify-center rounded-md"
-        style={{
-          width: 22,
-          height: 22,
-          borderWidth: 2,
-          borderColor: checked ? "#2563eb" : "#cbd5e1",
-          backgroundColor: checked ? "#2563eb" : "transparent",
-          opacity: locked ? 0.7 : 1,
-        }}
-      >
-        {checked && <Ionicons name="checkmark" size={14} color="#ffffff" />}
-      </View>
-    </Pressable>
-  );
-}
-
 function AreaProgressRow({
   line,
   completed,
@@ -214,7 +169,7 @@ function WorkOrderAllocateCard({
             )}
             {card.priority && (
               <View className="rounded-full bg-[#fee2e2] px-2.5 py-1">
-                <Text className="text-[10px] font-semibold text-[#dc2626]">Priority</Text>
+                <Text className="text-[10px] font-semibold text-[#dc2626]">Priority Pulldown</Text>
               </View>
             )}
           </View>
@@ -243,15 +198,23 @@ export default function AllocateInstallsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { isLoaded: userLoaded } = useCurrentUser();
-  const { primaryTeam, checkedTeams, toggleTeam, savedAdditionalTeams } = useTeamContext();
+  const { primaryTeam } = useTeamContext();
   const { toast } = useToast();
 
   const rows = useQuery(api.workorders.listActiveWorkOrders);
   const byArea = useQuery(api.workorders.byArea);
   const searchOptions = useQuery(api.workorders.searchOptions);
-  const mergeTeams = useMutation(api.users.mergeTeams);
   const allocateWorkOrders = useMutation(api.workorders.allocateWorkOrders);
   const unallocateWorkOrders = useMutation(api.workorders.unallocateWorkOrders);
+
+  // Which team this screen is currently acting on behalf of. Independent of
+  // `primaryTeam` on purpose — anyone can pick any team here and allocate or
+  // unallocate on its behalf, it's never saved, and it always starts back on
+  // the user's own primary team the next time this screen is opened.
+  const [selectedTeam, setSelectedTeam] = React.useState<string | undefined>(undefined);
+  React.useEffect(() => {
+    if (primaryTeam !== undefined) setSelectedTeam(primaryTeam);
+  }, [primaryTeam]);
 
   const [checkedOrderIds, setCheckedOrderIds] = React.useState<Set<string>>(new Set());
   const [visibleCount, setVisibleCount] = React.useState(PAGE_SIZE);
@@ -287,13 +250,13 @@ export default function AllocateInstallsScreen() {
         selectedArea === ALL_AREAS || (row.area_progress?.trim() || "Unassigned") === selectedArea;
       const advertiserMatches =
         selectedAdvertiser === ALL_ADVERTISERS || row.advertiser_campaign === selectedAdvertiser;
-      // Work orders already allocated to a team the user isn't currently
-      // checked into are none of their business — only unallocated rows and
-      // rows for checked teams show up.
-      const teamVisible = row.assigned_team === undefined || checkedTeams.has(row.assigned_team);
+      // Work orders already allocated to a team other than the one currently
+      // selected here are none of this view's business — only unallocated
+      // rows and rows for the selected team show up.
+      const teamVisible = row.assigned_team === undefined || row.assigned_team === selectedTeam;
       return areaMatches && advertiserMatches && teamVisible;
     });
-  }, [rows, selectedArea, selectedAdvertiser, checkedTeams]);
+  }, [rows, selectedArea, selectedAdvertiser, selectedTeam]);
 
   const cards = React.useMemo(() => listWorkOrderCards(filteredRows), [filteredRows]);
   const visibleCards = cards.slice(0, visibleCount);
@@ -358,54 +321,6 @@ export default function AllocateInstallsScreen() {
     });
   };
 
-  const currentAdditional = [...checkedTeams].filter((team) => team !== primaryTeam);
-  const hasUnsavedTeamChange = !sameSet(currentAdditional, savedAdditionalTeams);
-
-  // "Team 1,3,4" — just the numbers, comma-separated, ascending.
-  const teamSummary = `Team ${[...checkedTeams]
-    .map((team) => team.replace("Team ", ""))
-    .sort((a, b) => Number(a) - Number(b))
-    .join(",")}`;
-
-  const handleSaveTeams = () => {
-    const additionalList = currentAdditional.join(", ");
-    Alert.alert(
-      currentAdditional.length > 0 ? "Merge teams?" : "Remove merged teams?",
-      currentAdditional.length > 0
-        ? `Every member of ${primaryTeam} will also be on: ${additionalList}. This changes team membership app-wide.`
-        : `This removes the merged team(s) from every member of ${primaryTeam}, restoring them to ${primaryTeam} only.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Save",
-          onPress: async () => {
-            setBusy(true);
-            try {
-              await mergeTeams({ checkedTeams: [...checkedTeams] as (typeof ALL_TEAMS)[number][] });
-              setOpenDropdown(null);
-              toast.show({
-                label: "Teams saved",
-                description:
-                  currentAdditional.length > 0
-                    ? `Merged with ${additionalList}.`
-                    : `Back to ${primaryTeam} only.`,
-                variant: "success",
-              });
-            } catch (error) {
-              toast.show({
-                label: "Couldn't save",
-                description: error instanceof Error ? error.message : "Try again.",
-                variant: "danger",
-              });
-            } finally {
-              setBusy(false);
-            }
-          },
-        },
-      ],
-    );
-  };
-
   const handleShowAll = () => {
     setSelectedArea(ALL_AREAS);
     setSelectedAdvertiser(ALL_ADVERTISERS);
@@ -413,27 +328,16 @@ export default function AllocateInstallsScreen() {
   };
 
   const checkedCards = cards.filter((card) => checkedOrderIds.has(card.key));
-  const toAllocate = checkedCards.filter(
-    (card) => !card.assignedTeam.some((team) => checkedTeams.has(team)),
-  );
-  const toUnallocate = checkedCards.filter((card) =>
-    card.assignedTeam.some((team) => checkedTeams.has(team)),
-  );
+  const toAllocate = checkedCards.filter((card) => !card.assignedTeam.includes(selectedTeam ?? ""));
+  const toUnallocate = checkedCards.filter((card) => card.assignedTeam.includes(selectedTeam ?? ""));
 
   const runBulkAction = async (
     action: "allocate" | "unallocate",
     targetCards: WorkOrderCard[],
   ) => {
-    if (checkedTeams.size !== 1) {
-      Alert.alert(
-        "Select one team",
-        "You have more than one team checked. Check exactly one team to allocate or deallocate installs.",
-      );
-      return;
-    }
-    if (targetCards.length === 0) return;
+    if (selectedTeam === undefined || targetCards.length === 0) return;
 
-    const [team] = [...checkedTeams];
+    const team = selectedTeam;
     const ids = targetCards.flatMap((card) => card.workOrderIds) as Id<"workorders">[];
 
     setBusy(true);
@@ -477,30 +381,21 @@ export default function AllocateInstallsScreen() {
         <View className="mt-5 px-4">
           <DropdownField
             label="Select Team"
-            value={teamSummary}
+            value={selectedTeam ?? "Select a team"}
             open={openDropdown === "team"}
             onToggle={() => toggleDropdown("team")}
           >
             {ALL_TEAMS.map((team) => (
-              <TeamCheckboxRow
+              <OptionRow
                 key={team}
-                team={team}
-                checked={checkedTeams.has(team)}
-                locked={team === primaryTeam}
-                onToggle={() => toggleTeam(team)}
+                label={team === primaryTeam ? `${team} (Primary)` : team}
+                selected={team === selectedTeam}
+                onPress={() => {
+                  setSelectedTeam(team);
+                  setOpenDropdown(null);
+                }}
               />
             ))}
-            <View className="p-3">
-              <Pressable
-                accessibilityRole="button"
-                disabled={!hasUnsavedTeamChange || busy}
-                onPress={handleSaveTeams}
-                className="h-[44px] items-center justify-center rounded-xl"
-                style={{ backgroundColor: hasUnsavedTeamChange && !busy ? "#2563eb" : "#cbd5e1" }}
-              >
-                <Text className="text-[14px] font-bold text-white">Save</Text>
-              </Pressable>
-            </View>
           </DropdownField>
 
           <DropdownField
@@ -576,7 +471,7 @@ export default function AllocateInstallsScreen() {
                 key={card.key}
                 card={card}
                 checked={checkedOrderIds.has(card.key)}
-                isAllocated={card.assignedTeam.some((team) => checkedTeams.has(team))}
+                isAllocated={card.assignedTeam.includes(selectedTeam ?? "")}
                 onToggle={() => toggleOrder(card.key)}
               />
             ))

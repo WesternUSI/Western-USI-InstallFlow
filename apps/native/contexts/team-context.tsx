@@ -8,64 +8,24 @@ export type Team = (typeof TEAMS)[number];
 type TeamContextValue = {
   isLoaded: boolean;
   primaryTeam: string | undefined;
-  checkedTeams: Set<string>;
-  toggleTeam: (team: string) => void;
-  savedAdditionalTeams: string[];
 };
 
 const TeamContext = React.createContext<TeamContextValue | null>(null);
 
 /**
- * The team(s) the signed-in installer is currently acting as — their primary
- * team plus any merged in via Allocate Installs' "Save" action. Shared here
- * so Allocate Installs, Equipment Needed, and Complete Installs all read the
- * same live selection instead of each screen re-deriving (or re-picking) its
- * own copy.
+ * The signed-in installer's admin-assigned primary team — shared here so
+ * Equipment Needed, Complete Installs, and the home screen's Area Progress
+ * widget all read the same value without re-deriving it from `useCurrentUser`
+ * themselves. There is no merged/"additional teams" concept anymore: those
+ * three screens are always scoped to `primaryTeam` only. Allocate Installs is
+ * the one screen that can act on a *different* team — it keeps its own local,
+ * unsaved single-team selection instead of reading from this context.
  */
 export function TeamProvider({ children }: React.PropsWithChildren) {
   const { convexUser, isLoaded } = useCurrentUser();
   const primaryTeam = convexUser?.team;
-  const savedAdditionalTeams = React.useMemo(
-    () => convexUser?.additional_teams ?? [],
-    [convexUser?.additional_teams],
-  );
 
-  const [checkedTeams, setCheckedTeams] = React.useState<Set<string>>(new Set());
-
-  // Convex hands back a fresh `additional_teams` array on every reactive
-  // re-run of getCurrentUser, even when its contents haven't changed — so
-  // keying this effect on the array itself re-seeds (and silently discards
-  // any unsaved checkbox toggles) far more often than the saved value
-  // actually changes. A primitive string signature only changes on a real
-  // value change, not on reference churn.
-  const savedSignature =
-    primaryTeam === undefined ? undefined : [primaryTeam, ...savedAdditionalTeams].sort().join(",");
-
-  React.useEffect(() => {
-    if (savedSignature === undefined) return;
-    setCheckedTeams(new Set(savedSignature.split(",")));
-  }, [savedSignature]);
-
-  const toggleTeam = React.useCallback(
-    (team: string) => {
-      if (team === primaryTeam) return;
-      setCheckedTeams((current) => {
-        const next = new Set(current);
-        if (next.has(team)) {
-          next.delete(team);
-        } else {
-          next.add(team);
-        }
-        return next;
-      });
-    },
-    [primaryTeam],
-  );
-
-  const value = React.useMemo(
-    () => ({ isLoaded, primaryTeam, checkedTeams, toggleTeam, savedAdditionalTeams }),
-    [isLoaded, primaryTeam, checkedTeams, toggleTeam, savedAdditionalTeams],
-  );
+  const value = React.useMemo(() => ({ isLoaded, primaryTeam }), [isLoaded, primaryTeam]);
 
   return <TeamContext.Provider value={value}>{children}</TeamContext.Provider>;
 }

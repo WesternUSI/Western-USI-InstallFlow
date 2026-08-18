@@ -191,10 +191,7 @@ export const orders = query({
  * Moves a user into `team`.
  *
  * A user belongs to exactly one team, so this is both "Add Member" and
- * "Reassign" — whichever team they were in, they leave it. `additional_teams`
- * is cleared alongside: it holds teams merged into the *previous* primary team
- * by the native Allocate Installs screen, and carries no meaning once the
- * primary changes.
+ * "Reassign" — whichever team they were in, they leave it.
  */
 export const setMemberTeam = mutation({
   args: { user_id: v.id("users"), team: teamValidator },
@@ -206,7 +203,7 @@ export const setMemberTeam = mutation({
       throw new Error("User not found");
     }
 
-    await ctx.db.patch(args.user_id, { team: args.team, additional_teams: undefined });
+    await ctx.db.patch(args.user_id, { team: args.team });
   },
 });
 
@@ -221,6 +218,6 @@ export const removeMember = mutation({
       throw new Error("User not found");
     }
 
-    await ctx.db.patch(args.user_id, { team: undefined, additional_teams: undefined });
+    await ctx.db.patch(args.user_id, { team: undefined });
   },
 });

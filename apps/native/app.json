@@ -11,7 +11,10 @@
     "android": {
       "edgeToEdgeEnabled": true,
       "backgroundColor": "#8AAAFA",
-      "package": "com.slidingscale.usiinstaller"
+      "package": "com.slidingscale.usiinstaller",
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "plugins": [
       "expo-font",
@@ -34,6 +37,12 @@
     },
     "ios": {
       "bundleIdentifier": "com.slidingscale.usiinstaller"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "a265d00b-dc06-4936-ac08-025df51d8b76"
+      }
+    },
+    "owner": "western-usi"
   }
 }

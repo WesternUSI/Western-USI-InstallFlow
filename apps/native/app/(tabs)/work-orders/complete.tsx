@@ -133,7 +133,7 @@ function SiteCard({ card }: { card: WorkOrderCard }) {
           )}
           {card.priority && (
             <View className="rounded-full bg-[#fee2e2] px-2.5 py-1">
-              <Text className="text-[10px] font-semibold text-[#dc2626]">Priority</Text>
+              <Text className="text-[10px] font-semibold text-[#dc2626]">Priority Pulldown</Text>
             </View>
           )}
         </View>
@@ -153,14 +153,14 @@ function SiteCard({ card }: { card: WorkOrderCard }) {
 export default function CompleteInstallsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { isLoaded, primaryTeam, checkedTeams } = useTeamContext();
+  const { isLoaded, primaryTeam } = useTeamContext();
 
   const byArea = useQuery(api.workorders.byArea);
   const rows = useQuery(
     api.workorders.listAllocatedWorkOrders,
-    checkedTeams.size === 0
+    primaryTeam === undefined
       ? "skip"
-      : { teams: [...checkedTeams] as ("Team 1" | "Team 2" | "Team 3" | "Team 4" | "Team 5")[] },
+      : { team: primaryTeam as "Team 1" | "Team 2" | "Team 3" | "Team 4" | "Team 5" },
   );
 
   const [areaDropdownOpen, setAreaDropdownOpen] = React.useState(false);
@@ -198,14 +198,7 @@ export default function CompleteInstallsScreen() {
   const visibleCards = cards.slice(0, visibleCount);
   const canShowMore = visibleCount < cards.length;
 
-  // "Team 1,3,4" — just the numbers, comma-separated, ascending.
-  const teamSummary =
-    checkedTeams.size === 0
-      ? "No team"
-      : `Team ${[...checkedTeams]
-          .map((team) => team.replace("Team ", ""))
-          .sort((a, b) => Number(a) - Number(b))
-          .join(",")}`;
+  const teamSummary = primaryTeam ?? "No team";
 
   const isFiltered = selectedArea !== ALL_AREAS || visibleCount > PAGE_SIZE;
 
@@ -234,7 +227,7 @@ export default function CompleteInstallsScreen() {
     </View>
   );
 
-  const isLoading = !isLoaded || byArea === undefined || (checkedTeams.size > 0 && rows === undefined);
+  const isLoading = !isLoaded || byArea === undefined || (primaryTeam !== undefined && rows === undefined);
 
   if (isLoading) {
     return (

@@ -311,21 +311,21 @@ export const byArea = query({
 /**
  * The Work Orders home screen's "Area Progress" widget — unlike `byArea`
  * (which reports every work order regardless of team, for Allocate/Complete
- * Installs), this is scoped to the given teams' own allocated workload: both
- * the completed count and the total are of work orders assigned to one of
- * `teams`, so it reads as "how much of *my* work in this area is done."
+ * Installs), this is scoped to the caller's own primary team's allocated
+ * workload: both the completed count and the total are of work orders
+ * assigned to `team`, so it reads as "how much of *my* work in this area is
+ * done." Single-team only — there's no more merged/additional-team concept.
  */
-export const byAreaForTeams = query({
-  args: { teams: v.array(v.union(v.literal("Team 1"), v.literal("Team 2"), v.literal("Team 3"), v.literal("Team 4"), v.literal("Team 5"))) },
+export const byAreaForTeam = query({
+  args: { team: v.union(v.literal("Team 1"), v.literal("Team 2"), v.literal("Team 3"), v.literal("Team 4"), v.literal("Team 5")) },
   handler: async (ctx, args) => {
     await requireIdentity(ctx);
 
-    const teamSet = new Set<string>(args.teams);
     const all = await ctx.db.query("workorders").collect();
     const byLine = new Map<string, { total: number; completed: number }>();
 
     for (const workOrder of all) {
-      if (workOrder.assigned_team === undefined || !teamSet.has(workOrder.assigned_team)) continue;
+      if (workOrder.assigned_team !== args.team) continue;
 
       const line = workOrder.area_progress ?? "Unassigned";
       const entry = byLine.get(line) ?? { total: 0, completed: 0 };
@@ -603,23 +603,21 @@ export const allocateWorkOrders = mutation({
 
 /**
  * Consolidated equipment list for every allocated (not completed, not
- * pending, not missing-site) work order across the given teams. Each
- * equipment name appears once no matter how many matching work orders need
- * it — two work orders both needing a ladder still add just one "Ladder".
+ * pending, not missing-site) work order assigned to `team`. Each equipment
+ * name appears once no matter how many matching work orders need it — two
+ * work orders both needing a ladder still add just one "Ladder".
  */
 export const equipmentNeeded = query({
-  args: { teams: v.array(teamValidator) },
+  args: { team: teamValidator },
   handler: async (ctx, args) => {
     await requireIdentity(ctx);
 
-    const teamSet = new Set<string>(args.teams);
     const workOrders = await ctx.db.query("workorders").collect();
     const siteIds = new Set<Id<"sites">>();
 
     for (const workOrder of workOrders) {
       if (
-        workOrder.assigned_team !== undefined &&
-        teamSet.has(workOrder.assigned_team) &&
+        workOrder.assigned_team === args.team &&
         workOrder.site_id !== undefined &&
         deriveStatus(workOrder) === "allocated"
       ) {
@@ -644,19 +642,16 @@ export const equipmentNeeded = query({
 /**
  * The allocated (not completed, not pending, not missing-site) work order set
  * for Complete Installs. Scoped to the same "most recent upload" window as
- * `listActiveWorkOrders`, and further filtered to the given teams — Complete
- * Installs shows the union of whatever teams the installer currently has
- * checked, the same way Equipment Needed does.
+ * `listActiveWorkOrders`, and further filtered to `team` — Complete Installs
+ * shows only the caller's primary team's work, same as Equipment Needed.
  */
 export const listAllocatedWorkOrders = query({
-  args: { teams: v.array(teamValidator) },
+  args: { team: teamValidator },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (identity === null) {
       throw new Error("Not authenticated");
     }
-
-    const teamSet = new Set<string>(args.teams);
 
     const latest = await ctx.db.query("workorders").withIndex("by_upload_date").order("desc").first();
     if (!latest) {
@@ -670,10 +665,7 @@ export const listAllocatedWorkOrders = query({
       .collect();
 
     const allocated = rows.filter(
-      (row) =>
-        row.assigned_team !== undefined &&
-        teamSet.has(row.assigned_team) &&
-        deriveStatus(row) === "allocated",
+      (row) => row.assigned_team === args.team && deriveStatus(row) === "allocated",
     );
 
     const sites = await Promise.all(
@@ -701,26 +693,25 @@ export const listAllocatedWorkOrders = query({
 
 /**
  * Drill-down for one Area Progress row on the Work Orders home screen — every
- * one of the team's allocated-or-completed work orders for the tapped area
- * (scoped to the same team set the row's "x/y comp" count came from, via
- * `byAreaForTeams`), each tagged with its status so the screen can render
- * completed ones read-only and let the rest go through Complete Installation.
- * Not restricted to the latest upload, since `byAreaForTeams` isn't either.
+ * one of the caller's primary team's allocated-or-completed work orders for
+ * the tapped area (scoped the same way `byAreaForTeam`'s "x/y comp" count
+ * is), each tagged with its status so the screen can render completed ones
+ * read-only and let the rest go through Complete Installation. Not
+ * restricted to the latest upload, since `byAreaForTeam` isn't either.
  *
  * The `train_line` arg is named for the value it carries (whatever
- * `byAreaForTeams` labelled the row with) rather than the schema field it's
+ * `byAreaForTeam` labelled the row with) rather than the schema field it's
  * matched against — see that query's comment for why it reads `area_progress`.
  */
 export const listWorkOrdersForArea = query({
-  args: { train_line: v.string(), teams: v.array(teamValidator) },
+  args: { train_line: v.string(), team: teamValidator },
   handler: async (ctx, args) => {
     await requireIdentity(ctx);
 
-    const teamSet = new Set<string>(args.teams);
     const all = await ctx.db.query("workorders").collect();
     const rows = all.filter((row) => {
       if ((row.area_progress ?? "Unassigned") !== args.train_line) return false;
-      if (row.assigned_team === undefined || !teamSet.has(row.assigned_team)) return false;
+      if (row.assigned_team !== args.team) return false;
       const status = deriveStatus(row);
       return status === "completed" || status === "allocated";
     });
