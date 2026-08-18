@@ -24,13 +24,13 @@ export function TableToolbar({
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
       <h2 className="text-base font-bold text-gray-900">{title}</h2>
-      <div className="flex items-center gap-3">
+      <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto">
         <SearchInput
           value={search}
           placeholder={placeholder}
           options={searchOptions}
           onChange={onSearchChange}
-          className="w-80"
+          className="w-full sm:w-80"
         />
         {action}
       </div>

@@ -1,5 +1,4 @@
 import { api } from "@usi-installer/backend/convex/_generated/api";
-import type { Id } from "@usi-installer/backend/convex/_generated/dataModel";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { Button } from "@usi-installer/ui/components/button";
 import {
@@ -10,14 +9,12 @@ import {
   TableHeader,
   TableRow,
 } from "@usi-installer/ui/components/table";
-import { useMutation, useQuery } from "convex/react";
+import { useQuery } from "convex/react";
 import { UserCheck, UserPlus, UserX, Users } from "lucide-react";
 import { useMemo, useState } from "react";
-import { toast } from "sonner";
 
-import type { Credentials } from "@/components/credentials-dialog";
-import { CredentialsDialog } from "@/components/credentials-dialog";
 import { FilterSelect } from "@/components/filter-select";
+import { InviteInstallerDialog } from "@/components/invite-installer-dialog";
 import { PageHeader } from "@/components/page-header";
 import { SearchInput } from "@/components/search-input";
 import { StatTiles } from "@/components/stat-tiles";
@@ -47,12 +44,10 @@ function UsersPage() {
   const [team, setTeam] = useState(ALL_TEAMS);
   const [status, setStatus] = useState(ALL_STATUSES);
   const [page, setPage] = useState(1);
-  const [credentials, setCredentials] = useState<Credentials | null>(null);
-  const [credentialsTitle, setCredentialsTitle] = useState("");
+  const [inviteOpen, setInviteOpen] = useState(false);
 
   const overview = useQuery(api.users.overview);
   const users = useQuery(api.users.list);
-  const resendCredentials = useMutation(api.users.resendCredentials);
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -74,16 +69,6 @@ function UsersPage() {
 
   function resetPage() {
     setPage(1);
-  }
-
-  async function resend(userId: Id<"users">, name: string) {
-    try {
-      const result = await resendCredentials({ user_id: userId });
-      setCredentialsTitle(`Credentials for ${name}`);
-      setCredentials(result);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not resend those credentials");
-    }
   }
 
   return (
@@ -129,7 +114,10 @@ function UsersPage() {
                 credentials for app access.
               </p>
             </div>
-            <Button className="h-[38px] gap-1.5 rounded-lg" render={<Link to="/users/invite" />}>
+            <Button
+              className="h-[38px] gap-1.5 rounded-lg"
+              onClick={() => setInviteOpen(true)}
+            >
               <UserPlus className="size-4" />
               Invite Installer
             </Button>
@@ -176,9 +164,10 @@ function UsersPage() {
             />
           </div>
 
-          {/* Fixed layout with explicit widths so the row always fits the card
-              and long values truncate instead of forcing a sideways scroll. */}
-          <Table className="table-fixed">
+          {/* Fixed layout with explicit widths so long values truncate
+              instead of stretching a column; min-width keeps columns
+              readable on narrow screens, scrolling sideways instead. */}
+          <Table className="min-w-[720px] table-fixed">
             <TableHeader>
               <TableRow className="border-slate-200 bg-gray-50 hover:bg-gray-50">
                 {COLUMNS.map((column) => (
@@ -225,23 +214,13 @@ function UsersPage() {
                     </span>
                   </TableCell>
                   <TableCell className="px-4 py-4">
-                    {user.status === "active" ? (
-                      <Link
-                        to="/users/$userId"
-                        params={{ userId: user._id }}
-                        className="text-sm font-medium text-blue-600 hover:text-blue-700"
-                      >
-                        View Details
-                      </Link>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => void resend(user._id, user.name)}
-                        className="text-sm font-medium text-blue-600 hover:text-blue-700"
-                      >
-                        Resend Invite
-                      </button>
-                    )}
+                    <Link
+                      to="/users/$userId"
+                      params={{ userId: user._id }}
+                      className="text-sm font-medium text-blue-600 hover:text-blue-700"
+                    >
+                      View Details
+                    </Link>
                   </TableCell>
                 </TableRow>
               ))}
@@ -261,15 +240,7 @@ function UsersPage() {
         </section>
       </div>
 
-      <CredentialsDialog
-        open={credentials !== null}
-        title={credentialsTitle}
-        description="Share these credentials with the installer directly — they are not emailed automatically."
-        credentials={credentials}
-        onOpenChange={(open) => {
-          if (!open) setCredentials(null);
-        }}
-      />
+      <InviteInstallerDialog open={inviteOpen} onOpenChange={setInviteOpen} />
     </>
   );
 }

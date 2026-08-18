@@ -1,15 +1,7 @@
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
-import {
-  type MutationCtx,
-  type QueryCtx,
-  action,
-  internalMutation,
-  internalQuery,
-  mutation,
-  query,
-} from "./_generated/server";
+import { action, internalMutation, internalQuery, query } from "./_generated/server";
 import { teamValidator } from "./teams";
 
 export type UserStatus = "active" | "invitation_sent" | "idle";
@@ -24,24 +16,6 @@ export function deriveUserStatus(user: Pick<Doc<"users">, "team" | "last_sign_in
   if (user.team === undefined) return "idle";
   if (user.last_sign_in_at === undefined) return "invitation_sent";
   return "active";
-}
-
-async function requireAdmin(ctx: QueryCtx | MutationCtx) {
-  const identity = await ctx.auth.getUserIdentity();
-  if (identity === null) {
-    throw new Error("Not authenticated");
-  }
-
-  const user = await ctx.db
-    .query("users")
-    .withIndex("by_clerk_id", (q) => q.eq("clerk_id", identity.subject))
-    .unique();
-
-  if (user === null || user.role !== "admin") {
-    throw new Error("Not authorized");
-  }
-
-  return user;
 }
 
 /**
@@ -377,30 +351,63 @@ export const inviteInstaller = action({
       password,
     });
 
+    await ctx.scheduler.runAfter(0, internal.email.sendInviteEmail, {
+      to: args.work_email,
+      name: fullName,
+      password,
+    });
+
     return { email: args.work_email, password };
   },
 });
 
-/**
- * Re-shows an existing account's stored credentials and marks them as sent
- * again. No email goes out yet — the admin reads them off the confirmation
- * dialog and hands them over directly.
- */
-export const resendCredentials = mutation({
+export const getCredentialsForResend = internalQuery({
   args: { user_id: v.id("users") },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
-
     const user = await ctx.db.get(args.user_id);
-    if (user === null) {
+    if (user === null) return null;
+    return { name: user.name ?? user.email, email: user.email, password: user.password };
+  },
+});
+
+export const markCredentialsResent = internalMutation({
+  args: { user_id: v.id("users") },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.user_id, { invited_at: Date.now() });
+  },
+});
+
+/**
+ * Re-shows an existing account's stored credentials for the admin to hand
+ * over, and — now that Resend is configured — emails them to the account's
+ * login address too, the same branded message a fresh invite gets.
+ */
+export const resendCredentials = action({
+  args: { user_id: v.id("users") },
+  handler: async (ctx, args): Promise<{ email: string; password: string }> => {
+    const caller = await ctx.runQuery(api.users.getCurrentUser, {});
+    if (!caller || caller.role !== "admin") {
+      throw new Error("Not authorized");
+    }
+
+    const record = await ctx.runQuery(internal.users.getCredentialsForResend, {
+      user_id: args.user_id,
+    });
+    if (record === null) {
       throw new Error("User not found");
     }
-    if (user.password === undefined) {
+    if (record.password === undefined) {
       throw new Error("This account has no password on record — use Reset Password instead.");
     }
 
-    await ctx.db.patch(args.user_id, { invited_at: Date.now() });
-    return { email: user.email, password: user.password };
+    await ctx.runMutation(internal.users.markCredentialsResent, { user_id: args.user_id });
+    await ctx.scheduler.runAfter(0, internal.email.sendInviteEmail, {
+      to: record.email,
+      name: record.name,
+      password: record.password,
+    });
+
+    return { email: record.email, password: record.password };
   },
 });
 
@@ -448,9 +455,12 @@ export const applyAccountUpdate = internalMutation({
   handler: async (ctx, args) => {
     const patch: Record<string, unknown> = {
       name: args.name.trim() || undefined,
-      personal_email: args.personal_email?.trim() || undefined,
       team: args.team,
     };
+    // Undefined means the caller's form has no personal-email field (the
+    // User Details page no longer collects it) — leave whatever is on
+    // record untouched rather than wiping it out.
+    if (args.personal_email !== undefined) patch.personal_email = args.personal_email.trim() || undefined;
     if (args.email !== undefined) patch.email = args.email;
     if (args.password !== undefined) {
       patch.password = args.password;

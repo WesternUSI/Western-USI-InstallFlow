@@ -145,7 +145,7 @@ export function AddMembersDialog({
         </div>
 
         <div className="max-h-80 overflow-y-auto border-y border-slate-200">
-          <Table className="table-fixed">
+          <Table className="min-w-[600px] table-fixed">
             <TableHeader>
               <TableRow className="border-slate-200 bg-gray-50 hover:bg-gray-50">
                 {COLUMNS.map((column) => (

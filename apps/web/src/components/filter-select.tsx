@@ -32,7 +32,7 @@ export function FilterSelect({ label, value, options, onChange, className }: Fil
         {label}
       </span>
       <Select value={value} onValueChange={(next) => onChange(next as string)}>
-        <SelectTrigger className="h-[38px] w-48 rounded-lg border-slate-300 bg-white px-3 text-sm text-slate-800">
+        <SelectTrigger className="h-[38px] w-full rounded-lg border-slate-300 bg-white px-3 text-sm text-slate-800 sm:w-48">
           <SelectValue>{selected?.label ?? ""}</SelectValue>
         </SelectTrigger>
         <SelectContent

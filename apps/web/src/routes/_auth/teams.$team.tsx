@@ -91,7 +91,7 @@ function OrderTab({ team, status }: { team: Team; status: "completed" | "allocat
 
   return (
     <>
-      <Table className="table-fixed">
+      <Table className="min-w-[880px] table-fixed">
         <TableHeader>
           <TableRow className="border-slate-200 bg-gray-50 hover:bg-gray-50">
             {ORDER_COLUMNS.map((column) => (
@@ -274,7 +274,11 @@ function TeamDetailPage() {
         />
 
         <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
-          <Tabs value={tab} onValueChange={(value) => setTab(value as TabValue)} className="gap-0">
+          <Tabs
+            value={tab}
+            onValueChange={(value) => setTab(value as TabValue)}
+            className="gap-0 overflow-x-auto"
+          >
             <TabsList
               variant="line"
               className="h-auto gap-10 border-b border-gray-200 bg-gray-50/50 px-6 pt-4 pb-0"
@@ -307,7 +311,7 @@ function TeamDetailPage() {
                 </Button>
               </div>
 
-              <Table className="table-fixed">
+              <Table className="min-w-[680px] table-fixed">
                 <TableHeader>
                   <TableRow className="border-slate-200 bg-gray-50 hover:bg-gray-50">
                     {MEMBER_COLUMNS.map((column) => (

@@ -63,7 +63,7 @@ function MemberRows({ members }: { members: Member[] }) {
   }
 
   return (
-    <Table className="table-fixed">
+    <Table className="min-w-[560px] table-fixed">
       <TableHeader>
         <TableRow className="border-slate-200 bg-white hover:bg-white">
           {MEMBER_COLUMNS.map((column) => (
@@ -173,37 +173,41 @@ function TeamsPage() {
               options={[]}
               placeholder="Search by team name…"
               onChange={setSearch}
-              className="min-w-56 flex-1"
+              className="w-full sm:min-w-56 sm:flex-1"
             />
 
-            <FilterSelect
-              label="Order Status"
-              value={orderStatus}
-              options={[
-                { value: ALL_STATUSES, label: "All" },
-                { value: "allocated", label: "Allocated" },
-                { value: "completed", label: "Completed" },
-                { value: "pending", label: "Pending" },
-              ]}
-              onChange={setOrderStatus}
-            />
+            <div className="flex w-full gap-3 sm:w-auto">
+              <FilterSelect
+                label="Order Status"
+                value={orderStatus}
+                options={[
+                  { value: ALL_STATUSES, label: "All" },
+                  { value: "allocated", label: "Allocated" },
+                  { value: "completed", label: "Completed" },
+                  { value: "pending", label: "Pending" },
+                ]}
+                onChange={setOrderStatus}
+                className="flex-1 sm:flex-none"
+              />
 
-            {/* Teams are a fixed set of five, so this cannot create one — it is
-                kept visible because the design calls for it. */}
-            <Tooltip>
-              <TooltipTrigger render={<span tabIndex={0} />}>
-                <Button disabled className="h-[38px] gap-1.5 rounded-lg">
-                  <Plus className="size-4" />
-                  Add Team
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Teams are fixed (Team 1–5)</TooltipContent>
-            </Tooltip>
+              {/* Teams are a fixed set of five, so this cannot create one — it
+                  is kept visible because the design calls for it. */}
+              <Tooltip>
+                <TooltipTrigger render={<span tabIndex={0} className="shrink-0" />}>
+                  <Button disabled className="h-[38px] w-full gap-1.5 rounded-lg sm:w-auto">
+                    <Plus className="size-4" />
+                    Add Team
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Teams are fixed (Team 1–5)</TooltipContent>
+              </Tooltip>
+            </div>
           </div>
 
-          {/* Fixed layout with explicit widths so the row always fits the card
-              and long values truncate instead of forcing a sideways scroll. */}
-          <Table className="table-fixed">
+          {/* Fixed layout with explicit widths so long values truncate
+              instead of stretching a column; min-width keeps columns
+              readable on narrow screens, scrolling sideways instead. */}
+          <Table className="min-w-[760px] table-fixed">
             <TableHeader>
               <TableRow className="border-slate-200 bg-gray-50 hover:bg-gray-50">
                 {COLUMNS.map((column) => (

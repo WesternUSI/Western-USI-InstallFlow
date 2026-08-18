@@ -10,7 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@usi-installer/ui/components/select";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useAction, useQuery } from "convex/react";
 import { ChevronLeft, Dices, MailCheck, ShieldAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -30,7 +30,6 @@ const NO_TEAM = "__none__";
 
 interface FormState {
   name: string;
-  personalEmail: string;
   workEmail: string;
   password: string;
   team: string;
@@ -61,12 +60,11 @@ function UserDetailPage() {
 
   const user = useQuery(api.users.get, { id });
   const updateAccount = useAction(api.users.updateAccount);
-  const resendCredentials = useMutation(api.users.resendCredentials);
+  const resendCredentials = useAction(api.users.resendCredentials);
   const removeUser = useAction(api.users.removeUser);
 
   const [form, setForm] = useState<FormState>({
     name: "",
-    personalEmail: "",
     workEmail: "",
     password: "",
     team: NO_TEAM,
@@ -78,12 +76,12 @@ function UserDetailPage() {
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [credentials, setCredentials] = useState<Credentials | null>(null);
   const [credentialsTitle, setCredentialsTitle] = useState("");
+  const [credentialsDescription, setCredentialsDescription] = useState("");
 
   useEffect(() => {
     if (user == null) return;
     setForm({
       name: user.name,
-      personalEmail: user.personal_email ?? "",
       workEmail: user.email,
       password: user.password ?? "",
       team: user.team ?? NO_TEAM,
@@ -114,7 +112,6 @@ function UserDetailPage() {
       const result = await updateAccount({
         user_id: id,
         name: form.name.trim(),
-        personal_email: form.personalEmail.trim() || undefined,
         team: form.team === NO_TEAM ? undefined : (form.team as Team),
         work_email: workEmail,
         password: passwordChanged ? password : undefined,
@@ -124,6 +121,9 @@ function UserDetailPage() {
         // A changed password means the old one no longer works, so the new
         // pair is shown before leaving the page rather than saved silently.
         setCredentialsTitle("Password Updated");
+        setCredentialsDescription(
+          "Share these credentials with the installer directly — this change was not emailed automatically.",
+        );
         setCredentials(result);
       } else {
         toast.success("Account details saved");
@@ -141,6 +141,7 @@ function UserDetailPage() {
     try {
       const result = await resendCredentials({ user_id: id });
       setCredentialsTitle("Credentials for " + user.name);
+      setCredentialsDescription(`These credentials were emailed to ${result.email}.`);
       setCredentials(result);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not send those credentials");
@@ -199,15 +200,6 @@ function UserDetailPage() {
                 <Input
                   value={form.name}
                   onChange={(event) => setForm({ ...form, name: event.target.value })}
-                  className="h-[38px] rounded-lg text-sm"
-                />
-              </Field>
-
-              <Field label="Personal Email">
-                <Input
-                  value={form.personalEmail}
-                  onChange={(event) => setForm({ ...form, personalEmail: event.target.value })}
-                  placeholder="john.smith@gmail.com"
                   className="h-[38px] rounded-lg text-sm"
                 />
               </Field>
@@ -347,7 +339,7 @@ function UserDetailPage() {
       <CredentialsDialog
         open={credentials !== null}
         title={credentialsTitle}
-        description="Share these credentials with the installer directly — they are not emailed automatically."
+        description={credentialsDescription}
         credentials={credentials}
         onOpenChange={(open) => {
           if (open) return;

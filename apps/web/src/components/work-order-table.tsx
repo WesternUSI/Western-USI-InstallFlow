@@ -99,7 +99,7 @@ export function WorkOrderTable({
       <Tabs
         value={status}
         onValueChange={(value) => onStatusChange(value as WorkOrderStatusTab)}
-        className="gap-0"
+        className="gap-0 overflow-x-auto"
       >
         <TabsList
           variant="line"
@@ -117,9 +117,10 @@ export function WorkOrderTable({
         </TabsList>
       </Tabs>
 
-      {/* Fixed layout with explicit widths so the row always fits the card and
-          long values truncate instead of forcing a sideways scroll. */}
-      <Table className="table-fixed">
+      {/* Fixed layout with explicit widths so long values truncate instead
+          of stretching a column; min-width keeps columns readable on
+          narrow screens, scrolling sideways instead. */}
+      <Table className="min-w-[880px] table-fixed">
         <TableHeader>
           <TableRow className="border-slate-200 bg-gray-50 hover:bg-gray-50">
             {COLUMNS.map((column) => (
