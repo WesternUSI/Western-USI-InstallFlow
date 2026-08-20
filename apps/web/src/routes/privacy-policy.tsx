@@ -3,7 +3,6 @@ import { createFileRoute } from "@tanstack/react-router";
 export const Route = createFileRoute("/privacy-policy")({
   component: RouteComponent,
 });
-
 function RouteComponent() {
   return (
     <div className="mx-auto max-w-2xl px-6 py-12 text-[#1a1c1e]">
@@ -56,7 +55,6 @@ function RouteComponent() {
         meet business record-keeping requirements. You can request deletion of your account data
         by contacting us below.
       </p>
-
       <h2 className="mt-8 text-lg font-bold">Contact Us</h2>
       <p className="mt-2 text-sm leading-6">
         If you have questions about this Privacy Policy or your data, contact us at{" "}
