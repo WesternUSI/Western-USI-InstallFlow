@@ -123,9 +123,9 @@ export function SiteImageField({
           <p className="mt-1.5 text-xs text-slate-400">JPG, PNG up to 10MB</p>
         </div>
       ) : (
-        <div className="mt-4">
-          <div className="relative overflow-hidden rounded-xl border border-slate-200">
-            <img src={current.url} alt="Site" className="h-72 w-full object-cover" />
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+          <div className="relative aspect-square max-h-72 w-full overflow-hidden rounded-xl border border-slate-200 bg-slate-50 sm:w-1/2">
+            <img src={current.url} alt="Site" className="size-full object-contain" />
 
             <button
               type="button"
@@ -159,7 +159,7 @@ export function SiteImageField({
             )}
           </div>
 
-          <div className="mt-3 flex flex-wrap gap-3">
+          <div className="grid max-h-72 w-fit auto-rows-min grid-cols-2 content-start gap-3 overflow-y-auto p-0.5">
             {images.map((image, thumbIndex) => (
               <div key={image.storage_id} className="group relative">
                 <button
@@ -167,13 +167,13 @@ export function SiteImageField({
                   aria-label={`Show image ${thumbIndex + 1}`}
                   onClick={() => setIndex(thumbIndex)}
                   className={cn(
-                    "size-16 overflow-hidden rounded-lg border transition-colors",
+                    "size-20 overflow-hidden rounded-lg border bg-slate-50 transition-colors",
                     thumbIndex === index
                       ? "border-blue-500 ring-2 ring-blue-200"
                       : "border-slate-200 hover:border-slate-300",
                   )}
                 >
-                  <img src={image.url} alt="" className="size-full object-cover" />
+                  <img src={image.url} alt="" className="size-full object-contain" />
                 </button>
                 <button
                   type="button"
@@ -192,7 +192,7 @@ export function SiteImageField({
               aria-label="Add more images"
               disabled={isUploading}
               onClick={() => addRef.current?.click()}
-              className="flex size-16 items-center justify-center rounded-lg border border-dashed border-slate-300 text-blue-500 transition-colors hover:border-blue-400 hover:bg-blue-50/60"
+              className="flex size-20 items-center justify-center rounded-lg border border-dashed border-slate-300 text-blue-500 transition-colors hover:border-blue-400 hover:bg-blue-50/60"
             >
               <Plus className="size-5" />
             </button>

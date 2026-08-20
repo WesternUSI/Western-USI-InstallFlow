@@ -1,16 +1,15 @@
-import { Bell, Menu } from "lucide-react";
+import { Menu } from "lucide-react";
 
+import { NotificationBell } from "@/components/notification-bell";
 import { useSidebar } from "@/lib/sidebar-context";
 
 interface PageHeaderProps {
   title: string;
   description: string;
-  /** Unread count on the bell. Hidden when zero. */
-  notifications?: number;
 }
 
 /** Title block shared by every admin screen, with the notification bell. */
-export function PageHeader({ title, description, notifications = 0 }: PageHeaderProps) {
+export function PageHeader({ title, description }: PageHeaderProps) {
   const { toggle } = useSidebar();
 
   return (
@@ -30,18 +29,7 @@ export function PageHeader({ title, description, notifications = 0 }: PageHeader
         </div>
       </div>
 
-      <button
-        type="button"
-        aria-label="Notifications"
-        className="relative size-10 shrink-0 rounded-full p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
-      >
-        <Bell className="size-6" />
-        {notifications > 0 && (
-          <span className="absolute top-1 right-1 flex size-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white ring-2 ring-white">
-            {notifications}
-          </span>
-        )}
-      </button>
+      <NotificationBell />
     </div>
   );
 }

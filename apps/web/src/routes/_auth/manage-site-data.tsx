@@ -194,11 +194,11 @@ function ManageSiteDataPage() {
           <Tabs
             value={status}
             onValueChange={(value) => setStatus(value as SiteDetailStatusTab)}
-            className="gap-0 overflow-x-auto"
+            className="gap-0 overflow-x-auto overflow-y-hidden"
           >
             <TabsList
               variant="line"
-              className="h-auto gap-10 border-b border-gray-200 bg-gray-50/50 px-6 pt-4 pb-0"
+              className="h-auto w-full gap-10 border-b border-gray-200 bg-gray-50/50 px-6 pt-4 pb-0"
             >
               {SITE_DETAIL_STATUS_TABS.map((tab) => (
                 <TabsTrigger

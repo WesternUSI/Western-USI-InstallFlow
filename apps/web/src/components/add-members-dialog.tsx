@@ -28,6 +28,7 @@ export interface MemberOption {
   name: string;
   email: string;
   team?: string;
+  role?: "installer" | "office_staff" | "admin";
 }
 
 interface AddMembersDialogProps {
@@ -88,6 +89,7 @@ export function AddMembersDialog({
     const needle = search.trim().toLowerCase();
 
     return (members ?? [])
+      .filter((member) => member.role !== "admin")
       .filter((member) => member.team !== team)
       .filter((member) => {
         if (currentTeam === ALL_TEAMS) return true;

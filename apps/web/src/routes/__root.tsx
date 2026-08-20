@@ -47,7 +47,23 @@ function RootComponent() {
         {/* The admin panel supplies its own sidebar chrome; only the signed-out
             routes fall back to the plain header. */}
         <Outlet />
-        <Toaster richColors />
+        <Toaster
+          position="bottom-right"
+          toastOptions={{
+            classNames: {
+              toast:
+                "rounded-xl! border! border-slate-200! bg-white! p-4! shadow-lg! text-sm! text-slate-900!",
+              title: "font-semibold! text-slate-900!",
+              description: "text-slate-500!",
+              actionButton: "bg-blue-600! text-white!",
+              cancelButton: "bg-slate-100! text-slate-600!",
+              success: "border-l-4! border-l-green-500! [&>[data-icon]]:text-green-600!",
+              error: "border-l-4! border-l-red-500! [&>[data-icon]]:text-red-600!",
+              warning: "border-l-4! border-l-amber-500! [&>[data-icon]]:text-amber-600!",
+              info: "border-l-4! border-l-blue-500! [&>[data-icon]]:text-blue-600!",
+            },
+          }}
+        />
       </ThemeProvider>
       <TanStackRouterDevtools position="bottom-left" />
     </>

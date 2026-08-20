@@ -102,6 +102,15 @@ function EditSitePage() {
     }
   }
 
+  async function handleRemoveImage(storageId: Id<"_storage">) {
+    try {
+      await removeSiteImage({ id: siteId as Id<"sites">, storage_id: storageId });
+      toast.success("Image removed");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not remove that image");
+    }
+  }
+
   async function handleSave() {
     const quantity = form.quantity.trim() === "" ? undefined : Number(form.quantity);
     if (quantity !== undefined && Number.isNaN(quantity)) {
@@ -157,9 +166,7 @@ function EditSitePage() {
                   images={site.images}
                   isUploading={isUploading}
                   onFilesSelected={(files) => void handleImages(files)}
-                  onRemove={(storageId) =>
-                    void removeSiteImage({ id: siteId as Id<"sites">, storage_id: storageId })
-                  }
+                  onRemove={(storageId) => void handleRemoveImage(storageId)}
                 />
               </div>
 

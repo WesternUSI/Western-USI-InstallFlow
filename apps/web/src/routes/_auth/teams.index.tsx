@@ -20,7 +20,6 @@ import { useMemo, useState } from "react";
 
 import { FilterSelect } from "@/components/filter-select";
 import { PageHeader } from "@/components/page-header";
-import { PasswordCell } from "@/components/password-cell";
 import { SearchInput } from "@/components/search-input";
 import { StatTiles } from "@/components/stat-tiles";
 import { TablePagination } from "@/components/table-pagination";
@@ -43,16 +42,14 @@ const COLUMNS = [
 ] as const;
 
 const MEMBER_COLUMNS = [
-  { label: "Team Member", width: "w-[34%]" },
-  { label: "Email Address", width: "w-[40%]" },
-  { label: "Password", width: "w-[26%]" },
+  { label: "Team Member", width: "w-[45%]" },
+  { label: "Email Address", width: "w-[55%]" },
 ] as const;
 
 interface Member {
   _id: string;
   name: string;
   email: string;
-  password?: string;
   team?: string;
 }
 
@@ -63,7 +60,7 @@ function MemberRows({ members }: { members: Member[] }) {
   }
 
   return (
-    <Table className="min-w-[560px] table-fixed">
+    <Table className="min-w-[420px] table-fixed">
       <TableHeader>
         <TableRow className="border-slate-200 bg-white hover:bg-white">
           {MEMBER_COLUMNS.map((column) => (
@@ -84,9 +81,6 @@ function MemberRows({ members }: { members: Member[] }) {
             </TableCell>
             <TableCell className="truncate px-4 py-3 text-sm text-slate-500">
               {member.email}
-            </TableCell>
-            <TableCell className="px-4 py-3">
-              <PasswordCell password={member.password} />
             </TableCell>
           </TableRow>
         ))}

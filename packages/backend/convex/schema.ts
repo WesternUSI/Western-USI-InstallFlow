@@ -25,13 +25,6 @@ export default defineSchema({
         v.literal("Team 5"),
       ),
     ),
-    // Set by the admin when the account is invited or created, so the Teams
-    // and Users screens can show it back to whoever has to hand it over.
-    // Clerk only keeps a hash, so it cannot be read back from there.
-    password: v.optional(v.string()),
-    // Free-text contact email, separate from the Clerk login email. Never sent
-    // to Clerk.
-    personal_email: v.optional(v.string()),
     // Set (and refreshed) whenever an admin reveals this account's credentials
     // via Invite / Resend Invite / Send Updated Credentials. Stands in for a
     // real invite-acceptance signal until an email provider is wired up.
@@ -152,4 +145,17 @@ export default defineSchema({
     // Lets the Duration filter run as an index range, on its own or combined
     // with a status tab.
     .index("by_status_upload", ["status_key", "upload_date"]),
+
+  /**
+   * Shown in the admin panel's notification bell. One shared inbox — "read"
+   * isn't per-admin — which is deliberately simple for the small office-staff
+   * team this panel serves.
+   */
+  notifications: defineTable({
+    type: v.literal("order_completed"),
+    title: v.string(),
+    body: v.string(),
+    work_order_id: v.optional(v.id("workorders")),
+    read: v.boolean(),
+  }).index("by_read", ["read"]),
 });

@@ -44,7 +44,6 @@ function toMember(user: Doc<"users">) {
     clerk_id: user.clerk_id,
     name: user.name ?? user.email,
     email: user.email,
-    password: user.password,
     role: user.role,
     team: user.team,
   };

@@ -32,7 +32,6 @@ import { toast } from "sonner";
 
 import { AddMembersDialog } from "@/components/add-members-dialog";
 import { PageHeader } from "@/components/page-header";
-import { PasswordCell } from "@/components/password-cell";
 import { StatTiles } from "@/components/stat-tiles";
 import { TablePagination } from "@/components/table-pagination";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
@@ -70,10 +69,9 @@ const ORDER_COLUMNS = [
 ] as const;
 
 const MEMBER_COLUMNS = [
-  { label: "Member Name", width: "w-[24%]", padding: "px-6" },
-  { label: "Email Address", width: "w-[34%]", padding: "px-4" },
-  { label: "Password", width: "w-[20%]", padding: "px-4" },
-  { label: "Actions", width: "w-[22%]", padding: "px-4" },
+  { label: "Member Name", width: "w-[30%]", padding: "px-6" },
+  { label: "Email Address", width: "w-[42%]", padding: "px-4" },
+  { label: "Actions", width: "w-[28%]", padding: "px-4" },
 ] as const;
 
 /** One page of the team's work orders, for the three order tabs. */
@@ -277,11 +275,11 @@ function TeamDetailPage() {
           <Tabs
             value={tab}
             onValueChange={(value) => setTab(value as TabValue)}
-            className="gap-0 overflow-x-auto"
+            className="gap-0 overflow-x-auto overflow-y-hidden"
           >
             <TabsList
               variant="line"
-              className="h-auto gap-10 border-b border-gray-200 bg-gray-50/50 px-6 pt-4 pb-0"
+              className="h-auto w-full gap-10 border-b border-gray-200 bg-gray-50/50 px-6 pt-4 pb-0"
             >
               {TABS.map((entry) => (
                 <TabsTrigger
@@ -303,15 +301,15 @@ function TeamDetailPage() {
                   <p className="text-sm text-slate-500">Manage and update team members.</p>
                 </div>
                 <Button
-                  className="h-[38px] gap-1.5 rounded-lg"
+                  className="h-11 gap-1.5 rounded-lg px-5 text-base"
                   onClick={() => setIsPickerOpen(true)}
                 >
-                  <Plus className="size-4" />
+                  <Plus className="size-5" />
                   Add Member
                 </Button>
               </div>
 
-              <Table className="min-w-[680px] table-fixed">
+              <Table className="min-w-[520px] table-fixed">
                 <TableHeader>
                   <TableRow className="border-slate-200 bg-gray-50 hover:bg-gray-50">
                     {MEMBER_COLUMNS.map((column) => (
@@ -328,7 +326,7 @@ function TeamDetailPage() {
                   {allMembers === undefined && (
                     <TableRow>
                       <TableCell
-                        colSpan={4}
+                        colSpan={3}
                         className="px-6 py-10 text-center text-sm text-slate-400"
                       >
                         Loading…
@@ -338,7 +336,7 @@ function TeamDetailPage() {
                   {allMembers !== undefined && members.length === 0 && (
                     <TableRow>
                       <TableCell
-                        colSpan={4}
+                        colSpan={3}
                         className="px-6 py-10 text-center text-sm text-slate-400"
                       >
                         No members in {team} yet.
@@ -352,9 +350,6 @@ function TeamDetailPage() {
                       </TableCell>
                       <TableCell className="truncate px-4 py-4 text-sm text-slate-500">
                         {member.email}
-                      </TableCell>
-                      <TableCell className="px-4 py-4">
-                        <PasswordCell password={member.password} />
                       </TableCell>
                       <TableCell className="px-4 py-4">
                         <div className="flex items-center gap-2">

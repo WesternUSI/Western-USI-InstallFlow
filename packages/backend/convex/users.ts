@@ -48,8 +48,6 @@ function toDetailRow(user: Doc<"users">) {
     clerk_id: user.clerk_id,
     name: user.name ?? user.email,
     email: user.email,
-    personal_email: user.personal_email,
-    password: user.password,
     team: user.team,
     role: user.role,
     status: deriveUserStatus(user),
@@ -260,9 +258,7 @@ export const finishInvite = internalMutation({
     clerk_id: v.string(),
     email: v.string(),
     name: v.string(),
-    personal_email: v.optional(v.string()),
     team: v.optional(teamValidator),
-    password: v.string(),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
@@ -273,9 +269,7 @@ export const finishInvite = internalMutation({
     const patch = {
       email: args.email,
       name: args.name,
-      personal_email: args.personal_email,
       team: args.team,
-      password: args.password,
       role: "installer" as const,
       invited_at: Date.now(),
     };
@@ -299,11 +293,7 @@ export const inviteInstaller = action({
   args: {
     full_name: v.string(),
     work_email: v.string(),
-    personal_email: v.optional(v.string()),
     team: v.optional(teamValidator),
-    // Admin-typed or admin-generated on the Invite Installer form; falls back
-    // to a server-generated one only if the client somehow omits it.
-    password: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const caller = await ctx.runQuery(api.users.getCurrentUser, {});
@@ -319,7 +309,7 @@ export const inviteInstaller = action({
     const fullName = args.full_name.trim();
     const [firstName, ...rest] = fullName.split(/\s+/);
     const lastName = rest.join(" ");
-    const password = args.password?.trim() || generatePassword();
+    const password = generatePassword();
 
     const response = await fetch("https://api.clerk.com/v1/users", {
       method: "POST",
@@ -346,9 +336,7 @@ export const inviteInstaller = action({
       clerk_id: created.id,
       email: args.work_email,
       name: fullName,
-      personal_email: args.personal_email,
       team: args.team,
-      password,
     });
 
     await ctx.scheduler.runAfter(0, internal.email.sendInviteEmail, {
@@ -361,15 +349,6 @@ export const inviteInstaller = action({
   },
 });
 
-export const getCredentialsForResend = internalQuery({
-  args: { user_id: v.id("users") },
-  handler: async (ctx, args) => {
-    const user = await ctx.db.get(args.user_id);
-    if (user === null) return null;
-    return { name: user.name ?? user.email, email: user.email, password: user.password };
-  },
-});
-
 export const markCredentialsResent = internalMutation({
   args: { user_id: v.id("users") },
   handler: async (ctx, args) => {
@@ -378,9 +357,9 @@ export const markCredentialsResent = internalMutation({
 });
 
 /**
- * Re-shows an existing account's stored credentials for the admin to hand
- * over, and — now that Resend is configured — emails them to the account's
- * login address too, the same branded message a fresh invite gets.
+ * Nothing is stored to "re-send" — passwords never touch Convex — so this
+ * generates a fresh one, sets it directly on Clerk, and emails it to the
+ * account's login address the same way a first invite does.
  */
 export const resendCredentials = action({
   args: { user_id: v.id("users") },
@@ -390,24 +369,32 @@ export const resendCredentials = action({
       throw new Error("Not authorized");
     }
 
-    const record = await ctx.runQuery(internal.users.getCredentialsForResend, {
-      user_id: args.user_id,
+    const account = await ctx.runQuery(internal.users.getAccountForUpdate, {
+      id: args.user_id,
     });
-    if (record === null) {
+    if (account === null) {
       throw new Error("User not found");
     }
-    if (record.password === undefined) {
-      throw new Error("This account has no password on record — use Reset Password instead.");
+
+    const clerkSecretKey = process.env.CLERK_SECRET_KEY;
+    if (!clerkSecretKey) {
+      throw new Error("CLERK_SECRET_KEY is not configured on this Convex deployment");
     }
+
+    const password = generatePassword();
+    await clerkFetch(`/users/${account.clerk_id}`, clerkSecretKey, {
+      method: "PATCH",
+      body: JSON.stringify({ password, skip_password_checks: true }),
+    });
 
     await ctx.runMutation(internal.users.markCredentialsResent, { user_id: args.user_id });
     await ctx.scheduler.runAfter(0, internal.email.sendInviteEmail, {
-      to: record.email,
-      name: record.name,
-      password: record.password,
+      to: account.email,
+      name: account.name,
+      password,
     });
 
-    return { email: record.email, password: record.password };
+    return { email: account.email, password };
   },
 });
 
@@ -437,9 +424,9 @@ async function clerkFetch(path: string, secretKey: string, init?: RequestInit): 
  */
 export const getAccountForUpdate = internalQuery({
   args: { id: v.id("users") },
-  handler: async (ctx, args): Promise<{ clerk_id: string; email: string } | null> => {
+  handler: async (ctx, args): Promise<{ clerk_id: string; email: string; name: string } | null> => {
     const user = await ctx.db.get(args.id);
-    return user === null ? null : { clerk_id: user.clerk_id, email: user.email };
+    return user === null ? null : { clerk_id: user.clerk_id, email: user.email, name: user.name ?? user.email };
   },
 });
 
@@ -447,37 +434,24 @@ export const applyAccountUpdate = internalMutation({
   args: {
     user_id: v.id("users"),
     name: v.string(),
-    personal_email: v.optional(v.string()),
     team: v.optional(teamValidator),
     email: v.optional(v.string()),
-    password: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const patch: Record<string, unknown> = {
       name: args.name.trim() || undefined,
       team: args.team,
     };
-    // Undefined means the caller's form has no personal-email field (the
-    // User Details page no longer collects it) — leave whatever is on
-    // record untouched rather than wiping it out.
-    if (args.personal_email !== undefined) patch.personal_email = args.personal_email.trim() || undefined;
     if (args.email !== undefined) patch.email = args.email;
-    if (args.password !== undefined) {
-      patch.password = args.password;
-      // A changed password makes the old credentials stale, the same as a
-      // fresh invite — the admin still has to hand the new one over.
-      patch.invited_at = Date.now();
-    }
 
     await ctx.db.patch(args.user_id, patch);
   },
 });
 
 /**
- * Applies every field on the User Details form in one call. Name, personal
- * email and team are Convex-only; a changed work email or password go through
- * the Clerk Backend API first, since Clerk — not Convex — is the login system
- * of record.
+ * Applies name/team and a changed work email from the User Details form.
+ * Password lives only on Clerk and is never edited here — resetting it is
+ * "Send Updated Credentials" now, which generates and shares a fresh one.
  *
  * Changing the email creates a new, already-verified email address (Backend
  * API-created addresses skip the confirmation link the same way account
@@ -488,12 +462,10 @@ export const updateAccount = action({
   args: {
     user_id: v.id("users"),
     name: v.string(),
-    personal_email: v.optional(v.string()),
     team: v.optional(teamValidator),
     work_email: v.optional(v.string()),
-    password: v.optional(v.string()),
   },
-  handler: async (ctx, args): Promise<{ email: string; password: string } | null> => {
+  handler: async (ctx, args): Promise<void> => {
     const caller = await ctx.runQuery(api.users.getCurrentUser, {});
     if (!caller || caller.role !== "admin") {
       throw new Error("Not authorized");
@@ -511,8 +483,6 @@ export const updateAccount = action({
 
     const workEmail = args.work_email?.trim();
     const emailChanged = !!workEmail && workEmail !== account.email;
-    const password = args.password?.trim();
-    const passwordChanged = !!password;
 
     if (emailChanged) {
       const createdEmail = await clerkFetch("/email_addresses", clerkSecretKey, {
@@ -543,25 +513,12 @@ export const updateAccount = action({
       }
     }
 
-    if (passwordChanged) {
-      await clerkFetch(`/users/${account.clerk_id}`, clerkSecretKey, {
-        method: "PATCH",
-        body: JSON.stringify({ password, skip_password_checks: true }),
-      });
-    }
-
-    const finalEmail = emailChanged ? (workEmail as string) : account.email;
-
     await ctx.runMutation(internal.users.applyAccountUpdate, {
       user_id: args.user_id,
       name: args.name,
-      personal_email: args.personal_email,
       team: args.team,
-      email: emailChanged ? finalEmail : undefined,
-      password: passwordChanged ? password : undefined,
+      email: emailChanged ? (workEmail as string) : undefined,
     });
-
-    return passwordChanged ? { email: finalEmail, password: password as string } : null;
   },
 });
 

@@ -1,6 +1,13 @@
+import { useClerk } from "@clerk/react";
 import { api } from "@usi-installer/backend/convex/_generated/api";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { Avatar, AvatarFallback, AvatarImage } from "@usi-installer/ui/components/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@usi-installer/ui/components/dropdown-menu";
 import { cn } from "@usi-installer/ui/lib/utils";
 import { useQuery } from "convex/react";
 import {
@@ -9,7 +16,7 @@ import {
   Database,
   FileSpreadsheet,
   LayoutDashboard,
-  Settings,
+  LogOut,
   UploadCloud,
   UserCog,
   Users,
@@ -45,10 +52,6 @@ const NAV_GROUPS = [
       { to: "/users", label: "Users", icon: UserCog },
     ],
   },
-  {
-    label: "System",
-    items: [{ to: "/settings", label: "Settings", icon: Settings }],
-  },
 ] as const;
 
 /** Display names for the roles defined on the users table. */
@@ -70,6 +73,13 @@ function initials(name: string): string {
 export function AdminSidebar() {
   const user = useQuery(api.users.currentUser);
   const { open, close } = useSidebar();
+  const { signOut } = useClerk();
+  const navigate = useNavigate();
+
+  async function handleSignOut() {
+    await signOut();
+    void navigate({ to: "/login" });
+  }
 
   return (
     <>
@@ -132,7 +142,8 @@ export function AdminSidebar() {
       </nav>
 
       <div className="shrink-0 border-t border-[#1F2937] p-4">
-        <div className="flex items-center gap-3">
+        <DropdownMenu>
+        <DropdownMenuTrigger className="flex w-full items-center gap-3 rounded-md p-1 text-left transition-colors hover:bg-white/5">
           <Avatar className="size-10 bg-[#1E3A8A]">
             {user?.image_url && <AvatarImage src={user.image_url} alt={user.name} />}
             <AvatarFallback className="bg-[#1E3A8A] text-base font-bold text-white">
@@ -146,7 +157,17 @@ export function AdminSidebar() {
             </p>
           </div>
           <ChevronRight className="size-4 shrink-0 text-[#9CA3AF]" />
-        </div>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" side="top" className="min-w-48">
+          <DropdownMenuItem
+            onClick={() => void handleSignOut()}
+            className="gap-2 text-red-600 focus:text-red-600"
+          >
+            <LogOut className="size-4" />
+            Log Out
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+        </DropdownMenu>
       </div>
       </aside>
     </>

@@ -11,7 +11,7 @@ import {
   SelectValue,
 } from "@usi-installer/ui/components/select";
 import { useAction, useQuery } from "convex/react";
-import { ChevronLeft, Dices, MailCheck, ShieldAlert } from "lucide-react";
+import { ChevronLeft, MailCheck, ShieldAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -31,17 +31,7 @@ const NO_TEAM = "__none__";
 interface FormState {
   name: string;
   workEmail: string;
-  password: string;
   team: string;
-}
-
-/** Client-side convenience only — the value the admin ends up saving either
- * way goes to Clerk exactly as typed. */
-function generatePassword(): string {
-  const charset = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%";
-  const bytes = new Uint32Array(14);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (n) => charset[n % charset.length]).join("");
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -63,30 +53,16 @@ function UserDetailPage() {
   const resendCredentials = useAction(api.users.resendCredentials);
   const removeUser = useAction(api.users.removeUser);
 
-  const [form, setForm] = useState<FormState>({
-    name: "",
-    workEmail: "",
-    password: "",
-    team: NO_TEAM,
-  });
-  // What Clerk actually has on file, so Save only sends a password change to
-  // Clerk when this field was edited — not on every save.
-  const [storedPassword, setStoredPassword] = useState<string | undefined>(undefined);
+  const [form, setForm] = useState<FormState>({ name: "", workEmail: "", team: NO_TEAM });
   const [isSaving, setIsSaving] = useState(false);
+  const [isSendingCredentials, setIsSendingCredentials] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [credentials, setCredentials] = useState<Credentials | null>(null);
   const [credentialsTitle, setCredentialsTitle] = useState("");
-  const [credentialsDescription, setCredentialsDescription] = useState("");
 
   useEffect(() => {
     if (user == null) return;
-    setForm({
-      name: user.name,
-      workEmail: user.email,
-      password: user.password ?? "",
-      team: user.team ?? NO_TEAM,
-    });
-    setStoredPassword(user.password);
+    setForm({ name: user.name, workEmail: user.email, team: user.team ?? NO_TEAM });
   }, [user]);
 
   function goBack() {
@@ -104,31 +80,16 @@ function UserDetailPage() {
       return;
     }
 
-    const password = form.password.trim();
-    const passwordChanged = password !== "" && password !== (storedPassword ?? "");
-
     setIsSaving(true);
     try {
-      const result = await updateAccount({
+      await updateAccount({
         user_id: id,
         name: form.name.trim(),
         team: form.team === NO_TEAM ? undefined : (form.team as Team),
         work_email: workEmail,
-        password: passwordChanged ? password : undefined,
       });
-
-      if (result) {
-        // A changed password means the old one no longer works, so the new
-        // pair is shown before leaving the page rather than saved silently.
-        setCredentialsTitle("Password Updated");
-        setCredentialsDescription(
-          "Share these credentials with the installer directly — this change was not emailed automatically.",
-        );
-        setCredentials(result);
-      } else {
-        toast.success("Account details saved");
-        goBack();
-      }
+      toast.success("Account details saved");
+      goBack();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not save those changes");
     } finally {
@@ -138,13 +99,15 @@ function UserDetailPage() {
 
   async function handleSendCredentials() {
     if (user == null) return;
+    setIsSendingCredentials(true);
     try {
       const result = await resendCredentials({ user_id: id });
       setCredentialsTitle("Credentials for " + user.name);
-      setCredentialsDescription(`These credentials were emailed to ${result.email}.`);
       setCredentials(result);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not send those credentials");
+    } finally {
+      setIsSendingCredentials(false);
     }
   }
 
@@ -216,30 +179,6 @@ function UserDetailPage() {
                 </p>
               </Field>
 
-              <Field label="Password">
-                <div className="flex items-center gap-2">
-                  <Input
-                    value={form.password}
-                    onChange={(event) => setForm({ ...form, password: event.target.value })}
-                    placeholder={storedPassword ? undefined : "No password on record"}
-                    className="h-[38px] rounded-lg font-mono text-sm"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setForm({ ...form, password: generatePassword() })}
-                    className="h-[38px] shrink-0 gap-1.5 rounded-lg whitespace-nowrap"
-                  >
-                    <Dices className="size-4" />
-                    Generate
-                  </Button>
-                </div>
-                <p className="mt-1.5 text-xs text-slate-400">
-                  This is the account's current password. Edit or generate a new one — it only
-                  applies to Clerk when you Save Changes.
-                </p>
-              </Field>
-
               <Field label="Current Team">
                 <Select
                   value={form.team}
@@ -294,14 +233,16 @@ function UserDetailPage() {
                   <h2 className="text-sm font-bold text-slate-900">Credential Actions</h2>
                 </div>
                 <p className="text-sm text-slate-500">
-                  Send this user updated login credentials or reset their access information.
+                  Generates a brand new password, sets it on this account and emails it to the
+                  installer's login address.
                 </p>
                 <Button
                   className="h-[38px] w-full gap-1.5 rounded-lg"
+                  disabled={isSendingCredentials}
                   onClick={() => void handleSendCredentials()}
                 >
                   <MailCheck className="size-4" />
-                  Send Updated Credentials
+                  {isSendingCredentials ? "Sending…" : "Send Updated Credentials"}
                 </Button>
               </section>
 
@@ -339,15 +280,12 @@ function UserDetailPage() {
       <CredentialsDialog
         open={credentials !== null}
         title={credentialsTitle}
-        description={credentialsDescription}
+        description={
+          credentials ? `These credentials were emailed to ${credentials.email}.` : ""
+        }
         credentials={credentials}
         onOpenChange={(open) => {
-          if (open) return;
-          setCredentials(null);
-          // The password-updated dialog is shown from Save, so dismissing it
-          // finishes leaving the page; "Send Updated Credentials" opens the
-          // same dialog without saving, so it should leave the admin in place.
-          if (credentialsTitle === "Password Updated") goBack();
+          if (!open) setCredentials(null);
         }}
       />
     </>

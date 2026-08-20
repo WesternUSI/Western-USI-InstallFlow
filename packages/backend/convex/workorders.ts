@@ -505,6 +505,15 @@ export const completeWorkOrder = mutation({
       await ctx.scheduler.runAfter(0, internal.email.sendCompletionEmail, {
         workOrderId: workOrder._id,
       });
+      // Surfaced in the admin panel's notification bell — installers complete
+      // orders from the mobile app, so this is how the web side finds out.
+      await ctx.db.insert("notifications", {
+        type: "order_completed",
+        title: "Order completed",
+        body: `${workOrder.contract_id} — ${workOrder.advertiser_campaign} — ${workOrder.panel_split} — ${workOrder.site}`,
+        work_order_id: workOrder._id,
+        read: false,
+      });
     }
   },
 });
