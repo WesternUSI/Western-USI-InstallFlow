@@ -29,6 +29,11 @@ export default defineSchema({
     // via Invite / Resend Invite / Send Updated Credentials. Stands in for a
     // real invite-acceptance signal until an email provider is wired up.
     invited_at: v.optional(v.number()),
+    // True whenever the account's current password is an admin-generated one
+    // (set on invite, and again on Resend/Send Updated Credentials). The app
+    // blocks navigation until the installer sets their own password, which
+    // clears this.
+    must_change_password: v.optional(v.boolean()),
     // Set by the `session.created` Clerk webhook the first time this account
     // actually signs in, distinguishing "Invitation Sent" from "Active".
     last_sign_in_at: v.optional(v.number()),

@@ -482,9 +482,9 @@ export default function AllocateInstallsScreen() {
           <Pressable
             accessibilityRole="button"
             onPress={() => setVisibleCount((count) => count + PAGE_SIZE)}
-            className="mx-4 mt-1 h-[46px] items-center justify-center rounded-2xl bg-[#2563eb]"
+            className="mx-4 mt-1 h-[46px] items-center justify-center rounded-2xl border border-[#bfdbfe] bg-[#eff6ff]"
           >
-            <Text className="text-[14px] font-bold text-white">Show More</Text>
+            <Text className="text-[14px] font-bold text-[#2563eb]">Show More</Text>
           </Pressable>
         )}
       </ScrollView>
@@ -493,16 +493,18 @@ export default function AllocateInstallsScreen() {
         className="border-t border-[#e2e8f0] bg-[#f7f9fb] px-4 pt-3"
         style={{ paddingBottom: Math.max(insets.bottom, 12) }}
       >
-        <Pressable
-          accessibilityRole="button"
-          disabled={busy}
-          onPress={() => runBulkAction("allocate", toAllocate)}
-          className="h-[48px] items-center justify-center rounded-2xl bg-[#2563eb]"
-        >
-          <Text className="text-[14px] font-bold text-white">
-            Allocate Installs ({toAllocate.length})
-          </Text>
-        </Pressable>
+        {toAllocate.length > 0 && (
+          <Pressable
+            accessibilityRole="button"
+            disabled={busy}
+            onPress={() => runBulkAction("allocate", toAllocate)}
+            className="h-[48px] items-center justify-center rounded-2xl bg-[#2563eb]"
+          >
+            <Text className="text-[14px] font-bold text-white">
+              Allocate Installs ({toAllocate.length})
+            </Text>
+          </Pressable>
+        )}
 
         {toUnallocate.length > 0 && (
           <Pressable
