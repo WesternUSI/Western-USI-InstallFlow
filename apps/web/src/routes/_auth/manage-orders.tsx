@@ -74,10 +74,21 @@ function ManageOrdersPage() {
     result?.page.map((row) => ({
       key: row._id,
       status: row.status,
-      site: row.site,
-      panel_split: row.panel_split,
+      contract_id: row.contract_id,
       advertiser_campaign: row.advertiser_campaign,
+      contracted_panel_id: row.contracted_panel_id,
+      panel_split: row.panel_split,
+      site: row.site,
+      panel_name: row.panel_name,
+      quantity: row.quantity,
+      format: row.format,
+      size: row.size,
+      proposed_install_date: row.proposed_install_date,
+      end_date: row.end_date,
+      comments: row.comments,
       existing_advertiser: row.existing_advertiser,
+      area_progress: row.area_progress,
+      schedule: row.schedule,
       train_line: row.train_line,
     })) ?? [];
 

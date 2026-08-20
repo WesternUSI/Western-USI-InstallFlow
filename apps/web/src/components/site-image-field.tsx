@@ -4,6 +4,8 @@ import { ChevronLeft, ChevronRight, Pencil, Plus, Trash2, UploadCloud } from "lu
 import { useEffect, useRef, useState } from "react";
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+/** Thumbnail cells beside the cover, before the rest collapse into "+N More". */
+const MAX_THUMBS = 3;
 
 export interface SiteImage {
   storage_id: Id<"_storage">;
@@ -18,9 +20,10 @@ interface SiteImageFieldProps {
 }
 
 /**
- * Site photos: a dropzone until the first one is added, then a large preview
- * with a thumbnail strip. The pencil replaces the picture on show; the tile at
- * the end of the strip adds more.
+ * Site photos: a dropzone until the first one is added, then a four-tile
+ * gallery — a tall cover on the left that steps through every photo, three
+ * thumbnails beside it, and a dashed tile to add more. Clicking a thumbnail
+ * promotes it to the cover.
  */
 export function SiteImageField({
   images,
@@ -39,7 +42,7 @@ export function SiteImageField({
     setIndex((current) => Math.min(current, Math.max(0, images.length - 1)));
   }, [images.length]);
 
-  function accept(files: FileList | null, replacing = false) {
+  function accept(files: FileList | null, replacing?: SiteImage) {
     setError(null);
     if (!files || files.length === 0) return;
 
@@ -58,18 +61,25 @@ export function SiteImageField({
     }
     if (allowed.length === 0) return;
 
-    // Replacing drops the picture on show once the new one has been added.
-    const replaced = replacing ? images[index] : undefined;
     onFilesSelected(allowed);
-    if (replaced) onRemove(replaced.storage_id);
+    if (replacing) onRemove(replacing.storage_id);
   }
 
-  const current = images[index];
+  const cover = images[index];
+  // Everything that isn't currently on the cover, so the strip never repeats
+  // the large picture back at you.
+  const others = images.filter((_, position) => position !== index);
+  const overflow = Math.max(0, others.length - MAX_THUMBS);
+  const thumbs = others.slice(0, MAX_THUMBS);
 
   return (
-    <div>
-      <p className="text-base font-bold text-slate-900">Site Image</p>
-      <p className="mt-0.5 text-sm text-slate-500">Upload or update the image of the site / panel</p>
+    <div className="flex flex-col gap-4">
+      <div>
+        <p className="text-[18px] leading-7 font-medium text-[#111827]">Site Image</p>
+        <p className="text-sm leading-5 text-[#6B7280]">
+          Upload or update the image of the site / panel.
+        </p>
+      </div>
 
       <input
         ref={addRef}
@@ -88,14 +98,18 @@ export function SiteImageField({
         accept="image/*"
         className="hidden"
         onChange={(event) => {
-          accept(event.target.files, true);
+          accept(event.target.files, cover);
           event.target.value = "";
         }}
       />
 
-      {current === undefined ? (
-        // biome-ignore lint/a11y/noStaticElementInteractions: drag target; the button inside is the accessible control
-        <div
+      {cover === undefined ? (
+        // The whole dashed area is the control, so a click anywhere inside it
+        // opens the picker rather than only the line of text.
+        <button
+          type="button"
+          disabled={isUploading}
+          onClick={() => addRef.current?.click()}
           onDragOver={(event) => {
             event.preventDefault();
             setIsDragging(true);
@@ -107,100 +121,130 @@ export function SiteImageField({
             accept(event.dataTransfer.files);
           }}
           className={cn(
-            "mt-4 flex flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-14 transition-colors",
-            isDragging ? "border-blue-400 bg-blue-50/60" : "border-slate-200 bg-white",
+            "flex w-full flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-14 transition-colors",
+            isDragging
+              ? "border-blue-400 bg-blue-50/60"
+              : "border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50/40",
           )}
         >
           <UploadCloud className="size-8 text-blue-500" />
-          <button
-            type="button"
-            disabled={isUploading}
-            onClick={() => addRef.current?.click()}
-            className="mt-4 text-sm text-slate-600 hover:text-slate-900"
-          >
+          <span className="mt-4 text-sm text-slate-600">
             {isUploading ? "Uploading…" : "Drag and drop images here, or click to browse"}
-          </button>
-          <p className="mt-1.5 text-xs text-slate-400">JPG, PNG up to 10MB</p>
-        </div>
+          </span>
+          <span className="mt-1.5 text-xs text-slate-400">JPG, PNG up to 10MB</span>
+        </button>
       ) : (
-        <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-          <div className="relative aspect-square max-h-72 w-full overflow-hidden rounded-xl border border-slate-200 bg-slate-50 sm:w-1/2">
-            <img src={current.url} alt="Site" className="size-full object-contain" />
+        <div
+          className={cn(
+            "grid w-full gap-[15px]",
+            // Phones get a full-width cover over a two-up strip; the design's
+            // three-column proportions only work once there is room for them.
+            "grid-cols-2",
+            "sm:aspect-[926/518] sm:max-h-[518px] sm:grid-cols-[2fr_1fr_1fr] sm:grid-rows-[1.2fr_1fr]",
+          )}
+        >
+          {/* Cover — the photo currently being stepped through. */}
+          <div className="group relative col-span-2 aspect-[4/3] overflow-hidden rounded-[10px] bg-slate-100 sm:col-span-1 sm:row-span-2 sm:aspect-auto">
+            <img src={cover.url} alt="Site" className="size-full object-cover" />
 
             <button
               type="button"
               aria-label="Replace this image"
               disabled={isUploading}
               onClick={() => replaceRef.current?.click()}
-              className="absolute top-3 right-3 rounded-md bg-white/90 p-2 text-slate-600 shadow-sm transition-colors hover:bg-white hover:text-slate-900"
+              className="absolute top-2 right-2 rounded-md bg-white p-1.5 text-slate-600 shadow-[0_1px_2px_rgba(0,0,0,0.05)] transition-colors hover:text-slate-900"
             >
-              <Pencil className="size-4" />
+              <Pencil className="size-[19px]" />
+            </button>
+            <button
+              type="button"
+              aria-label="Remove this image"
+              disabled={isUploading}
+              onClick={() => onRemove(cover.storage_id)}
+              className="absolute top-2 left-2 hidden rounded-md bg-white p-1.5 text-slate-500 shadow-[0_1px_2px_rgba(0,0,0,0.05)] transition-colors hover:text-red-600 group-hover:block"
+            >
+              <Trash2 className="size-[19px]" />
             </button>
 
             {images.length > 1 && (
               <>
                 <button
                   type="button"
-                  aria-label="Previous image"
+                  aria-label="Previous photo"
                   onClick={() => setIndex((current) => (current - 1 + images.length) % images.length)}
-                  className="absolute top-1/2 left-3 -translate-y-1/2 rounded-full bg-white/90 p-2 text-slate-700 shadow-sm transition-colors hover:bg-white"
+                  className="absolute top-1/2 left-0 flex size-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-[2px] transition-colors hover:bg-black/60"
                 >
-                  <ChevronLeft className="size-4" />
+                  <ChevronLeft className="size-5" />
                 </button>
                 <button
                   type="button"
-                  aria-label="Next image"
+                  aria-label="Next photo"
                   onClick={() => setIndex((current) => (current + 1) % images.length)}
-                  className="absolute top-1/2 right-3 -translate-y-1/2 rounded-full bg-white/90 p-2 text-slate-700 shadow-sm transition-colors hover:bg-white"
+                  className="absolute top-1/2 right-0 flex size-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-[2px] transition-colors hover:bg-black/60"
                 >
-                  <ChevronRight className="size-4" />
+                  <ChevronRight className="size-5" />
                 </button>
               </>
             )}
           </div>
 
-          <div className="grid max-h-72 w-fit auto-rows-min grid-cols-2 content-start gap-3 overflow-y-auto p-0.5">
-            {images.map((image, thumbIndex) => (
-              <div key={image.storage_id} className="group relative">
+          {thumbs.map((image, thumbIndex) => {
+            const isLastThumb = thumbIndex === thumbs.length - 1;
+
+            return (
+              <div
+                key={image.storage_id}
+                className="group relative aspect-square overflow-hidden rounded-[5px] border border-[#E9E9E9] bg-slate-100 sm:aspect-auto"
+              >
                 <button
                   type="button"
-                  aria-label={`Show image ${thumbIndex + 1}`}
-                  onClick={() => setIndex(thumbIndex)}
-                  className={cn(
-                    "size-20 overflow-hidden rounded-lg border bg-slate-50 transition-colors",
-                    thumbIndex === index
-                      ? "border-blue-500 ring-2 ring-blue-200"
-                      : "border-slate-200 hover:border-slate-300",
-                  )}
+                  aria-label="Show this photo"
+                  onClick={() => setIndex(images.indexOf(image))}
+                  className="size-full"
                 >
-                  <img src={image.url} alt="" className="size-full object-contain" />
+                  <img src={image.url} alt="" className="size-full object-cover" />
                 </button>
+
                 <button
                   type="button"
                   aria-label="Remove image"
                   disabled={isUploading}
                   onClick={() => onRemove(image.storage_id)}
-                  className="absolute -top-1.5 -right-1.5 hidden rounded-full bg-white p-1 text-slate-500 shadow-sm hover:text-red-600 group-hover:block"
+                  className="absolute top-1.5 right-1.5 hidden rounded-md bg-white/90 p-1.5 text-slate-500 shadow-sm transition-colors hover:bg-white hover:text-red-600 group-hover:block"
                 >
-                  <Trash2 className="size-3" />
+                  <Trash2 className="size-3.5" />
                 </button>
-              </div>
-            ))}
 
-            <button
-              type="button"
-              aria-label="Add more images"
-              disabled={isUploading}
-              onClick={() => addRef.current?.click()}
-              className="flex size-20 items-center justify-center rounded-lg border border-dashed border-slate-300 text-blue-500 transition-colors hover:border-blue-400 hover:bg-blue-50/60"
-            >
-              <Plus className="size-5" />
-            </button>
-          </div>
+                {overflow > 0 && isLastThumb && (
+                  <button
+                    type="button"
+                    aria-label={`Show ${overflow} more photo${overflow === 1 ? "" : "s"}`}
+                    onClick={() => setIndex(images.indexOf(image))}
+                    className="absolute inset-0 flex items-center justify-center bg-black/50 text-sm font-semibold text-white transition-colors hover:bg-black/60"
+                  >
+                    +{overflow} More
+                  </button>
+                )}
+              </div>
+            );
+          })}
+
+          <button
+            type="button"
+            aria-label="Add more images"
+            disabled={isUploading}
+            onClick={() => addRef.current?.click()}
+            className="flex aspect-square flex-col items-center justify-center gap-[5px] rounded-lg border border-dashed border-[#2563EB]/30 bg-[#F5FAFF] transition-colors hover:border-[#2563EB]/60 hover:bg-[#EFF6FF] sm:aspect-auto"
+          >
+            <span className="flex size-[53px] items-center justify-center rounded-full bg-[#2563EB] text-white">
+              <Plus className="size-7" />
+            </span>
+            <span className="text-base tracking-[0.3px] text-[#9CA3AF]">Add more images</span>
+          </button>
         </div>
       )}
 
-      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-red-600">{error}</p>}
     </div>
   );
 }

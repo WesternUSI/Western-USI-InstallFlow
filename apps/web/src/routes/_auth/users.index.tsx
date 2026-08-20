@@ -19,7 +19,7 @@ import { PageHeader } from "@/components/page-header";
 import { SearchInput } from "@/components/search-input";
 import { StatTiles } from "@/components/stat-tiles";
 import { TablePagination } from "@/components/table-pagination";
-import { TEAMS } from "@/lib/teams";
+import { useTeamNames } from "@/hooks/use-teams";
 import { USER_STATUS_CLASSES, USER_STATUS_LABELS, type UserStatus } from "@/lib/userStatus";
 
 export const Route = createFileRoute("/_auth/users/")({
@@ -47,6 +47,7 @@ function UsersPage() {
   const [inviteOpen, setInviteOpen] = useState(false);
 
   const overview = useQuery(api.users.overview);
+  const teamNames = useTeamNames();
   const users = useQuery(api.users.list);
 
   const filtered = useMemo(() => {
@@ -142,7 +143,7 @@ function UsersPage() {
               value={team}
               options={[
                 { value: ALL_TEAMS, label: "All" },
-                ...TEAMS.map((option) => ({ value: option, label: option })),
+                ...teamNames.map((option) => ({ value: option, label: option })),
               ]}
               onChange={(value) => {
                 setTeam(value);

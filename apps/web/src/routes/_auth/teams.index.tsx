@@ -1,4 +1,5 @@
 import { api } from "@usi-installer/backend/convex/_generated/api";
+import type { Id } from "@usi-installer/backend/convex/_generated/dataModel";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { Button } from "@usi-installer/ui/components/button";
 import {
@@ -9,15 +10,21 @@ import {
   TableHeader,
   TableRow,
 } from "@usi-installer/ui/components/table";
+import { useMutation, useQuery } from "convex/react";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@usi-installer/ui/components/tooltip";
-import { useQuery } from "convex/react";
-import { CheckCircle2, ChevronDown, ChevronRight, Clock, LayoutGrid, Plus, Users } from "lucide-react";
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  Clock,
+  LayoutGrid,
+  Plus,
+  Users,
+} from "lucide-react";
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 
+import { AddTeamDialog } from "@/components/add-team-dialog";
+import { DeleteTeamDialog } from "@/components/delete-team-dialog";
 import { FilterSelect } from "@/components/filter-select";
 import { PageHeader } from "@/components/page-header";
 import { SearchInput } from "@/components/search-input";
@@ -93,9 +100,25 @@ function TeamsPage() {
   const [search, setSearch] = useState("");
   const [orderStatus, setOrderStatus] = useState(ALL_STATUSES);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [isAddOpen, setIsAddOpen] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<{ id: Id<"teams">; name: string } | null>(
+    null,
+  );
 
   const overview = useQuery(api.teams.overview);
   const members = useQuery(api.teams.allMembers);
+  const archiveTeam = useMutation(api.teams.archiveTeam);
+
+  async function confirmDelete() {
+    if (pendingDelete === null) return;
+    try {
+      await archiveTeam({ id: pendingDelete.id });
+      toast.success(`${pendingDelete.name} deleted`);
+      setPendingDelete(null);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not delete that team");
+    }
+  }
 
   const membersByTeam = useMemo(() => {
     const grouped = new Map<string, Member[]>();
@@ -184,17 +207,13 @@ function TeamsPage() {
                 className="flex-1 sm:flex-none"
               />
 
-              {/* Teams are a fixed set of five, so this cannot create one — it
-                  is kept visible because the design calls for it. */}
-              <Tooltip>
-                <TooltipTrigger render={<span tabIndex={0} className="shrink-0" />}>
-                  <Button disabled className="h-[38px] w-full gap-1.5 rounded-lg sm:w-auto">
-                    <Plus className="size-4" />
-                    Add Team
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Teams are fixed (Team 1–5)</TooltipContent>
-              </Tooltip>
+              <Button
+                className="h-[38px] w-full shrink-0 gap-1.5 rounded-lg sm:w-auto"
+                onClick={() => setIsAddOpen(true)}
+              >
+                <Plus className="size-4" />
+                Add Team
+              </Button>
             </div>
           </div>
 
@@ -262,13 +281,22 @@ function TeamsPage() {
                       {row.members.toLocaleString()}
                     </TableCell>
                     <TableCell className="px-4 py-4">
-                      <Link
-                        to="/teams/$team"
-                        params={{ team: teamSlug(row.team as Team) }}
-                        className="text-sm font-medium text-blue-600 hover:text-blue-700"
-                      >
-                        View Details
-                      </Link>
+                      <div className="flex items-center gap-4">
+                        <Link
+                          to="/teams/$team"
+                          params={{ team: teamSlug(row.team as Team) }}
+                          className="text-sm font-medium text-blue-600 hover:text-blue-700"
+                        >
+                          View Details
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={() => setPendingDelete({ id: row._id, name: row.team })}
+                          className="text-sm font-medium whitespace-nowrap text-red-600 hover:text-red-700"
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </TableCell>
                   </TableRow>,
 
@@ -298,6 +326,17 @@ function TeamsPage() {
           />
         </section>
       </div>
+
+      <AddTeamDialog open={isAddOpen} onOpenChange={setIsAddOpen} />
+
+      <DeleteTeamDialog
+        open={pendingDelete !== null}
+        name={pendingDelete?.name ?? ""}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null);
+        }}
+        onConfirm={confirmDelete}
+      />
     </>
   );
 }

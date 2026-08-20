@@ -21,7 +21,8 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { InviteSentDialog } from "@/components/invite-sent-dialog";
-import { TEAMS, type Team } from "@/lib/teams";
+import { useTeamNames } from "@/hooks/use-teams";
+import type { Team } from "@/lib/teams";
 
 const NO_TEAM = "__none__";
 
@@ -35,6 +36,7 @@ interface InviteInstallerDialogProps {
  * only ever surfaced (and editable) from the User Details page. */
 export function InviteInstallerDialog({ open, onOpenChange }: InviteInstallerDialogProps) {
   const inviteInstaller = useAction(api.users.inviteInstaller);
+  const teamNames = useTeamNames();
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -129,7 +131,7 @@ export function InviteInstallerDialog({ open, onOpenChange }: InviteInstallerDia
                   <SelectItem value={NO_TEAM} className="rounded-md px-3 py-2 text-sm text-slate-700">
                     Unassigned
                   </SelectItem>
-                  {TEAMS.map((option) => (
+                  {teamNames.map((option) => (
                     <SelectItem
                       key={option}
                       value={option}

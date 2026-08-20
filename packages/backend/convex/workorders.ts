@@ -2,9 +2,10 @@ import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type QueryCtx, internalQuery, mutation, query } from "./_generated/server";
+import { type QueryCtx, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { type WorkOrderStatus, deriveWorkOrderStatus, matchesTerm } from "./derive";
 import { distanceFromEastPerthKm } from "./geo";
+import { findSiteForPanelSplit } from "./panelIds";
 
 export type { WorkOrderStatus } from "./derive";
 
@@ -21,10 +22,15 @@ export function deriveStatus(workOrder: Doc<"workorders">): WorkOrderStatus {
   return (workOrder.status_key as WorkOrderStatus | undefined) ?? deriveWorkOrderStatus(workOrder);
 }
 
+/**
+ * Carries every column read off the Installation Schedule, so the admin
+ * table can show the sheet back in full rather than a chosen subset.
+ */
 function toRow(workOrder: Doc<"workorders">) {
   return {
     _id: workOrder._id,
     status: deriveStatus(workOrder),
+    contract_id: workOrder.contract_id,
     site: workOrder.site,
     panel_split: workOrder.panel_split,
     contracted_panel_id: workOrder.contracted_panel_id,
@@ -32,6 +38,11 @@ function toRow(workOrder: Doc<"workorders">) {
     existing_advertiser: workOrder.existing_advertiser,
     train_line: workOrder.train_line,
     panel_name: workOrder.panel_name,
+    quantity: workOrder.quantity,
+    format: workOrder.format,
+    size: workOrder.size,
+    comments: workOrder.comments,
+    area_progress: workOrder.area_progress,
     proposed_install_date: workOrder.proposed_install_date,
     end_date: workOrder.end_date,
     schedule: workOrder.schedule,
@@ -40,6 +51,58 @@ function toRow(workOrder: Doc<"workorders">) {
     upload_date: workOrder.upload_date,
   };
 }
+
+/** Work orders re-checked per transaction — see `relinkMissingSites`. */
+const RELINK_BATCH_SIZE = 200;
+
+/**
+ * Re-resolves work orders left flagged as missing a site.
+ *
+ * A schedule row is flagged at import time when its panel id matched nothing
+ * in the Site Database. Uploading more site data — or adding a site by hand —
+ * can make those matches possible after the fact, so this sweeps the flagged
+ * rows and links whichever now resolve. Rows that still match nothing are
+ * left alone.
+ *
+ * Batched and self-rescheduling: one mutation is a single transaction with a
+ * bounded write budget, and a backlog can run to thousands of rows. Patching a
+ * row changes its `status_key`, which drops it out of the index being walked —
+ * the cursor is positional, so the rows still to visit keep their places.
+ */
+export const relinkMissingSites = internalMutation({
+  args: { cursor: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<{ linked: number }> => {
+    const page = await ctx.db
+      .query("workorders")
+      .withIndex("by_status_key", (q) => q.eq("status_key", "missing_site"))
+      .paginate({ numItems: RELINK_BATCH_SIZE, cursor: args.cursor ?? null });
+
+    let linked = 0;
+    for (const workOrder of page.page) {
+      const site = await findSiteForPanelSplit(ctx, workOrder.panel_split);
+      if (site === null) continue;
+
+      const patch = {
+        site_id: site._id,
+        train_line: site.area_progress,
+        missing_value: false,
+      };
+      await ctx.db.patch(workOrder._id, {
+        ...patch,
+        status_key: deriveWorkOrderStatus({ ...workOrder, ...patch }),
+      });
+      linked++;
+    }
+
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.workorders.relinkMissingSites, {
+        cursor: page.continueCursor,
+      });
+    }
+
+    return { linked };
+  },
+});
 
 function emptyCounts() {
   return { all: 0, completed: 0, allocated: 0, not_allocated: 0, missing_site: 0, pending: 0 };

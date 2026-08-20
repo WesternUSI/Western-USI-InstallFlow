@@ -1,6 +1,7 @@
 import { api } from "@usi-installer/backend/convex/_generated/api";
 import type { Id } from "@usi-installer/backend/convex/_generated/dataModel";
 import { Link, createFileRoute } from "@tanstack/react-router";
+import { Button } from "@usi-installer/ui/components/button";
 import {
   Table,
   TableBody,
@@ -11,8 +12,11 @@ import {
 } from "@usi-installer/ui/components/table";
 import { Tabs, TabsList, TabsTrigger } from "@usi-installer/ui/components/tabs";
 import { useQuery } from "convex/react";
+import { Plus } from "lucide-react";
 import { useState } from "react";
 
+import { AddSiteDialog } from "@/components/add-site-dialog";
+import { CellText } from "@/components/cell-text";
 import {
   ALL_TIME,
   type Duration,
@@ -41,14 +45,22 @@ export const Route = createFileRoute("/_auth/manage-site-data")({
 const PAGE_SIZE = 25;
 const ALL_LOCATIONS = "__all__";
 
-/** Widths add up to 100% so the table never overflows its card. */
+/**
+ * Mirrors the Go Site Database's own column order, with the derived status and
+ * the row action on the end. Widths sum to 100% under `table-fixed`.
+ */
 const COLUMNS = [
-  { label: "Location", width: "w-[20%]", padding: "px-6" },
-  { label: "Site Details", width: "w-[26%]", padding: "px-4" },
-  { label: "Panel ID", width: "w-[13%]", padding: "px-4" },
-  { label: "Material Size", width: "w-[14%]", padding: "px-4" },
-  { label: "Details Status", width: "w-[14%]", padding: "px-4" },
-  { label: "Actions", width: "w-[13%]", padding: "px-4" },
+  { label: "Location", width: "w-[10%]", padding: "px-6" },
+  { label: "Details", width: "w-[13%]", padding: "px-4" },
+  { label: "Panel ID", width: "w-[8%]", padding: "px-4" },
+  { label: "Qty", width: "w-[4%]", padding: "px-4" },
+  { label: "Size", width: "w-[7%]", padding: "px-4" },
+  { label: "Area", width: "w-[8%]", padding: "px-4" },
+  { label: "Equipment", width: "w-[11%]", padding: "px-4" },
+  { label: "Install Notes", width: "w-[12%]", padding: "px-4" },
+  { label: "GPS Co-ordinates", width: "w-[9%]", padding: "px-4" },
+  { label: "Details Status", width: "w-[10%]", padding: "px-4" },
+  { label: "Actions", width: "w-[8%]", padding: "px-4" },
 ] as const;
 
 function FilterBar({
@@ -62,6 +74,7 @@ function FilterBar({
   onAreaChange,
   onStatusChange,
   onDurationChange,
+  onAddSite,
 }: {
   search: string;
   searchOptions: SearchOption[] | undefined;
@@ -73,6 +86,7 @@ function FilterBar({
   onAreaChange: (value: string) => void;
   onStatusChange: (value: SiteDetailStatusTab) => void;
   onDurationChange: (value: Duration) => void;
+  onAddSite: () => void;
 }) {
   return (
     // px-6 lines the controls up with the tabs and the table columns below.
@@ -106,6 +120,11 @@ function FilterBar({
       />
 
       <DurationSelect value={duration} onChange={onDurationChange} />
+
+      <Button className="h-[38px] shrink-0 gap-1.5 rounded-lg" onClick={onAddSite}>
+        <Plus className="size-4" />
+        Add Site
+      </Button>
     </div>
   );
 }
@@ -115,6 +134,7 @@ function ManageSiteDataPage() {
   const [area, setArea] = useState(ALL_LOCATIONS);
   const [search, setSearch] = useState("");
   const [duration, setDuration] = useState<Duration>(ALL_TIME);
+  const [isAddOpen, setIsAddOpen] = useState(false);
 
   // The box updates instantly; the queries follow once typing pauses, so a
   // word typed out is one round trip rather than one per letter.
@@ -189,6 +209,7 @@ function ManageSiteDataPage() {
             onAreaChange={setArea}
             onStatusChange={setStatus}
             onDurationChange={setDuration}
+            onAddSite={() => setIsAddOpen(true)}
           />
 
           <Tabs
@@ -212,10 +233,10 @@ function ManageSiteDataPage() {
             </TabsList>
           </Tabs>
 
-          {/* Fixed layout with explicit widths so long values truncate
-              instead of stretching a column; min-width keeps columns
-              readable on narrow screens, scrolling sideways instead. */}
-          <Table className="min-w-[880px] table-fixed">
+          {/* Fixed layout with explicit widths so one long value cannot
+              stretch a column — it wraps and grows the row instead. Min-width
+              keeps every column readable, scrolling sideways instead. */}
+          <Table className="min-w-[1700px] table-fixed">
             <TableHeader>
               <TableRow className="border-slate-200 bg-gray-50 hover:bg-gray-50">
                 {COLUMNS.map((column) => (
@@ -231,31 +252,52 @@ function ManageSiteDataPage() {
             <TableBody>
               {result === undefined && (
                 <TableRow>
-                  <TableCell colSpan={6} className="px-6 py-10 text-center text-sm text-slate-400">
+                  <TableCell
+                    colSpan={COLUMNS.length}
+                    className="px-6 py-10 text-center text-sm text-slate-400"
+                  >
                     Loading…
                   </TableCell>
                 </TableRow>
               )}
               {result?.page.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="px-6 py-10 text-center text-sm text-slate-400">
+                  <TableCell
+                    colSpan={COLUMNS.length}
+                    className="px-6 py-10 text-center text-sm text-slate-400"
+                  >
                     No sites match this filter.
                   </TableCell>
                 </TableRow>
               )}
               {result?.page.map((row) => (
                 <TableRow key={row._id} className="border-slate-100">
-                  <TableCell className="truncate px-6 py-4 text-sm text-slate-700">
-                    {row.area}
+                  <TableCell className="px-6 py-4 text-sm text-slate-700">
+                    <CellText value={row.area} />
                   </TableCell>
-                  <TableCell className="truncate px-4 py-4 text-sm text-slate-700">
-                    {row.site}
+                  <TableCell className="px-4 py-4 text-sm text-slate-700">
+                    <CellText value={row.site} />
                   </TableCell>
-                  <TableCell className="truncate px-4 py-4 text-sm font-medium text-slate-700">
-                    {row.panel_id}
+                  <TableCell className="px-4 py-4 text-sm font-medium text-slate-700">
+                    <CellText value={row.panel_id} />
                   </TableCell>
-                  <TableCell className="truncate px-4 py-4 text-sm text-slate-500">
-                    {row.size ?? "—"}
+                  <TableCell className="px-4 py-4 text-sm text-slate-500">
+                    <CellText value={row.quantity} />
+                  </TableCell>
+                  <TableCell className="px-4 py-4 text-sm text-slate-500">
+                    <CellText value={row.size} />
+                  </TableCell>
+                  <TableCell className="px-4 py-4 text-sm text-slate-500">
+                    <CellText value={row.area_progress} />
+                  </TableCell>
+                  <TableCell className="px-4 py-4 text-sm text-slate-500">
+                    <CellText value={row.equipment_needed.join(", ")} />
+                  </TableCell>
+                  <TableCell className="px-4 py-4 text-sm text-slate-500">
+                    <CellText value={row.install_notes} />
+                  </TableCell>
+                  <TableCell className="px-4 py-4 text-sm text-slate-500">
+                    <CellText value={row.location} />
                   </TableCell>
                   <TableCell className="px-4 py-4">
                     <span
@@ -299,6 +341,7 @@ function ManageSiteDataPage() {
         )}
       </div>
 
+      <AddSiteDialog open={isAddOpen} onOpenChange={setIsAddOpen} />
     </>
   );
 }
