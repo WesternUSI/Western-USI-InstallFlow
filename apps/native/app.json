@@ -6,8 +6,9 @@
     "web": {
       "bundler": "metro"
     },
-    "name": "usi-installer",
+    "name": "Western USI Installer",
     "slug": "usi-installer",
+    "icon": "./assets/images/icon.png",
     "android": {
       "edgeToEdgeEnabled": true,
       "backgroundColor": "#8AAAFA",
@@ -36,7 +37,10 @@
       "reactCompiler": true
     },
     "ios": {
-      "bundleIdentifier": "com.slidingscale.usiinstaller"
+      "bundleIdentifier": "com.slidingscale.usiinstaller",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "extra": {
       "eas": {
