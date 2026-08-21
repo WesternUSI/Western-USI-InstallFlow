@@ -6,6 +6,7 @@ import { ConvexProviderWithClerk } from "convex/react-clerk";
 import ReactDOM from "react-dom/client";
 
 import Loader from "./components/loader";
+import { NotFoundPage } from "./components/not-found-page";
 import { routeTree } from "./routeTree.gen";
 const convex = new ConvexReactClient(env.VITE_CONVEX_URL);
 
@@ -14,6 +15,7 @@ const router = createRouter({
   defaultPreload: "intent",
   scrollRestoration: true,
   defaultPendingComponent: () => <Loader />,
+  defaultNotFoundComponent: () => <NotFoundPage />,
   context: {},
   Wrap: function WrapComponent({ children }: { children: React.ReactNode }) {
     return (

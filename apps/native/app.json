@@ -6,12 +6,47 @@
     "web": {
       "bundler": "metro"
     },
-    "name": "usi-installer",
+    "name": "Western USI Installer",
     "slug": "usi-installer",
-    "plugins": ["expo-font"],
+    "icon": "./assets/images/icon.png",
+    "android": {
+      "edgeToEdgeEnabled": true,
+      "backgroundColor": "#8AAAFA",
+      "package": "com.slidingscale.usiinstaller",
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "plugins": [
+      "expo-font",
+      [
+        "@clerk/expo",
+        {
+          "appleSignIn": false
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera to take install completion photos."
+        }
+      ]
+    ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "ios": {
+      "bundleIdentifier": "com.slidingscale.usiinstaller",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "a265d00b-dc06-4936-ac08-025df51d8b76"
+      }
+    },
+    "owner": "western-usi"
   }
 }

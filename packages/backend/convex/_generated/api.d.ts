@@ -8,8 +8,20 @@
  * @module
  */
 
+import type * as derive from "../derive.js";
+import type * as email from "../email.js";
+import type * as geo from "../geo.js";
 import type * as healthCheck from "../healthCheck.js";
+import type * as http from "../http.js";
+import type * as imports from "../imports.js";
+import type * as migrations from "../migrations.js";
+import type * as notifications from "../notifications.js";
+import type * as panelIds from "../panelIds.js";
 import type * as privateData from "../privateData.js";
+import type * as sites from "../sites.js";
+import type * as teams from "../teams.js";
+import type * as users from "../users.js";
+import type * as workorders from "../workorders.js";
 
 import type {
   ApiFromModules,
@@ -18,8 +30,20 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  derive: typeof derive;
+  email: typeof email;
+  geo: typeof geo;
   healthCheck: typeof healthCheck;
+  http: typeof http;
+  imports: typeof imports;
+  migrations: typeof migrations;
+  notifications: typeof notifications;
+  panelIds: typeof panelIds;
   privateData: typeof privateData;
+  sites: typeof sites;
+  teams: typeof teams;
+  users: typeof users;
+  workorders: typeof workorders;
 }>;
 
 /**

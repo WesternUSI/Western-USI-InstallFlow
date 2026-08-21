@@ -1,1 +1,64 @@
 @import "@usi-installer/ui/globals.css";
+
+/*
+ * The admin panel is a fixed-height shell: the sidebar and the main column do
+ * their own scrolling. Pinning the app to the viewport stops the document
+ * itself from scrolling, which otherwise leaves a blank strip under the layout
+ * whenever anything (the router devtools, for one) adds height below it.
+ */
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  overflow: hidden;
+}
+
+/*
+ * Thin, unobtrusive scrollbars. The admin panel has several scrolling regions
+ * (sidebar nav, main content, dialog bodies) and the platform default bars are
+ * wide enough to read as a UI element of their own.
+ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: theme(colors.slate.300) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: theme(colors.slate.300);
+  border-radius: 9999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: theme(colors.slate.400);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* The sidebar is dark, so its bar needs the opposite treatment. */
+aside {
+  scrollbar-color: theme(colors.slate.600) transparent;
+}
+
+aside *::-webkit-scrollbar-thumb,
+aside::-webkit-scrollbar-thumb {
+  background-color: theme(colors.slate.600);
+}
+
+aside *::-webkit-scrollbar-thumb:hover,
+aside::-webkit-scrollbar-thumb:hover {
+  background-color: theme(colors.slate.500);
+}

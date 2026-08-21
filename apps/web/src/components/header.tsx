@@ -1,12 +1,38 @@
-import { Link } from "@tanstack/react-router";
+import { useClerk } from "@clerk/react";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
+import { Authenticated } from "convex/react";
 
 import { ModeToggle } from "./mode-toggle";
 
+function LogoutButton() {
+  const { signOut } = useClerk();
+  const navigate = useNavigate();
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate({ to: "/login" });
+  };
+
+  return (
+    <button
+      type="button"
+      className="text-sm font-medium text-muted-foreground hover:text-foreground"
+      onClick={handleSignOut}
+    >
+      Logout
+    </button>
+  );
+}
+
 export default function Header() {
+  const location = useLocation();
   const links = [
-    { to: "/", label: "Home" },
     { to: "/dashboard", label: "Dashboard" },
   ] as const;
+
+  if (location.pathname === "/login") {
+    return null;
+  }
 
   return (
     <div>
@@ -20,7 +46,10 @@ export default function Header() {
             );
           })}
         </nav>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-4">
+          <Authenticated>
+            <LogoutButton />
+          </Authenticated>
           <ModeToggle />
         </div>
       </div>

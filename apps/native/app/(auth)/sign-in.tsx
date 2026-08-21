@@ -1,248 +1,291 @@
 import { useSignIn } from "@clerk/expo";
-import { type Href, Link, useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { type Href, Redirect, useRouter } from "expo-router";
+import { Authenticated, AuthLoading, Unauthenticated } from "convex/react";
 import React from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  Image,
+  Platform,
+  Pressable,
+  StatusBar,
+  Text,
+  TextInput,
+  useWindowDimensions,
+  View,
+} from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Svg, { Defs, Rect, Stop, LinearGradient as SvgLinearGradient } from "react-native-svg";
 
-function pushDecoratedUrl(
-  router: ReturnType<typeof useRouter>,
-  decorateUrl: (url: string) => string,
-  href: string,
-) {
-  const url = decorateUrl(href);
-  const nextHref = url.startsWith("http") ? new URL(url).pathname : url;
-  router.push(nextHref as Href);
+import {
+  deletePersistentItem,
+  getPersistentItem,
+  setPersistentItem,
+} from "@/lib/persistent-storage";
+import { AuthLoadingView } from "@/components/auth-loading";
+
+const REMEMBERED_EMAIL_KEY = "usi.remembered-email";
+const GLOW_TOP = "#8AAAFA";
+
+/** Blue wash behind the wordmark, sampled from the login design. */
+function HeaderGlow({ width, height }: { width: number; height: number }) {
+  return (
+    <Svg width={width} height={height} style={{ position: "absolute", top: 0, left: 0 }}>
+      <Defs>
+        <SvgLinearGradient id="glow" x1="0.5" y1="0" x2="0.5" y2="1">
+          <Stop offset="0" stopColor={GLOW_TOP} stopOpacity="1" />
+          <Stop offset="0.35" stopColor="#B4D0F6" stopOpacity="1" />
+          <Stop offset="0.7" stopColor="#DCE9F4" stopOpacity="1" />
+          <Stop offset="1" stopColor="#EDF1F3" stopOpacity="1" />
+        </SvgLinearGradient>
+      </Defs>
+      <Rect x="0" y="0" width={width} height={height} fill="url(#glow)" />
+    </Svg>
+  );
 }
 
-export default function Page() {
+function LoginForm() {
   const { signIn, errors, fetchStatus } = useSignIn();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { width: screenWidth } = useWindowDimensions();
+  // Glow + solid fallback fill the status-bar gap; logo is padded below the inset.
+  const headerHeight = insets.top + 140;
+
+  // Keep system icons readable on the purple header. Avoid expo-status-bar —
+  // its background/translucent props fight Android edge-to-edge and flash white/black.
+  React.useEffect(() => {
+    StatusBar.setBarStyle("dark-content", true);
+    if (Platform.OS === "android") {
+      StatusBar.setTranslucent(true);
+      StatusBar.setBackgroundColor(GLOW_TOP);
+    }
+  }, []);
+
   const [emailAddress, setEmailAddress] = React.useState("");
   const [password, setPassword] = React.useState("");
-  const [code, setCode] = React.useState("");
+  const [rememberMe, setRememberMe] = React.useState(false);
+  const [isPasswordVisible, setIsPasswordVisible] = React.useState(false);
   const [statusMessage, setStatusMessage] = React.useState<string | null>(null);
 
-  const emailCodeFactor = signIn.supportedSecondFactors.find(
-    (factor) => factor.strategy === "email_code",
-  );
-  const requiresEmailCode =
-    signIn.status === "needs_client_trust" ||
-    (signIn.status === "needs_second_factor" && !!emailCodeFactor);
+  // Pre-fill the email from the last "Remember me" sign-in. Only the email is
+  // stored; Clerk's tokenCache owns session persistence either way.
+  React.useEffect(() => {
+    let isActive = true;
+
+    getPersistentItem(REMEMBERED_EMAIL_KEY)
+      .then((storedEmail) => {
+        if (isActive && storedEmail) {
+          setEmailAddress(storedEmail);
+          setRememberMe(true);
+        }
+      })
+      .catch((error) => {
+        console.error("Unable to read the remembered email:", error);
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  const isSubmitting = fetchStatus === "fetching";
+  const canSubmit = !!emailAddress && !!password && !isSubmitting;
+
+  const persistRememberedEmail = async () => {
+    try {
+      if (rememberMe) {
+        await setPersistentItem(REMEMBERED_EMAIL_KEY, emailAddress);
+      } else {
+        await deletePersistentItem(REMEMBERED_EMAIL_KEY);
+      }
+    } catch (error) {
+      console.error("Unable to persist the remembered email:", error);
+    }
+  };
 
   const handleSubmit = async () => {
     setStatusMessage(null);
 
-    const { error } = await signIn.password({
-      emailAddress,
-      password,
-    });
+    const { error } = await signIn.password({ emailAddress, password });
 
     if (error) {
-      console.error(JSON.stringify(error, null, 2));
-      setStatusMessage(error.longMessage ?? "Unable to sign in. Please try again.");
+      setStatusMessage(error.longMessage ?? "Email or password is incorrect. Please try again.");
       return;
     }
 
-    if (signIn.status === "complete") {
-      await signIn.finalize({
-        navigate: ({ session, decorateUrl }) => {
-          if (session?.currentTask) {
-            console.log(session.currentTask);
-            return;
-          }
-
-          pushDecoratedUrl(router, decorateUrl, "/");
-        },
-      });
-    } else if (signIn.status === "needs_second_factor" || signIn.status === "needs_client_trust") {
-      if (emailCodeFactor) {
-        await signIn.mfa.sendEmailCode();
-        setStatusMessage(`We sent a verification code to ${emailCodeFactor.safeIdentifier}.`);
-      } else {
-        console.error("Second factor is required, but email_code is not available:", signIn);
-        setStatusMessage(
-          "A second factor is required, but this screen only supports email codes right now.",
-        );
-      }
-    } else {
-      console.error("Sign-in attempt not complete:", signIn);
-      setStatusMessage("Sign-in could not be completed. Check the logs for more details.");
+    if (signIn.status !== "complete") {
+      setStatusMessage("Sign-in could not be completed. Please contact the office.");
+      return;
     }
+
+    await persistRememberedEmail();
+
+    await signIn.finalize({
+      navigate: ({ session }) => {
+        if (session?.currentTask) {
+          console.log(session.currentTask);
+          return;
+        }
+
+        router.replace("/");
+      },
+    });
   };
-
-  const handleVerify = async () => {
-    setStatusMessage(null);
-
-    await signIn.mfa.verifyEmailCode({ code });
-
-    if (signIn.status === "complete") {
-      await signIn.finalize({
-        navigate: ({ session, decorateUrl }) => {
-          if (session?.currentTask) {
-            console.log(session.currentTask);
-            return;
-          }
-
-          pushDecoratedUrl(router, decorateUrl, "/");
-        },
-      });
-    } else {
-      console.error("Sign-in attempt not complete:", signIn);
-      setStatusMessage("That code did not complete sign-in. Please try again.");
-    }
-  };
-
-  if (requiresEmailCode) {
-    return (
-      <View style={styles.container}>
-        <Text style={styles.title}>Verify your account</Text>
-        {statusMessage && <Text style={styles.helper}>{statusMessage}</Text>}
-        <TextInput
-          style={styles.input}
-          value={code}
-          placeholder="Enter your verification code"
-          placeholderTextColor="#666666"
-          onChangeText={(value) => setCode(value)}
-          keyboardType="numeric"
-        />
-        {errors.fields.code && <Text style={styles.error}>{errors.fields.code.message}</Text>}
-        <Pressable
-          style={({ pressed }) => [
-            styles.button,
-            fetchStatus === "fetching" && styles.buttonDisabled,
-            pressed && styles.buttonPressed,
-          ]}
-          onPress={handleVerify}
-          disabled={fetchStatus === "fetching"}
-        >
-          <Text style={styles.buttonText}>Verify</Text>
-        </Pressable>
-        <Pressable
-          style={({ pressed }) => [styles.secondaryButton, pressed && styles.buttonPressed]}
-          onPress={() => signIn.mfa.sendEmailCode()}
-        >
-          <Text style={styles.secondaryButtonText}>I need a new code</Text>
-        </Pressable>
-      </View>
-    );
-  }
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Sign in</Text>
-      {statusMessage && <Text style={styles.helper}>{statusMessage}</Text>}
-      <Text style={styles.label}>Email address</Text>
-      <TextInput
-        style={styles.input}
-        autoCapitalize="none"
-        value={emailAddress}
-        placeholder="Enter email"
-        placeholderTextColor="#666666"
-        onChangeText={(value) => setEmailAddress(value)}
-        keyboardType="email-address"
-      />
-      {errors.fields.identifier && (
-        <Text style={styles.error}>{errors.fields.identifier.message}</Text>
-      )}
-      <Text style={styles.label}>Password</Text>
-      <TextInput
-        style={styles.input}
-        value={password}
-        placeholder="Enter password"
-        placeholderTextColor="#666666"
-        secureTextEntry={true}
-        onChangeText={(value) => setPassword(value)}
-      />
-      {errors.fields.password && <Text style={styles.error}>{errors.fields.password.message}</Text>}
-      <Pressable
-        style={({ pressed }) => [
-          styles.button,
-          (!emailAddress || !password || fetchStatus === "fetching") && styles.buttonDisabled,
-          pressed && styles.buttonPressed,
-        ]}
-        onPress={handleSubmit}
-        disabled={!emailAddress || !password || fetchStatus === "fetching"}
+    <View style={{ flex: 1, backgroundColor: GLOW_TOP }}>
+      {/*
+        Solid GLOW_TOP behind the SVG so any status-bar / safe-area gap is purple,
+        never navigator white or page gray. marginTop pulls into the inset gap on Android.
+      */}
+      <View
+        style={{
+          height: headerHeight,
+          marginTop: -insets.top,
+          backgroundColor: GLOW_TOP,
+        }}
       >
-        <Text style={styles.buttonText}>Sign in</Text>
-      </Pressable>
-      <View style={styles.linkContainer}>
-        <Text>Don't have an account? </Text>
-        <Link href="/sign-up">
-          <Text style={styles.linkText}>Sign up</Text>
-        </Link>
+        <HeaderGlow width={screenWidth} height={headerHeight} />
+        <View
+          style={{
+            flex: 1,
+            paddingTop: insets.top,
+            alignItems: "center",
+            justifyContent: "flex-end",
+            paddingBottom: 12,
+          }}
+        >
+          <Image
+            source={require("@/assets/images/WESTERN USI-01 1.png")}
+            style={{ width: 270, height: 33 }}
+            resizeMode="contain"
+          />
+        </View>
       </View>
+
+      <KeyboardAwareScrollView
+        className="flex-1 bg-[#edf1f3]"
+        contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 24, paddingTop: 56, paddingBottom: 32 }}
+        keyboardShouldPersistTaps="handled"
+        bottomOffset={24}
+        showsVerticalScrollIndicator={false}
+      >
+        <Text className="text-[34px] leading-[44px] font-extrabold text-[#1a1c1e]">
+          Sign in to your{"\n"}Account
+        </Text>
+        <Text className="mt-3 text-[15px] font-medium text-[#6c7278]">
+          Enter your credentials to log in
+        </Text>
+
+        {statusMessage && (
+          <Text className="mt-4 text-sm font-medium text-[#d32f2f]">{statusMessage}</Text>
+        )}
+
+        <View className="mt-9 gap-3">
+          <View className="rounded-[14px] border border-white bg-white px-4 shadow-sm">
+            <TextInput
+              className="h-[52px] text-[15px] font-medium text-[#1a1c1e]"
+              autoCapitalize="none"
+              autoComplete="email"
+              keyboardType="email-address"
+              placeholder="Email"
+              placeholderTextColor="#acb5bb"
+              value={emailAddress}
+              onChangeText={setEmailAddress}
+            />
+          </View>
+          {errors.fields.identifier && (
+            <Text className="text-xs font-medium text-[#d32f2f]">
+              {errors.fields.identifier.message}
+            </Text>
+          )}
+
+          <View className="flex-row items-center rounded-[14px] border border-white bg-white px-4 shadow-sm">
+            <TextInput
+              className="h-[52px] flex-1 text-[15px] font-medium text-[#1a1c1e]"
+              autoCapitalize="none"
+              autoComplete="password"
+              placeholder="Password"
+              placeholderTextColor="#acb5bb"
+              secureTextEntry={!isPasswordVisible}
+              value={password}
+              onChangeText={setPassword}
+            />
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={isPasswordVisible ? "Hide password" : "Show password"}
+              hitSlop={12}
+              onPress={() => setIsPasswordVisible((visible) => !visible)}
+            >
+              <Ionicons
+                name={isPasswordVisible ? "eye-outline" : "eye-off-outline"}
+                size={20}
+                color="#6c7278"
+              />
+            </Pressable>
+          </View>
+          {errors.fields.password && (
+            <Text className="text-xs font-medium text-[#d32f2f]">
+              {errors.fields.password.message}
+            </Text>
+          )}
+        </View>
+
+        <View className="mt-5 flex-row items-center justify-between">
+          <Pressable
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: rememberMe }}
+            className="flex-row items-center"
+            hitSlop={8}
+            onPress={() => setRememberMe((remembered) => !remembered)}
+          >
+            <View
+              className={`h-5 w-5 items-center justify-center rounded-[5px] border-[1.5px] ${
+                rememberMe ? "border-[#2563eb] bg-[#2563eb]" : "border-[#acb5bb] bg-transparent"
+              }`}
+            >
+              {rememberMe && <Ionicons name="checkmark" size={14} color="#ffffff" />}
+            </View>
+            <Text className="ml-2.5 text-[13px] font-medium text-[#6c7278]">Remember me</Text>
+          </Pressable>
+
+          <Pressable
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={() => router.push("/forgot-password" as Href)}
+          >
+            <Text className="text-[13px] font-semibold text-[#4d81e7]">Forgot Password ?</Text>
+          </Pressable>
+        </View>
+
+        <Pressable
+          accessibilityRole="button"
+          className={`mt-7 h-[54px] items-center justify-center rounded-[14px] bg-[#2f5fe0] ${
+            canSubmit ? "" : "opacity-50"
+          }`}
+          disabled={!canSubmit}
+          onPress={handleSubmit}
+        >
+          <Text className="text-[17px] font-bold text-white">Log In</Text>
+        </Pressable>
+      </KeyboardAwareScrollView>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    padding: 20,
-    gap: 12,
-  },
-  title: {
-    marginBottom: 8,
-    fontSize: 24,
-    fontWeight: "700",
-  },
-  label: {
-    fontWeight: "600",
-    fontSize: 14,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    backgroundColor: "#fff",
-  },
-  button: {
-    backgroundColor: "#0a7ea4",
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 8,
-    alignItems: "center",
-    marginTop: 8,
-  },
-  buttonPressed: {
-    opacity: 0.7,
-  },
-  buttonDisabled: {
-    opacity: 0.5,
-  },
-  buttonText: {
-    color: "#fff",
-    fontWeight: "600",
-  },
-  secondaryButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 8,
-    alignItems: "center",
-    marginTop: 8,
-  },
-  secondaryButtonText: {
-    color: "#0a7ea4",
-    fontWeight: "600",
-  },
-  linkContainer: {
-    flexDirection: "row",
-    gap: 4,
-    marginTop: 12,
-    alignItems: "center",
-  },
-  linkText: {
-    color: "#0a7ea4",
-    fontWeight: "600",
-  },
-  error: {
-    color: "#d32f2f",
-    fontSize: 12,
-    marginTop: -8,
-  },
-  helper: {
-    color: "#555555",
-    fontSize: 13,
-  },
-});
+export default function Page() {
+  return (
+    <>
+      <Authenticated>
+        <Redirect href="/" />
+      </Authenticated>
+      <Unauthenticated>
+        <LoginForm />
+      </Unauthenticated>
+      <AuthLoading>
+        <AuthLoadingView />
+      </AuthLoading>
+    </>
+  );
+}
