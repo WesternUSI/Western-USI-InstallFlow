@@ -39,7 +39,6 @@ function StackLayout() {
     </Stack>
   );
 }
-
 export default function Layout() {
   return (
     <ClerkProvider tokenCache={tokenCache} publishableKey={env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY}>

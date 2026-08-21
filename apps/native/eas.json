@@ -18,6 +18,7 @@
   "submit": {
     "production": {
       "ios": {
+        "ascAppId": "6803363833",
         "ascApiKeyPath": "/Users/umaraurangzeb/secrets/AuthKey_BB4HLWRN46.p8",
         "ascApiKeyId": "BB4HLWRN46",
         "ascApiKeyIssuerId": "1143c007-07ae-4e60-bbde-2a386b7fa064"

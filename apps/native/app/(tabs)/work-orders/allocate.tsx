@@ -8,7 +8,7 @@ import React from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { TEAMS as ALL_TEAMS, useTeamContext } from "@/contexts/team-context";
+import { useTeamContext } from "@/contexts/team-context";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { listWorkOrderCards, type WorkOrderCard } from "@/lib/groupWorkOrders";
 
@@ -198,7 +198,7 @@ export default function AllocateInstallsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { isLoaded: userLoaded } = useCurrentUser();
-  const { primaryTeam } = useTeamContext();
+  const { primaryTeam, teams: allTeams } = useTeamContext();
   const { toast } = useToast();
 
   const rows = useQuery(api.workorders.listActiveWorkOrders);
@@ -343,9 +343,9 @@ export default function AllocateInstallsScreen() {
     setBusy(true);
     try {
       if (action === "allocate") {
-        await allocateWorkOrders({ ids, team: team as (typeof ALL_TEAMS)[number] });
+        await allocateWorkOrders({ ids, team });
       } else {
-        await unallocateWorkOrders({ ids, team: team as (typeof ALL_TEAMS)[number] });
+        await unallocateWorkOrders({ ids, team });
       }
       setCheckedOrderIds((current) => {
         const next = new Set(current);
@@ -385,7 +385,7 @@ export default function AllocateInstallsScreen() {
             open={openDropdown === "team"}
             onToggle={() => toggleDropdown("team")}
           >
-            {ALL_TEAMS.map((team) => (
+            {allTeams.map((team) => (
               <OptionRow
                 key={team}
                 label={team === primaryTeam ? `${team} (Primary)` : team}

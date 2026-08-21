@@ -50,7 +50,7 @@ export default function WorkOrdersScreen() {
     api.workorders.byAreaForTeam,
     primaryTeam === undefined
       ? "skip"
-      : { team: primaryTeam as "Team 1" | "Team 2" | "Team 3" | "Team 4" | "Team 5" },
+      : { team: primaryTeam },
   );
   const rows = areaProgress ?? [];
   const visibleRows = rows.slice(0, visibleCount);
