@@ -71,6 +71,10 @@ function ImportSiteDataPage() {
       panel_id: row.panel_id,
       quantity: row.quantity,
       size: row.size,
+      area_progress: row.area_progress,
+      equipment_needed: row.equipment_needed,
+      install_notes: row.install_notes,
+      location: row.location,
       missing_value: row.missing_value,
     }));
   }, [parsed]);

@@ -53,6 +53,35 @@ export const backfillWorkOrders = internalMutation({
 });
 
 /**
+ * Seeds the five teams the app shipped with, now that teams are a table
+ * rather than a fixed union of literals.
+ *
+ * Existing users and work orders already store these names as strings, so no
+ * row needs rewriting — this only gives the names something to be listed
+ * from. Safe to re-run: names already present are skipped.
+ */
+export const seedTeams = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const names = ["Team 1", "Team 2", "Team 3", "Team 4", "Team 5"];
+
+    let inserted = 0;
+    for (const name of names) {
+      const existing = await ctx.db
+        .query("teams")
+        .withIndex("by_name", (q) => q.eq("name", name))
+        .first();
+      if (existing !== null) continue;
+
+      await ctx.db.insert("teams", { name, archived: false });
+      inserted++;
+    }
+
+    return { inserted };
+  },
+});
+
+/**
  * `password` and `personal_email` were dropped from the schema — passwords
  * are never stored, only ever shown once at invite/reset time, and the
  * personal-email field went unused once the forms stopped collecting it.

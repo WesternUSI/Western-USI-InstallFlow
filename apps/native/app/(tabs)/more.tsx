@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Text, View } from "react-native";
+import { type Href, useRouter } from "expo-router";
+import { Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { SignOutButton } from "@/components/sign-out-button";
@@ -7,6 +8,7 @@ import { useCurrentUser } from "@/hooks/use-current-user";
 
 export default function MoreScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { clerkUser } = useCurrentUser();
 
   const displayName = clerkUser?.fullName?.trim() || clerkUser?.primaryEmailAddress?.emailAddress;
@@ -43,6 +45,25 @@ export default function MoreScreen() {
             ) : null}
           </View>
         </View>
+
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => router.push("/change-password" as Href)}
+          className="mt-4 flex-row items-center rounded-2xl bg-white px-4 py-4"
+          style={{
+            shadowColor: "#0f172a",
+            shadowOpacity: 0.06,
+            shadowRadius: 12,
+            shadowOffset: { width: 0, height: 4 },
+            elevation: 2,
+          }}
+        >
+          <View className="h-12 w-12 items-center justify-center rounded-full bg-[#e8f0ff]">
+            <Ionicons name="key" size={20} color="#2563eb" />
+          </View>
+          <Text className="ml-3 flex-1 text-[15px] font-bold text-[#1a1c1e]">Change Password</Text>
+          <Ionicons name="chevron-forward" size={18} color="#8b95a1" />
+        </Pressable>
 
         <View className="mt-4">
           <SignOutButton />

@@ -8,7 +8,7 @@ import React from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { TEAMS as ALL_TEAMS, useTeamContext } from "@/contexts/team-context";
+import { useTeamContext } from "@/contexts/team-context";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { listWorkOrderCards, type WorkOrderCard } from "@/lib/groupWorkOrders";
 
@@ -198,7 +198,7 @@ export default function AllocateInstallsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { isLoaded: userLoaded } = useCurrentUser();
-  const { primaryTeam } = useTeamContext();
+  const { primaryTeam, teams: allTeams } = useTeamContext();
   const { toast } = useToast();
 
   const rows = useQuery(api.workorders.listActiveWorkOrders);
@@ -343,9 +343,9 @@ export default function AllocateInstallsScreen() {
     setBusy(true);
     try {
       if (action === "allocate") {
-        await allocateWorkOrders({ ids, team: team as (typeof ALL_TEAMS)[number] });
+        await allocateWorkOrders({ ids, team });
       } else {
-        await unallocateWorkOrders({ ids, team: team as (typeof ALL_TEAMS)[number] });
+        await unallocateWorkOrders({ ids, team });
       }
       setCheckedOrderIds((current) => {
         const next = new Set(current);
@@ -385,7 +385,7 @@ export default function AllocateInstallsScreen() {
             open={openDropdown === "team"}
             onToggle={() => toggleDropdown("team")}
           >
-            {ALL_TEAMS.map((team) => (
+            {allTeams.map((team) => (
               <OptionRow
                 key={team}
                 label={team === primaryTeam ? `${team} (Primary)` : team}
@@ -482,9 +482,9 @@ export default function AllocateInstallsScreen() {
           <Pressable
             accessibilityRole="button"
             onPress={() => setVisibleCount((count) => count + PAGE_SIZE)}
-            className="mx-4 mt-1 h-[46px] items-center justify-center rounded-2xl bg-[#2563eb]"
+            className="mx-4 mt-1 h-[46px] items-center justify-center rounded-2xl border border-[#bfdbfe] bg-[#eff6ff]"
           >
-            <Text className="text-[14px] font-bold text-white">Show More</Text>
+            <Text className="text-[14px] font-bold text-[#2563eb]">Show More</Text>
           </Pressable>
         )}
       </ScrollView>
@@ -493,16 +493,18 @@ export default function AllocateInstallsScreen() {
         className="border-t border-[#e2e8f0] bg-[#f7f9fb] px-4 pt-3"
         style={{ paddingBottom: Math.max(insets.bottom, 12) }}
       >
-        <Pressable
-          accessibilityRole="button"
-          disabled={busy}
-          onPress={() => runBulkAction("allocate", toAllocate)}
-          className="h-[48px] items-center justify-center rounded-2xl bg-[#2563eb]"
-        >
-          <Text className="text-[14px] font-bold text-white">
-            Allocate Installs ({toAllocate.length})
-          </Text>
-        </Pressable>
+        {toAllocate.length > 0 && (
+          <Pressable
+            accessibilityRole="button"
+            disabled={busy}
+            onPress={() => runBulkAction("allocate", toAllocate)}
+            className="h-[48px] items-center justify-center rounded-2xl bg-[#2563eb]"
+          >
+            <Text className="text-[14px] font-bold text-white">
+              Allocate Installs ({toAllocate.length})
+            </Text>
+          </Pressable>
+        )}
 
         {toUnallocate.length > 0 && (
           <Pressable

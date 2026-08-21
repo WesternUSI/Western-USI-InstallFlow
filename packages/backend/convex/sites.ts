@@ -1,5 +1,6 @@
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, mutation, query } from "./_generated/server";
 import { type SiteDetailStatus, deriveSiteDetailStatus, matchesTerm } from "./derive";
@@ -510,6 +511,54 @@ export const upsertSites = mutation({
 });
 
 /**
+ * Creates one site by hand, for a panel that the uploaded sheet does not carry.
+ *
+ * Unlike `upsertSites` this refuses to overwrite: an existing panel id here is
+ * a mistake rather than an update, and that row is already reachable from
+ * Manage Site Data.
+ */
+export const addSite = mutation({
+  args: {
+    area: v.string(),
+    site: v.string(),
+    panel_id: v.string(),
+    quantity: v.optional(v.number()),
+    size: v.optional(v.string()),
+    area_progress: v.optional(v.string()),
+    install_notes: v.optional(v.string()),
+    equipment_needed: v.array(v.string()),
+    location: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx);
+
+    // Same rule the parser applies: an id with no letters or digits ("???",
+    // "-") is a placeholder rather than a real panel id.
+    const missing_value = !/[a-z0-9]/i.test(args.panel_id);
+    const row = { ...args, missing_value };
+
+    const existing = await findExisting(ctx, row);
+    if (existing !== null) {
+      throw new Error(`Panel ID "${args.panel_id}" is already in the site database.`);
+    }
+
+    const fresh = { ...row, site_img: [] };
+    const id = await ctx.db.insert("sites", {
+      ...fresh,
+      map_saved: (args.location ?? "") !== "",
+      photo_saved: false,
+      ...derivedKeys(fresh),
+    });
+
+    // A site that did not exist before can resolve schedule rows that were
+    // imported with nothing to match.
+    await ctx.scheduler.runAfter(0, internal.workorders.relinkMissingSites, {});
+
+    return id;
+  },
+});
+
+/**
  * Records one completed Site Database upload. Called once after the last batch
  * of `upsertSites`, so a large file can be applied over several transactions
  * without producing several import rows.
@@ -537,6 +586,10 @@ export const recordSiteImport = mutation({
       uploaded_at: Date.now(),
       uploaded_by_name: user?.name ?? identity.name ?? identity.email ?? "Unknown user",
     });
+
+    // Runs once the whole upload has landed rather than per batch: fresh site
+    // data routinely resolves schedule rows imported before it.
+    await ctx.scheduler.runAfter(0, internal.workorders.relinkMissingSites, {});
   },
 });
 

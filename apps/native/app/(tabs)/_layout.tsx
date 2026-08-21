@@ -4,6 +4,7 @@ import { Authenticated, AuthLoading, Unauthenticated } from "convex/react";
 import { Text, View } from "react-native";
 
 import { AuthLoadingView } from "@/components/auth-loading";
+import { ChangePasswordScreen } from "@/components/change-password-screen";
 import { NoAccessCard } from "@/components/no-access-card";
 import { useCurrentUser } from "@/hooks/use-current-user";
 
@@ -82,6 +83,12 @@ function TabsNavigator() {
         }}
       />
       <Tabs.Screen
+        name="change-password"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
         name="work-orders"
         options={{
           href: null,
@@ -92,7 +99,7 @@ function TabsNavigator() {
 }
 
 function AuthorizedGate() {
-  const { isLoaded, role } = useCurrentUser();
+  const { isLoaded, role, convexUser } = useCurrentUser();
 
   if (!isLoaded) {
     return <AuthLoadingView />;
@@ -100,6 +107,10 @@ function AuthorizedGate() {
 
   if (role !== "installer") {
     return <NoAccessCard />;
+  }
+
+  if (convexUser?.must_change_password) {
+    return <ChangePasswordScreen />;
   }
 
   return <TabsNavigator />;

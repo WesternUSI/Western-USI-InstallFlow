@@ -16,19 +16,19 @@ export default defineSchema({
     role: v.optional(
       v.union(v.literal("installer"), v.literal("office_staff"), v.literal("admin")),
     ),
-    team: v.optional(
-      v.union(
-        v.literal("Team 1"),
-        v.literal("Team 2"),
-        v.literal("Team 3"),
-        v.literal("Team 4"),
-        v.literal("Team 5"),
-      ),
-    ),
+    // The team's name, not its id. Teams are a table now, but the name is what
+    // is stored on the rows that reference one — the native app compares and
+    // displays these as plain strings, and it keeps renames out of scope.
+    team: v.optional(v.string()),
     // Set (and refreshed) whenever an admin reveals this account's credentials
     // via Invite / Resend Invite / Send Updated Credentials. Stands in for a
     // real invite-acceptance signal until an email provider is wired up.
     invited_at: v.optional(v.number()),
+    // True whenever the account's current password is an admin-generated one
+    // (set on invite, and again on Resend/Send Updated Credentials). The app
+    // blocks navigation until the installer sets their own password, which
+    // clears this.
+    must_change_password: v.optional(v.boolean()),
     // Set by the `session.created` Clerk webhook the first time this account
     // actually signs in, distinguishing "Invitation Sent" from "Active".
     last_sign_in_at: v.optional(v.number()),
@@ -112,16 +112,9 @@ export default defineSchema({
     priority: v.boolean(), // every non-empty cell in the row had a red fill
     current_status: workOrderStatus,
     // A work order can only ever have one team, so allocating simply sets
-    // this and unallocating clears it back to undefined.
-    assigned_team: v.optional(
-      v.union(
-        v.literal("Team 1"),
-        v.literal("Team 2"),
-        v.literal("Team 3"),
-        v.literal("Team 4"),
-        v.literal("Team 5"),
-      ),
-    ),
+    // this and unallocating clears it back to undefined. Holds the team's
+    // name — see the note on `users.team`.
+    assigned_team: v.optional(v.string()),
     site_id: v.optional(v.id("sites")), // panel_split matched to sites.panel_id
     missing_value: v.boolean(), // no site matched panel_split
     // Snapshot of the matched site's `area_progress` taken at import time, so
@@ -145,6 +138,19 @@ export default defineSchema({
     // Lets the Duration filter run as an index range, on its own or combined
     // with a status tab.
     .index("by_status_upload", ["status_key", "upload_date"]),
+
+  /**
+   * An installation crew. Office staff create these, so the set is no longer
+   * the fixed Team 1–5 it started as.
+   *
+   * Rows that belong to a team store its `name`, not its id, so archiving is
+   * offered instead of deletion and renaming is deliberately not supported —
+   * either would have to cascade across users and work orders.
+   */
+  teams: defineTable({
+    name: v.string(),
+    archived: v.boolean(),
+  }).index("by_name", ["name"]),
 
   /**
    * Shown in the admin panel's notification bell. One shared inbox — "read"

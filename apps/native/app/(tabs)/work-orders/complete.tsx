@@ -160,7 +160,7 @@ export default function CompleteInstallsScreen() {
     api.workorders.listAllocatedWorkOrders,
     primaryTeam === undefined
       ? "skip"
-      : { team: primaryTeam as "Team 1" | "Team 2" | "Team 3" | "Team 4" | "Team 5" },
+      : { team: primaryTeam },
   );
 
   const [areaDropdownOpen, setAreaDropdownOpen] = React.useState(false);
