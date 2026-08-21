@@ -12,7 +12,14 @@
       "distribution": "internal"
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_CONVEX_URL": "https://accurate-warthog-939.convex.cloud",
+        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_live_Y2xlcmsud2VzdGVybnVzaS5jb20uYXUk"
+      },
+      "ios": {
+        "scheme": "WesternUSIInstaller"
+      }
     }
   },
   "submit": {

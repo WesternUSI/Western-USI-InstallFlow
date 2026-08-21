@@ -26,7 +26,6 @@ function DetailPill({ children }: { children: React.ReactNode }) {
     </View>
   );
 }
-
 function MapActions({ location }: { location?: string }) {
   const coords = React.useMemo(
     () => (location ? parseDmsCoordinates(location) : null),
