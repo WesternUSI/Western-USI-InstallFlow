@@ -380,7 +380,7 @@ export const byArea = query({
  * done." Single-team only — there's no more merged/additional-team concept.
  */
 export const byAreaForTeam = query({
-  args: { team: v.union(v.literal("Team 1"), v.literal("Team 2"), v.literal("Team 3"), v.literal("Team 4"), v.literal("Team 5")) },
+  args: { team: v.string() },
   handler: async (ctx, args) => {
     await requireIdentity(ctx);
 
@@ -621,13 +621,10 @@ export const getCompletionEmailData = internalQuery({
   },
 });
 
-const teamValidator = v.union(
-  v.literal("Team 1"),
-  v.literal("Team 2"),
-  v.literal("Team 3"),
-  v.literal("Team 4"),
-  v.literal("Team 5"),
-);
+// Kept local rather than imported from "./teams" — that module imports from
+// this one, so importing back would be circular. See the `teams` table
+// comment in schema.ts for why this is a plain string, not a fixed union.
+const teamValidator = v.string();
 
 /**
  * Sets each work order's `assigned_team` to `team` and recomputes
