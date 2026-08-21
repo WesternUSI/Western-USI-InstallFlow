@@ -21,7 +21,8 @@ import { Plus, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { FilterSelect } from "@/components/filter-select";
-import { TEAMS, type Team } from "@/lib/teams";
+import { useTeamNames } from "@/hooks/use-teams";
+import type { Team } from "@/lib/teams";
 
 export interface MemberOption {
   _id: Id<"users">;
@@ -72,6 +73,7 @@ export function AddMembersDialog({
   onOpenChange,
   onAdd,
 }: AddMembersDialogProps) {
+  const teamNames = useTeamNames();
   const [search, setSearch] = useState("");
   const [currentTeam, setCurrentTeam] = useState(ALL_TEAMS);
   const [selected, setSelected] = useState<Id<"users">[]>([]);
@@ -137,7 +139,7 @@ export function AddMembersDialog({
             options={[
               { value: ALL_TEAMS, label: "All Teams" },
               { value: NO_TEAM, label: "No Team" },
-              ...TEAMS.filter((option) => option !== team).map((option) => ({
+              ...teamNames.filter((option) => option !== team).map((option) => ({
                 value: option,
                 label: option,
               })),

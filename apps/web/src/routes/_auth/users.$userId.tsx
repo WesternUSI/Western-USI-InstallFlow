@@ -19,7 +19,8 @@ import type { Credentials } from "@/components/credentials-dialog";
 import { CredentialsDialog } from "@/components/credentials-dialog";
 import { DeleteUserDialog } from "@/components/delete-user-dialog";
 import { PageHeader } from "@/components/page-header";
-import { TEAMS, type Team } from "@/lib/teams";
+import { useTeamNames } from "@/hooks/use-teams";
+import type { Team } from "@/lib/teams";
 import { USER_STATUS_CLASSES, USER_STATUS_LABELS, type UserStatus } from "@/lib/userStatus";
 
 export const Route = createFileRoute("/_auth/users/$userId")({
@@ -49,6 +50,7 @@ function UserDetailPage() {
   const id = userId as Id<"users">;
 
   const user = useQuery(api.users.get, { id });
+  const teamNames = useTeamNames();
   const updateAccount = useAction(api.users.updateAccount);
   const resendCredentials = useAction(api.users.resendCredentials);
   const removeUser = useAction(api.users.removeUser);
@@ -194,7 +196,7 @@ function UserDetailPage() {
                     <SelectItem value={NO_TEAM} className="rounded-md px-3 py-2 text-sm text-slate-700">
                       Unassigned
                     </SelectItem>
-                    {TEAMS.map((team) => (
+                    {teamNames.map((team) => (
                       <SelectItem
                         key={team}
                         value={team}

@@ -55,6 +55,45 @@ export const sendCompletionEmail = internalAction({
       }
     }
 
+    const html = brandedEmail(`
+      <p style="margin:0 0 20px;">A work order has been marked complete.</p>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#F8FAFC;border:1px solid #E5E7EB;border-radius:8px;margin:0 0 20px;">
+        <tr>
+          <td style="padding:14px 16px 0;">
+            <div style="font-size:11px;font-weight:700;letter-spacing:0.5px;color:#6B7280;text-transform:uppercase;">Location</div>
+            <div style="font-size:14px;color:#111827;margin-top:2px;">${escapeHtml(data.site)}</div>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:14px 16px 0;">
+            <div style="font-size:11px;font-weight:700;letter-spacing:0.5px;color:#6B7280;text-transform:uppercase;">Advertiser</div>
+            <div style="font-size:14px;color:#111827;margin-top:2px;">${escapeHtml(data.advertiser_campaign)}</div>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:14px 16px 0;">
+            <div style="font-size:11px;font-weight:700;letter-spacing:0.5px;color:#6B7280;text-transform:uppercase;">Panel ID</div>
+            <div style="font-size:14px;color:#111827;margin-top:2px;">${escapeHtml(data.panel_split)}</div>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:14px 16px 0;">
+            <div style="font-size:11px;font-weight:700;letter-spacing:0.5px;color:#6B7280;text-transform:uppercase;">Contract Number</div>
+            <div style="font-size:14px;color:#111827;margin-top:2px;">${escapeHtml(data.contract_id)}</div>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:14px 16px 14px;">
+            <div style="font-size:11px;font-weight:700;letter-spacing:0.5px;color:#6B7280;text-transform:uppercase;">Notes</div>
+            <div style="font-size:14px;color:#111827;margin-top:2px;">${escapeHtml(data.completion_notes ?? "—")}</div>
+          </td>
+        </tr>
+      </table>
+      <p style="margin:0;color:#6B7280;">${
+        data.photoUrl ? "The completion photo is attached." : "No completion photo was attached."
+      }</p>
+    `);
+
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
@@ -66,6 +105,7 @@ export const sendCompletionEmail = internalAction({
         to: data.recipients,
         subject,
         text: bodyLines.join("\n"),
+        html,
         attachments,
       }),
     });

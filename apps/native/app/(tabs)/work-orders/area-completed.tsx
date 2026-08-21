@@ -78,7 +78,7 @@ export default function AreaCompletedScreen() {
       ? "skip"
       : {
           train_line: area,
-          team: primaryTeam as "Team 1" | "Team 2" | "Team 3" | "Team 4" | "Team 5",
+          team: primaryTeam,
         },
   );
 

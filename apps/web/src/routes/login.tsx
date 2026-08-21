@@ -1,5 +1,5 @@
 import { useSignIn } from "@clerk/react";
-import { Navigate, createFileRoute, useNavigate } from "@tanstack/react-router";
+import { Link, Navigate, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Button } from "@usi-installer/ui/components/button";
 import { Checkbox } from "@usi-installer/ui/components/checkbox";
 import { Input } from "@usi-installer/ui/components/input";
@@ -288,8 +288,9 @@ function LoginForm() {
                   <span className="text-[13px] font-medium text-[#6c7278]">Remember me</span>
                 </Label>
 
-                {/* Reset flow is not built yet — intentionally inert, matches native. */}
-                <span className="text-[13px] font-semibold text-[#4d81e7]">Forgot Password ?</span>
+                <Link to="/forgot-password" className="text-[13px] font-semibold text-[#4d81e7]">
+                  Forgot Password ?
+                </Link>
               </div>
 
                 <Button

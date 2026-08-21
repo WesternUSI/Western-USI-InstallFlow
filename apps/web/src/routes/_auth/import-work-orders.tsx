@@ -95,10 +95,21 @@ function ImportWorkOrdersPage() {
         // Nothing is allocated or completed before the rows exist, so the only
         // meaningful distinction at preview time is whether a site matched.
         status: match === null ? ("missing_site" as const) : ("not_allocated" as const),
-        site: row.site,
-        panel_split: row.panel_split,
+        contract_id: row.contract_id,
         advertiser_campaign: row.advertiser_campaign,
+        contracted_panel_id: row.contracted_panel_id,
+        panel_split: row.panel_split,
+        site: row.site,
+        panel_name: row.panel_name,
+        quantity: row.quantity,
+        format: row.format,
+        size: row.size,
+        proposed_install_date: row.proposed_install_date,
+        end_date: row.end_date,
+        comments: row.comments,
         existing_advertiser: row.existing_advertiser,
+        area_progress: row.area_progress,
+        schedule: row.schedule,
         train_line: match?.train_line,
       };
     });

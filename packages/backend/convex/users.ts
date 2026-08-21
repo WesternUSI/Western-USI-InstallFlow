@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
-import { action, internalMutation, internalQuery, query } from "./_generated/server";
+import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { teamValidator } from "./teams";
 
 export type UserStatus = "active" | "invitation_sent" | "idle";
@@ -272,6 +272,7 @@ export const finishInvite = internalMutation({
       team: args.team,
       role: "installer" as const,
       invited_at: Date.now(),
+      must_change_password: true,
     };
 
     if (existing) {
@@ -352,7 +353,57 @@ export const inviteInstaller = action({
 export const markCredentialsResent = internalMutation({
   args: { user_id: v.id("users") },
   handler: async (ctx, args) => {
-    await ctx.db.patch(args.user_id, { invited_at: Date.now() });
+    await ctx.db.patch(args.user_id, { invited_at: Date.now(), must_change_password: true });
+  },
+});
+
+/** Patches the caller's own row — split out of `completePasswordChange` so that action can call it as a mutation step. */
+export const clearMustChangePassword = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_id", (q) => q.eq("clerk_id", identity.subject))
+      .unique();
+    if (user === null) {
+      throw new Error("User not found");
+    }
+
+    await ctx.db.patch(user._id, { must_change_password: false });
+  },
+});
+
+/**
+ * Sets the caller's own password directly through the Clerk Backend API —
+ * the same mechanism Invite/Resend use, chosen specifically so this does not
+ * need their current (admin-generated) password the way Clerk's frontend
+ * `user.updatePassword()` would. Clears `must_change_password` on success so
+ * the mandatory gate in `(tabs)/_layout.tsx` lets them through.
+ */
+export const completePasswordChange = action({
+  args: { new_password: v.string() },
+  handler: async (ctx, args): Promise<void> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+
+    const clerkSecretKey = process.env.CLERK_SECRET_KEY;
+    if (!clerkSecretKey) {
+      throw new Error("CLERK_SECRET_KEY is not configured on this Convex deployment");
+    }
+
+    await clerkFetch(`/users/${identity.subject}`, clerkSecretKey, {
+      method: "PATCH",
+      body: JSON.stringify({ password: args.new_password }),
+    });
+
+    await ctx.runMutation(api.users.clearMustChangePassword, {});
   },
 });
 
@@ -410,7 +461,15 @@ async function clerkFetch(path: string, secretKey: string, init?: RequestInit): 
   });
 
   if (!response.ok) {
-    throw new Error(`Clerk API error (${path}): ${response.status} ${await response.text()}`);
+    const body = await response.text();
+    let message = body;
+    try {
+      const parsed = JSON.parse(body) as { errors?: { long_message?: string; message?: string }[] };
+      message = parsed.errors?.[0]?.long_message ?? parsed.errors?.[0]?.message ?? body;
+    } catch {
+      // Not JSON — fall back to the raw body.
+    }
+    throw new Error(message);
   }
 
   return response;

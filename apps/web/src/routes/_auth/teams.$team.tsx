@@ -34,14 +34,16 @@ import { AddMembersDialog } from "@/components/add-members-dialog";
 import { PageHeader } from "@/components/page-header";
 import { StatTiles } from "@/components/stat-tiles";
 import { TablePagination } from "@/components/table-pagination";
+import {
+  WORK_ORDER_COLUMNS,
+  WORK_ORDER_TABLE_MIN_WIDTH,
+  WorkOrderRowCells,
+  WorkOrderTableHead,
+} from "@/components/work-order-table";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
 import { useStickyValue } from "@/hooks/use-debounced-value";
-import { TEAMS, type Team, teamFromSlug } from "@/lib/teams";
-import {
-  WORK_ORDER_STATUS_CLASSES,
-  WORK_ORDER_STATUS_LABELS,
-  formatTrainLine,
-} from "@/lib/workOrderStatus";
+import { useTeams } from "@/hooks/use-teams";
+import { type Team, teamFromSlug } from "@/lib/teams";
 
 export const Route = createFileRoute("/_auth/teams/$team")({
   component: TeamDetailPage,
@@ -57,16 +59,6 @@ const TABS: { value: TabValue; label: string }[] = [
   { value: "pending", label: "Pending Orders" },
   { value: "members", label: "Team Members" },
 ];
-
-/** Widths add up to 100% so the table never overflows its card. */
-const ORDER_COLUMNS = [
-  { label: "Status", width: "w-[13%]", padding: "px-6" },
-  { label: "Location", width: "w-[22%]", padding: "px-4" },
-  { label: "Panel ID", width: "w-[12%]", padding: "px-4" },
-  { label: "Advertiser", width: "w-[19%]", padding: "px-4" },
-  { label: "Existing Advertiser", width: "w-[19%]", padding: "px-4" },
-  { label: "Train Line", width: "w-[15%]", padding: "px-4" },
-] as const;
 
 const MEMBER_COLUMNS = [
   { label: "Member Name", width: "w-[30%]", padding: "px-6" },
@@ -89,56 +81,32 @@ function OrderTab({ team, status }: { team: Team; status: "completed" | "allocat
 
   return (
     <>
-      <Table className="min-w-[880px] table-fixed">
-        <TableHeader>
-          <TableRow className="border-slate-200 bg-gray-50 hover:bg-gray-50">
-            {ORDER_COLUMNS.map((column) => (
-              <TableHead
-                key={column.label}
-                className={`${column.width} ${column.padding} py-5 text-[11px] font-bold tracking-[0.55px] text-slate-500 uppercase`}
-              >
-                {column.label}
-              </TableHead>
-            ))}
-          </TableRow>
-        </TableHeader>
+      <Table className={`${WORK_ORDER_TABLE_MIN_WIDTH} table-fixed`}>
+        <WorkOrderTableHead />
         <TableBody>
           {result === undefined && (
             <TableRow>
-              <TableCell colSpan={6} className="px-6 py-10 text-center text-sm text-slate-400">
+              <TableCell
+                colSpan={WORK_ORDER_COLUMNS.length}
+                className="px-6 py-10 text-center text-sm text-slate-400"
+              >
                 Loading…
               </TableCell>
             </TableRow>
           )}
           {result?.page.length === 0 && (
             <TableRow>
-              <TableCell colSpan={6} className="px-6 py-10 text-center text-sm text-slate-400">
+              <TableCell
+                colSpan={WORK_ORDER_COLUMNS.length}
+                className="px-6 py-10 text-center text-sm text-slate-400"
+              >
                 Nothing here for {team} yet.
               </TableCell>
             </TableRow>
           )}
           {result?.page.map((row) => (
             <TableRow key={row._id} className="border-slate-100">
-              <TableCell className="px-6 py-4">
-                <span
-                  className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${WORK_ORDER_STATUS_CLASSES[row.status]}`}
-                >
-                  {WORK_ORDER_STATUS_LABELS[row.status]}
-                </span>
-              </TableCell>
-              <TableCell className="truncate px-4 py-4 text-sm text-slate-700">{row.site}</TableCell>
-              <TableCell className="truncate px-4 py-4 text-sm font-medium text-slate-700">
-                {row.panel_split}
-              </TableCell>
-              <TableCell className="truncate px-4 py-4 text-sm text-slate-700">
-                {row.advertiser_campaign}
-              </TableCell>
-              <TableCell className="truncate px-4 py-4 text-sm text-slate-500">
-                {row.existing_advertiser ?? "—"}
-              </TableCell>
-              <TableCell className="truncate px-4 py-4 text-sm text-slate-500">
-                {formatTrainLine(row.train_line)}
-              </TableCell>
+              <WorkOrderRowCells row={{ ...row, key: row._id }} />
             </TableRow>
           ))}
         </TableBody>
@@ -160,7 +128,9 @@ function OrderTab({ team, status }: { team: Team; status: "completed" | "allocat
 
 function TeamDetailPage() {
   const { team: slug } = Route.useParams();
-  const team = teamFromSlug(slug);
+  const teams = useTeams();
+  const teamNames = useMemo(() => teams?.map((entry) => entry.name) ?? [], [teams]);
+  const team = teamFromSlug(slug, teamNames);
 
   const [tab, setTab] = useState<TabValue>("completed");
   const [isPickerOpen, setIsPickerOpen] = useState(false);
@@ -178,6 +148,17 @@ function TeamDetailPage() {
     () => (allMembers ?? []).filter((member) => member.team === team),
     [allMembers, team],
   );
+
+  // The slug can only be resolved once the team list has loaded, so "not
+  // found" has to wait for it — otherwise every visit flashes that first.
+  if (teams === undefined) {
+    return (
+      <>
+        <PageHeader title="Team Details" description="Loading…" />
+        <p className="py-16 text-center text-sm text-slate-400">Loading…</p>
+      </>
+    );
+  }
 
   if (team === undefined) {
     return (
@@ -359,7 +340,7 @@ function TeamDetailPage() {
                               Reassign
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="min-w-40">
-                              {TEAMS.filter((option) => option !== team).map((option) => (
+                              {teamNames.filter((option) => option !== team).map((option) => (
                                 <DropdownMenuItem
                                   key={option}
                                   onClick={() => void moveTo(member._id, option)}

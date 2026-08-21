@@ -1,13 +1,17 @@
+import { api } from "@usi-installer/backend/convex/_generated/api";
+import { useQuery } from "convex/react";
 import React from "react";
 
 import { useCurrentUser } from "@/hooks/use-current-user";
 
-export const TEAMS = ["Team 1", "Team 2", "Team 3", "Team 4", "Team 5"] as const;
-export type Team = (typeof TEAMS)[number];
+export type Team = string;
 
 type TeamContextValue = {
   isLoaded: boolean;
   primaryTeam: string | undefined;
+  // Active team names, sorted — backs the Allocate screen's team picker.
+  // Undefined while `api.teams.list` is still loading.
+  teams: Team[];
 };
 
 const TeamContext = React.createContext<TeamContextValue | null>(null);
@@ -20,12 +24,24 @@ const TeamContext = React.createContext<TeamContextValue | null>(null);
  * three screens are always scoped to `primaryTeam` only. Allocate Installs is
  * the one screen that can act on a *different* team — it keeps its own local,
  * unsaved single-team selection instead of reading from this context.
+ *
+ * The list of teams themselves is fetched here too, since office staff can
+ * now create new ones (teams used to be the fixed "Team 1".."Team 5").
  */
 export function TeamProvider({ children }: React.PropsWithChildren) {
-  const { convexUser, isLoaded } = useCurrentUser();
+  const { convexUser, isLoaded, isSignedIn } = useCurrentUser();
   const primaryTeam = convexUser?.team;
 
-  const value = React.useMemo(() => ({ isLoaded, primaryTeam }), [isLoaded, primaryTeam]);
+  // `TeamProvider` wraps the whole app, including the signed-out (auth)
+  // screens — `api.teams.list` requires auth, so it must be skipped there or
+  // it throws on the login screen before anyone has signed in.
+  const teamRows = useQuery(api.teams.list, isSignedIn ? {} : "skip");
+  const teams = React.useMemo(() => (teamRows ?? []).map((team) => team.name), [teamRows]);
+
+  const value = React.useMemo(
+    () => ({ isLoaded, primaryTeam, teams }),
+    [isLoaded, primaryTeam, teams],
+  );
 
   return <TeamContext.Provider value={value}>{children}</TeamContext.Provider>;
 }

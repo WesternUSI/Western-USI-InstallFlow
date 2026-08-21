@@ -6,21 +6,13 @@ import { matchesTerm } from "./derive";
 import { deriveStatus, workOrderStatusValidator } from "./workorders";
 
 /**
- * Teams are a fixed set, not a table: `users.team` and the native app's
- * allocation flow both validate against these exact five literals, so a team
- * only exists here.
+ * A team is referenced by name, not by id — see the `teams` table comment in
+ * schema.ts. So anything that takes "a team" takes the name as a string, and
+ * membership is not constrained at the validator level.
  */
-export const TEAMS = ["Team 1", "Team 2", "Team 3", "Team 4", "Team 5"] as const;
+export type Team = string;
 
-export type Team = (typeof TEAMS)[number];
-
-export const teamValidator = v.union(
-  v.literal("Team 1"),
-  v.literal("Team 2"),
-  v.literal("Team 3"),
-  v.literal("Team 4"),
-  v.literal("Team 5"),
-);
+export const teamValidator = v.string();
 
 /** The three per-team numbers on the Teams screens. */
 type TeamStatus = "allocated" | "completed" | "pending";
@@ -49,15 +41,27 @@ function toMember(user: Doc<"users">) {
   };
 }
 
+/** Same shape as `workorders.toRow` — the team tabs reuse the shared table. */
 function toOrderRow(workOrder: Doc<"workorders">) {
   return {
     _id: workOrder._id,
     status: deriveStatus(workOrder),
+    contract_id: workOrder.contract_id,
     site: workOrder.site,
     panel_split: workOrder.panel_split,
+    contracted_panel_id: workOrder.contracted_panel_id,
     advertiser_campaign: workOrder.advertiser_campaign,
     existing_advertiser: workOrder.existing_advertiser,
     train_line: workOrder.train_line,
+    panel_name: workOrder.panel_name,
+    quantity: workOrder.quantity,
+    format: workOrder.format,
+    size: workOrder.size,
+    comments: workOrder.comments,
+    area_progress: workOrder.area_progress,
+    proposed_install_date: workOrder.proposed_install_date,
+    end_date: workOrder.end_date,
+    schedule: workOrder.schedule,
   };
 }
 
@@ -77,6 +81,73 @@ function matchesSearch(workOrder: Doc<"workorders">, search: string): boolean {
   );
 }
 
+/** Active teams, for every picker and filter. Archived ones are left out. */
+export const list = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireIdentity(ctx);
+
+    const teams = await ctx.db.query("teams").collect();
+    return teams
+      .filter((team) => !team.archived)
+      .map((team) => ({ _id: team._id, name: team.name }))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  },
+});
+
+/**
+ * Creates a team. Names are the identity here, so they have to be unique —
+ * including against archived teams, whose name still sits on historic rows.
+ */
+export const createTeam = mutation({
+  args: { name: v.string() },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx);
+
+    const name = args.name.trim();
+    if (name === "") {
+      throw new Error("Team name cannot be empty");
+    }
+
+    const existing = await ctx.db
+      .query("teams")
+      .withIndex("by_name", (q) => q.eq("name", name))
+      .first();
+    if (existing !== null) {
+      throw new Error(`"${name}" already exists`);
+    }
+
+    return await ctx.db.insert("teams", { name, archived: false });
+  },
+});
+
+/**
+ * Hides a team without deleting it: its name still sits on completed work
+ * orders, and those should keep reading correctly. Members have to be moved
+ * out first — otherwise they would be stranded in a team nothing lists.
+ */
+export const archiveTeam = mutation({
+  args: { id: v.id("teams") },
+  handler: async (ctx, args) => {
+    await requireIdentity(ctx);
+
+    const team = await ctx.db.get(args.id);
+    if (team === null) {
+      throw new Error("Team not found");
+    }
+
+    const users = await ctx.db.query("users").collect();
+    const members = users.filter((user) => user.team === team.name).length;
+    if (members > 0) {
+      throw new Error(
+        `${team.name} still has ${members} member${members === 1 ? "" : "s"} — move them to another team first.`,
+      );
+    }
+
+    await ctx.db.patch(args.id, { archived: true });
+  },
+});
+
 /**
  * One row per team for the Teams Management table, plus the headline totals.
  *
@@ -89,21 +160,27 @@ export const overview = query({
   handler: async (ctx) => {
     await requireIdentity(ctx);
 
-    const [workOrders, users] = await Promise.all([
+    const [workOrders, users, teams] = await Promise.all([
       ctx.db.query("workorders").collect(),
       ctx.db.query("users").collect(),
+      ctx.db.query("teams").collect(),
     ]);
 
-    const rows = TEAMS.map((team) => ({
-      team,
+    const active = teams
+      .filter((team) => !team.archived)
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+
+    const rows = active.map((team) => ({
+      _id: team._id,
+      team: team.name,
       allocated: 0,
       completed: 0,
       pending: 0,
       members: 0,
     }));
-    const byTeam = new Map(rows.map((row) => [row.team as string, row]));
+    const byTeam = new Map(rows.map((row) => [row.team, row]));
 
-    const totals = { teams: TEAMS.length, allocated: 0, completed: 0, pending: 0 };
+    const totals = { teams: rows.length, allocated: 0, completed: 0, pending: 0 };
 
     for (const workOrder of workOrders) {
       if (workOrder.assigned_team === undefined) continue;
