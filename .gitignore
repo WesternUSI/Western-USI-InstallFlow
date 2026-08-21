@@ -54,3 +54,9 @@ coverage
 .cache
 tmp
 temp
+
+# Convex snapshot exports (`npx convex export`) — a full copy of the database,
+# including user records and stored files. Never commit one.
+backup.zip
+packages/backend/*.zip
+
