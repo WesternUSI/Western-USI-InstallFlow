@@ -359,6 +359,51 @@ filter. Status tabs (All / Allocated / Not Allocated / Completed / Missing
 Sites) with live counts from a separate `counts` query. Cursor pagination keyed
 on `status|search|since|until`.
 
+**Bulk delete — admin only, and the only irreversible action in the panel.**
+Row checkboxes plus a header box, surfaced by passing `selection` to
+`WorkOrderTable`; office staff are shown no checkbox column at all, and
+`deleteWorkOrders` refuses them regardless.
+
+**The header box selects the whole filter, not the page.** A box that stopped
+at the page edge would silently under-select — the job it exists for is
+clearing an import of a few thousand rows, and twenty-five at a time is not
+that job.
+
+Selection is held as whole rows keyed by id, not as a set of ids, so it
+survives paging and the confirm dialog can still count completed rows the table
+has scrolled past. It resets whenever `status|search|since|until` changes — a
+selection made under one filter does not describe anything the operator can
+still see.
+
+Two delete paths, because two very different jobs share the screen:
+
+| Path | Chosen by | Sent |
+|---|---|---|
+| Ticked rows | individual row checkboxes | ids, chunked 500 per call |
+| Everything matching | the header box | the filter, plus any exclusions |
+
+Under a whole-filter selection every row on the page paints as ticked, and
+un-ticking one records an **exclusion** rather than collapsing to an explicit
+list — the other pages' ids were never sent to the browser, so there is no list
+to collapse to. Exclusions are removed from the match set server-side before
+batching; skipping them inside a batch would leave them in `remaining` and the
+caller's loop would never finish.
+
+The selection banner is only a count, Clear and Delete — no "select all" link,
+because the header box already is that control and two routes to one action
+just invite the question of how they differ.
+
+The second exists because clearing a test import means deleting thousands of
+rows twenty-five at a time otherwise. The ids never reach the browser; the
+server re-evaluates the same filter `list` and `counts` use, so what is deleted
+is what the operator was shown a count of. It deletes one batch per call and
+reports `remaining`, and the button counts up (`Deleting… 600 / 1,240`) rather
+than appearing to hang.
+
+`DeleteWorkOrdersDialog` names the completed count separately and in red.
+Completed rows are the ones a re-import cannot restore — the installer's photo,
+notes and sign-off date exist nowhere in the source spreadsheet.
+
 ### 6.4 Manage Site Data → Edit Site
 
 Filter bar (search, Location, Details Status, Duration) → status tabs →
@@ -481,6 +526,7 @@ supplies the `—` fallback in one place.
 | Table | Columns | Min width |
 |---|---|---|
 | Work orders / team orders / import preview | 17 | `2200px` |
+| Manage Orders with selection on | 18 | `2244px` |
 | Manage Site Data | 11 | `1700px` |
 | Site import preview | 9 | `1500px` |
 | Teams index | 6 | `760px` |
@@ -500,6 +546,17 @@ The work-order columns, header row and cells live in `work-order-table.tsx` as
 `WORK_ORDER_COLUMNS` / `WorkOrderTableHead` / `WorkOrderRowCells` and are
 imported by the team detail tabs, rather than duplicated — the two drifted
 apart once already.
+
+That sharing is why selection is an **opt-in `selection` prop** rather than
+built in, and why the checkbox cell is rendered by `WorkOrderTable` *outside*
+`WorkOrderRowCells`: the import preview and the team tabs render the same cells
+and must keep their seventeen-column count. Omit the prop and the table is
+byte-for-byte what those two have always rendered.
+
+Cells are top-aligned so wrapped text grows downwards, which leaves a bare
+16px checkbox sitting high of the 22px status pill beside it. The checkbox is
+therefore wrapped in a fixed-height flex box matching the pill (and the header
+label's line box), so the column stays straight at any row height.
 
 `TableHead` intentionally carries **no fixed height** — each call site supplies
 `py-5` / `py-3`. A height on the shared component fought that padding and
@@ -524,7 +581,7 @@ clipped the uppercase labels.
 
 `CredentialsDialog` (copyable email/password), `InviteInstallerDialog`,
 `InviteSentDialog`, `AddMembersDialog`, `AddSiteDialog`, `DeleteUserDialog`,
-`UploadErrorDialog`, `SiteDataRequiredDialog`.
+`DeleteWorkOrdersDialog`, `UploadErrorDialog`, `SiteDataRequiredDialog`.
 
 Shared `DialogContent` is `w-[calc(100%-2rem)] max-w-lg` — the calc keeps a
 gutter on phones instead of letting dialogs touch the edges.
@@ -643,7 +700,7 @@ apps/web/
     ├── routeTree.gen.ts        generated
     ├── assets/
     ├── routes/                 file-based routes (see §3.2)
-    ├── components/             31 app components (see §7)
+    ├── components/             33 app components (see §7)
     ├── hooks/
     │   ├── use-cursor-pagination.ts
     │   └── use-debounced-value.ts
@@ -667,7 +724,7 @@ apps/web/
 |---|---|
 | `users` | `currentUser`, `list`, `get`, `overview`, `inviteInstaller`, `updateAccount`, `resendCredentials`, `removeUser` |
 | `teams` | `overview`, `allMembers`, `orders`, `setMemberTeam`, `removeMember` |
-| `workorders` | `list`, `counts`, `searchOptions`, `dashboardStats`, `byArea` |
+| `workorders` | `list`, `counts`, `searchOptions`, `dashboardStats`, `byArea`, `deleteWorkOrders` |
 | `sites` | `list`, `counts`, `stats`, `areas`, `getSite`, `update`, `searchOptions`, `hasSites`, `resolveByPanelSplits`, `upsertSites`, `recordSiteImport`, `latestImport`, `generateUploadUrl`, `addSiteImage`, `removeSiteImage` |
 | `imports` | `createImport`, `addWorkOrders`, `finalizeImport`, `deleteImport`, `latest` |
 | `notifications` | `list`, `markRead`, `markAllRead` |
