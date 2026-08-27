@@ -296,7 +296,7 @@ function TeamDetailPage() {
                     {MEMBER_COLUMNS.map((column) => (
                       <TableHead
                         key={column.label}
-                        className={`${column.width} ${column.padding} py-5 text-[11px] font-bold tracking-[0.55px] text-slate-500 uppercase`}
+                        className={`${column.width} ${column.padding} py-5 text-[11px] font-bold tracking-[0.55px] whitespace-normal text-slate-500 uppercase`}
                       >
                         {column.label}
                       </TableHead>

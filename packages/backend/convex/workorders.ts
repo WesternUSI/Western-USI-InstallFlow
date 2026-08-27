@@ -4,8 +4,10 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type QueryCtx, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { type WorkOrderStatus, deriveWorkOrderStatus, matchesTerm } from "./derive";
+import { enabledRecipientEmails } from "./emails";
 import { distanceFromEastPerthKm } from "./geo";
 import { findSiteForPanelSplit } from "./panelIds";
+import { requireAdmin } from "./permissions";
 
 export type { WorkOrderStatus } from "./derive";
 
@@ -636,8 +638,9 @@ export const getCompletionEmailData = internalQuery({
         ? await ctx.storage.getUrl(workOrder.completion_photo)
         : null;
 
-    const users = await ctx.db.query("users").collect();
-    const recipients = users.filter((user) => user.role === "admin").map((user) => user.email);
+    // Managed on the panel's Emails page. Admins are still the default there,
+    // but they can be switched off or taken out, and other addresses added.
+    const recipients = await enabledRecipientEmails(ctx);
 
     return {
       // The SRS reference doc's deviation note claims "Contract Number" maps
@@ -870,27 +873,6 @@ export const unallocateWorkOrders = mutation({
  * has carried 500 deletes in one transaction since the rollback path shipped.
  */
 const DELETE_BATCH_SIZE = 500;
-
-/**
- * Deleting work orders is the only irreversible action in the panel, and the
- * only one office staff are not trusted with — a completed order carries an
- * installer's photo, notes and sign-off date, and nothing restores those.
- */
-async function requireAdmin(ctx: QueryCtx) {
-  const identity = await ctx.auth.getUserIdentity();
-  if (identity === null) {
-    throw new Error("Not authenticated");
-  }
-
-  const user = await ctx.db
-    .query("users")
-    .withIndex("by_clerk_id", (q) => q.eq("clerk_id", identity.subject))
-    .unique();
-
-  if (user === null || user.role !== "admin") {
-    throw new Error("Only an admin can delete work orders");
-  }
-}
 
 /**
  * Removes work orders, plus what would otherwise be left dangling behind them.

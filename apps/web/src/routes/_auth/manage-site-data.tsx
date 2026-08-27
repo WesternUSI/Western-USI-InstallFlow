@@ -29,6 +29,7 @@ import { PageHeader } from "@/components/page-header";
 import { type SearchOption, SearchInput } from "@/components/search-input";
 import { SiteStats } from "@/components/site-stats";
 import { TablePagination } from "@/components/table-pagination";
+import { TableScrollArea } from "@/components/table-scroll-area";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
 import { useDebouncedValue, useStickyValue } from "@/hooks/use-debounced-value";
 import {
@@ -235,90 +236,94 @@ function ManageSiteDataPage() {
 
           {/* Fixed layout with explicit widths so one long value cannot
               stretch a column — it wraps and grows the row instead. Min-width
-              keeps every column readable, scrolling sideways instead. */}
-          <Table className="min-w-[1700px] table-fixed">
-            <TableHeader>
-              <TableRow className="border-slate-200 bg-gray-50 hover:bg-gray-50">
-                {COLUMNS.map((column) => (
-                  <TableHead
-                    key={column.label}
-                    className={`${column.width} ${column.padding} py-5 text-[11px] font-bold tracking-[0.55px] text-slate-500 uppercase`}
-                  >
-                    {column.label}
-                  </TableHead>
+              keeps every column readable, scrolling sideways instead.
+              `TableScrollArea` owns the scrolling, so the table's own
+              container is told not to, or the two would nest. */}
+          <TableScrollArea>
+            <Table containerClassName="overflow-visible" className="min-w-[1700px] table-fixed">
+              <TableHeader>
+                <TableRow className="border-slate-200 bg-gray-50 hover:bg-gray-50">
+                  {COLUMNS.map((column) => (
+                    <TableHead
+                      key={column.label}
+                      className={`${column.width} ${column.padding} py-5 text-[11px] font-bold tracking-[0.55px] whitespace-normal text-slate-500 uppercase`}
+                    >
+                      {column.label}
+                    </TableHead>
+                  ))}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {result === undefined && (
+                  <TableRow>
+                    <TableCell
+                      colSpan={COLUMNS.length}
+                      className="px-6 py-10 text-center text-sm text-slate-400"
+                    >
+                      Loading…
+                    </TableCell>
+                  </TableRow>
+                )}
+                {result?.page.length === 0 && (
+                  <TableRow>
+                    <TableCell
+                      colSpan={COLUMNS.length}
+                      className="px-6 py-10 text-center text-sm text-slate-400"
+                    >
+                      No sites match this filter.
+                    </TableCell>
+                  </TableRow>
+                )}
+                {result?.page.map((row) => (
+                  <TableRow key={row._id} className="border-slate-100">
+                    <TableCell className="px-6 py-4 text-sm text-slate-700">
+                      <CellText value={row.area} />
+                    </TableCell>
+                    <TableCell className="px-4 py-4 text-sm text-slate-700">
+                      <CellText value={row.site} />
+                    </TableCell>
+                    <TableCell className="px-4 py-4 text-sm font-medium text-slate-700">
+                      <CellText value={row.panel_id} />
+                    </TableCell>
+                    <TableCell className="px-4 py-4 text-sm text-slate-500">
+                      <CellText value={row.quantity} />
+                    </TableCell>
+                    <TableCell className="px-4 py-4 text-sm text-slate-500">
+                      <CellText value={row.size} />
+                    </TableCell>
+                    <TableCell className="px-4 py-4 text-sm text-slate-500">
+                      <CellText value={row.area_progress} />
+                    </TableCell>
+                    <TableCell className="px-4 py-4 text-sm text-slate-500">
+                      <CellText value={row.equipment_needed.join(", ")} />
+                    </TableCell>
+                    <TableCell className="px-4 py-4 text-sm text-slate-500">
+                      <CellText value={row.install_notes} />
+                    </TableCell>
+                    <TableCell className="px-4 py-4 text-sm text-slate-500">
+                      <CellText value={row.location} />
+                    </TableCell>
+                    <TableCell className="px-4 py-4">
+                      <span
+                        className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${SITE_DETAIL_STATUS_CLASSES[row.detail_status]}`}
+                      >
+                        {SITE_DETAIL_STATUS_LABELS[row.detail_status]}
+                      </span>
+                    </TableCell>
+                    <TableCell className="px-4 py-4">
+                      <Link
+                        to="/edit-site/$siteId"
+                        params={{ siteId: row._id }}
+                        className="inline-block rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium whitespace-nowrap text-slate-700 transition-colors hover:border-slate-400 hover:bg-slate-50"
+                      >
+                        Add Images
+                      </Link>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {result === undefined && (
-                <TableRow>
-                  <TableCell
-                    colSpan={COLUMNS.length}
-                    className="px-6 py-10 text-center text-sm text-slate-400"
-                  >
-                    Loading…
-                  </TableCell>
-                </TableRow>
-              )}
-              {result?.page.length === 0 && (
-                <TableRow>
-                  <TableCell
-                    colSpan={COLUMNS.length}
-                    className="px-6 py-10 text-center text-sm text-slate-400"
-                  >
-                    No sites match this filter.
-                  </TableCell>
-                </TableRow>
-              )}
-              {result?.page.map((row) => (
-                <TableRow key={row._id} className="border-slate-100">
-                  <TableCell className="px-6 py-4 text-sm text-slate-700">
-                    <CellText value={row.area} />
-                  </TableCell>
-                  <TableCell className="px-4 py-4 text-sm text-slate-700">
-                    <CellText value={row.site} />
-                  </TableCell>
-                  <TableCell className="px-4 py-4 text-sm font-medium text-slate-700">
-                    <CellText value={row.panel_id} />
-                  </TableCell>
-                  <TableCell className="px-4 py-4 text-sm text-slate-500">
-                    <CellText value={row.quantity} />
-                  </TableCell>
-                  <TableCell className="px-4 py-4 text-sm text-slate-500">
-                    <CellText value={row.size} />
-                  </TableCell>
-                  <TableCell className="px-4 py-4 text-sm text-slate-500">
-                    <CellText value={row.area_progress} />
-                  </TableCell>
-                  <TableCell className="px-4 py-4 text-sm text-slate-500">
-                    <CellText value={row.equipment_needed.join(", ")} />
-                  </TableCell>
-                  <TableCell className="px-4 py-4 text-sm text-slate-500">
-                    <CellText value={row.install_notes} />
-                  </TableCell>
-                  <TableCell className="px-4 py-4 text-sm text-slate-500">
-                    <CellText value={row.location} />
-                  </TableCell>
-                  <TableCell className="px-4 py-4">
-                    <span
-                      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${SITE_DETAIL_STATUS_CLASSES[row.detail_status]}`}
-                    >
-                      {SITE_DETAIL_STATUS_LABELS[row.detail_status]}
-                    </span>
-                  </TableCell>
-                  <TableCell className="px-4 py-4">
-                    <Link
-                      to="/edit-site/$siteId"
-                      params={{ siteId: row._id }}
-                      className="inline-block rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium whitespace-nowrap text-slate-700 transition-colors hover:border-slate-400 hover:bg-slate-50"
-                    >
-                      Add Images
-                    </Link>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableBody>
+            </Table>
+          </TableScrollArea>
 
           <TablePagination
             shown={result?.page.length ?? 0}

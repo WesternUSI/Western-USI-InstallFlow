@@ -153,6 +153,28 @@ export default defineSchema({
   }).index("by_name", ["name"]),
 
   /**
+   * Who the completion email goes to.
+   *
+   * It used to go to every `admin`, with no way to change that. Admins are
+   * still in the list by default — an admin with no row here is treated as
+   * present and enabled, and only gets a row the moment someone toggles or
+   * removes them. That is what makes removal stick: the row survives as a
+   * tombstone (`removed`), so the default never puts them back.
+   */
+  email_recipients: defineTable({
+    /** Lower-cased and trimmed. The identity of a row, and how it is addressed. */
+    email: v.string(),
+    /** `admin` rows mirror a user account; `manual` ones were typed in here. */
+    source: v.union(v.literal("admin"), v.literal("manual")),
+    /** Off keeps the row visible but stops sending to it. */
+    enabled: v.boolean(),
+    /** Hidden from the list, never re-seeded, never sent to. */
+    removed: v.boolean(),
+    /** Set on `admin` rows, so the row stays tied to the account it came from. */
+    clerk_id: v.optional(v.string()),
+  }).index("by_email", ["email"]),
+
+  /**
    * Shown in the admin panel's notification bell. One shared inbox — "read"
    * isn't per-admin — which is deliberately simple for the small office-staff
    * team this panel serves.

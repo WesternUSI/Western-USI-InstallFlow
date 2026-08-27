@@ -107,7 +107,8 @@ __root                        HeadContent, theme, toaster, devtools
       ├── /teams
       ├── /teams/$team
       ├── /users
-      └── /users/$userId
+      ├── /users/$userId
+      └── /emails                admin only
 ```
 
 `routeTree.gen.ts` is generated — never hand-edited. Adding a file under
@@ -290,7 +291,15 @@ box and tabs off-screen. With it, each table scrolls inside its own wrapper.
 ### 5.1 Sidebar (`admin-sidebar.tsx`)
 
 Groups: *(ungrouped)* Dashboard · **Work Orders** Import / Manage · **Site
-Database** Import / Manage · **Teams & Users** Teams / Users.
+Database** Import / Manage · **Teams & Users** Teams / Users · *(ungrouped)*
+Emails.
+
+Groups carry `adminOnly`, and Emails is the only one that sets it — office
+staff never see the item. A UX gate only; `emails.*` re-checks the role.
+
+The React key is `group.items[0].to`, not the group label: two groups have a
+null label, and keying on the label collided them into one, which React
+resolved by rendering the first group twice.
 
 Header is the inverted wordmark (`brightness-0 invert` — the source asset is
 black-on-transparent) over an `ADMIN PANEL` label. Footer is the signed-in user
@@ -404,6 +413,35 @@ than appearing to hang.
 Completed rows are the ones a re-import cannot restore — the installer's photo,
 notes and sign-off date exist nowhere in the source spreadsheet.
 
+### 6.3b Emails
+
+Who gets the completion email. Admin only, in the sidebar and in every mutation
+behind it.
+
+It used to be every user with the `admin` role, with nothing in the UI about
+it. The list now reads as **stored rows, minus tombstones, plus every admin who
+has no row yet** — which is what "admins are on the list by default" means, and
+it is computed in the query rather than written, so reading the page never
+mutates.
+
+An admin only gets a real row the moment someone toggles or removes them. That
+lazy write is what makes removal stick: the row survives with `removed: true`,
+so the default cannot put the address back. Adding the same address again
+revives that row rather than failing.
+
+Per row: **Stop emails / Resume** (keeps the row, stops sending) and **Delete**
+(off the list for good, with an extra warning when the address belongs to an
+admin). **Add Email** takes any address — a shared inbox, someone with no
+account at all.
+
+`backend/emails.ts` owns `enabledRecipientEmails`, which
+`workorders.getCompletionEmailData` calls, so the page and the send can never
+disagree about the audience.
+
+A red banner appears when nothing is enabled. That state is otherwise
+undetectable from the app: the send is skipped and leaves only a line in the
+Convex logs, so work orders would complete and no one would be told.
+
 ### 6.4 Manage Site Data → Edit Site
 
 Filter bar (search, Location, Details Status, Duration) → status tabs →
@@ -513,7 +551,30 @@ Every data table follows the same recipe:
 - `table-fixed` + explicit `w-[n%]` per column (summing to 100) so no single
   long value can stretch a column.
 - `min-w-[…]` so narrow viewports scroll sideways instead of crushing columns
-  into illegibility. The `Table` wrapper supplies `overflow-x-auto`.
+  into illegibility.
+
+**Manage Orders and Manage Site Data lift the horizontal scrollbar to a rail
+pinned at the top of the card**, via `TableScrollArea`. Left where the browser
+puts it, the bar sits under the last row — twenty-five tall rows down, well off
+screen — so reaching the control that scrolls the table sideways meant first
+scrolling the page to the bottom.
+
+The rail is a real scroll container: an empty strip as wide as the table,
+`sticky top-0`, mirroring the body's `scrollLeft` in both directions behind a
+one-frame re-entry guard. Not a drawn imitation, so native drag, click-track,
+shift-wheel and keyboard behaviour all still work. It hides itself when the
+table fits. The body still scrolls horizontally — that is what the rail mirrors
+— but its own scrollbar is hidden, so there is exactly one visible control.
+
+**The page scrolls; the card does not pin itself to the viewport.** Pinning it
+was tried and reverted: between the page header, the stat tiles, the toolbar,
+the tabs, the pagination and the tip box, a 660px laptop viewport left the rows
+about 70px — less than one. The rail solves the problem the pinning was aimed
+at, without taking the height from the rows.
+
+`Table` (in `packages/ui`) takes a `containerClassName` so its own
+`overflow-x-auto` can be turned off where an outer wrapper does the scrolling —
+without it the two nest and neither behaves.
 
 **Nothing is ellipsised.** Cell text wraps and grows its row rather than being
 clipped, so every value is readable without hovering, clicking or widening a
@@ -525,8 +586,8 @@ supplies the `—` fallback in one place.
 
 | Table | Columns | Min width |
 |---|---|---|
-| Work orders / team orders / import preview | 17 | `2200px` |
-| Manage Orders with selection on | 18 | `2244px` |
+| Work orders / team orders / import preview | 17 + Photo | `2310px` |
+| Manage Orders with selection on | + selection | `2354px` |
 | Manage Site Data | 11 | `1700px` |
 | Site import preview | 9 | `1500px` |
 | Teams index | 6 | `760px` |
@@ -541,6 +602,17 @@ and under the sheet's own headings (`CONTRACT`, `SIZE (W x H)`, `GPS
 Co-ordinates`, …), so an operator can reconcile the table against the file
 they uploaded line by line. That is why their min-widths are far larger than
 everything else — those tables are meant to be scrolled.
+
+**Photo is the one column not from the sheet**, appended after the mirrored
+sheet order rather than mixed into it. It renders a View button per row, which
+opens `CompletionPhotoDialog` — a 40px thumbnail is not enough to check an
+install by, and opening the raw file in a new tab loses the panel it belongs to
+and drops the operator out of the table.
+
+The button is rendered for every row and **greyed and disabled where there is
+no photo**, rather than swapped for an em dash. An order is only photographed
+once it is completed, so the disabled state is the common one, and it reads as
+"nothing to see yet" instead of leaving a blank to interpret.
 
 The work-order columns, header row and cells live in `work-order-table.tsx` as
 `WORK_ORDER_COLUMNS` / `WorkOrderTableHead` / `WorkOrderRowCells` and are
@@ -562,6 +634,14 @@ label's line box), so the column stays straight at any row height.
 `py-5` / `py-3`. A height on the shared component fought that padding and
 clipped the uppercase labels.
 
+It also ships `whitespace-nowrap`, so every header row overrides it with
+`whitespace-normal` — the same override `CellText` applies to the body. Without
+it a long label ("Advertiser / Campaign", "Contracted Panel ID") overruns its
+own narrow percentage column and prints over the next one. That override is
+repeated verbatim in three header rows (work orders, Manage Site Data, the team
+detail table); they are the places to check together if one of them ever looks
+wrong.
+
 ### Toolbars and filters
 
 - **`TableToolbar`** — card title + search + optional action slot. Search is
@@ -581,7 +661,14 @@ clipped the uppercase labels.
 
 `CredentialsDialog` (copyable email/password), `InviteInstallerDialog`,
 `InviteSentDialog`, `AddMembersDialog`, `AddSiteDialog`, `DeleteUserDialog`,
-`DeleteWorkOrdersDialog`, `UploadErrorDialog`, `SiteDataRequiredDialog`.
+`DeleteWorkOrdersDialog`, `CompletionPhotoDialog`, `AddEmailRecipientDialog`,
+`RemoveEmailRecipientDialog`, `UploadErrorDialog`, `SiteDataRequiredDialog`.
+
+`CompletionPhotoDialog` is the one that breaks the `max-w-lg` default
+(`sm:max-w-3xl`): it exists to show a photograph, and the shared width is
+narrower than a phone camera's own aspect ratio. The image is `object-contain`
+under a `max-h-[65vh]` cap, since installers shoot in both orientations and
+neither should be cropped or pushed off-screen.
 
 Shared `DialogContent` is `w-[calc(100%-2rem)] max-w-lg` — the calc keeps a
 gutter on phones instead of letting dialogs touch the edges.
@@ -700,7 +787,7 @@ apps/web/
     ├── routeTree.gen.ts        generated
     ├── assets/
     ├── routes/                 file-based routes (see §3.2)
-    ├── components/             33 app components (see §7)
+    ├── components/             38 app components (see §7)
     ├── hooks/
     │   ├── use-cursor-pagination.ts
     │   └── use-debounced-value.ts
@@ -728,6 +815,7 @@ apps/web/
 | `sites` | `list`, `counts`, `stats`, `areas`, `getSite`, `update`, `searchOptions`, `hasSites`, `resolveByPanelSplits`, `upsertSites`, `recordSiteImport`, `latestImport`, `generateUploadUrl`, `addSiteImage`, `removeSiteImage` |
 | `imports` | `createImport`, `addWorkOrders`, `finalizeImport`, `deleteImport`, `latest` |
 | `notifications` | `list`, `markRead`, `markAllRead` |
+| `emails` | `list`, `addRecipient`, `setEnabled`, `removeRecipient` |
 
 Queries are read directly in components via `useQuery`; there is no client-side
 store or cache layer, because Convex subscriptions already keep every mounted

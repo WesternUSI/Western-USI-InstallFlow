@@ -10,6 +10,7 @@
 
 import type * as derive from "../derive.js";
 import type * as email from "../email.js";
+import type * as emails from "../emails.js";
 import type * as geo from "../geo.js";
 import type * as healthCheck from "../healthCheck.js";
 import type * as http from "../http.js";
@@ -17,6 +18,7 @@ import type * as imports from "../imports.js";
 import type * as migrations from "../migrations.js";
 import type * as notifications from "../notifications.js";
 import type * as panelIds from "../panelIds.js";
+import type * as permissions from "../permissions.js";
 import type * as privateData from "../privateData.js";
 import type * as sites from "../sites.js";
 import type * as teams from "../teams.js";
@@ -32,6 +34,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   derive: typeof derive;
   email: typeof email;
+  emails: typeof emails;
   geo: typeof geo;
   healthCheck: typeof healthCheck;
   http: typeof http;
@@ -39,6 +42,7 @@ declare const fullApi: ApiFromModules<{
   migrations: typeof migrations;
   notifications: typeof notifications;
   panelIds: typeof panelIds;
+  permissions: typeof permissions;
   privateData: typeof privateData;
   sites: typeof sites;
   teams: typeof teams;

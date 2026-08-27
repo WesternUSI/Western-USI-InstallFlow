@@ -8,9 +8,12 @@ import {
   TableRow,
 } from "@usi-installer/ui/components/table";
 import { Tabs, TabsList, TabsTrigger } from "@usi-installer/ui/components/tabs";
-import type { ReactNode } from "react";
+import { ImageIcon } from "lucide-react";
+import { type ReactNode, useState } from "react";
 
+import { CompletionPhotoDialog } from "@/components/completion-photo-dialog";
 import type { SearchOption } from "@/components/search-input";
+import { TableScrollArea } from "@/components/table-scroll-area";
 import { TablePagination, type TablePaginationProps } from "@/components/table-pagination";
 import { TableToolbar } from "@/components/table-toolbar";
 import { CellText } from "@/components/cell-text";
@@ -115,14 +118,14 @@ export const WORK_ORDER_COLUMNS = [
   { label: "Train Line", width: "w-[5%]", padding: "px-4" },
   // Not part of the Installation Schedule sheet — appended after it rather
   // than mixed into the mirrored column order above.
-  { label: "Photo", width: "w-[70px]", padding: "px-4" },
+  { label: "Photo", width: "w-[110px]", padding: "px-4" },
 ] as const;
 
 /** Enough room for all seventeen sheet columns plus Photo before they start to crush. */
-export const WORK_ORDER_TABLE_MIN_WIDTH = "min-w-[2270px]";
+export const WORK_ORDER_TABLE_MIN_WIDTH = "min-w-[2310px]";
 
 /** The same, plus the 44px selection column Manage Orders adds. */
-const WORK_ORDER_TABLE_SELECTABLE_MIN_WIDTH = "min-w-[2314px]";
+const WORK_ORDER_TABLE_SELECTABLE_MIN_WIDTH = "min-w-[2354px]";
 
 /** Blue to match the row-selected state, sized down from the login checkbox. */
 const CHECKBOX_CLASS =
@@ -158,7 +161,7 @@ export function WorkOrderTableHead({ selection }: { selection?: WorkOrderSelecti
         {WORK_ORDER_COLUMNS.map((column) => (
           <TableHead
             key={column.label}
-            className={`${column.width} ${column.padding} py-5 text-[11px] font-bold tracking-[0.55px] text-slate-500 uppercase`}
+            className={`${column.width} ${column.padding} py-5 text-[11px] font-bold tracking-[0.55px] whitespace-normal text-slate-500 uppercase`}
           >
             {column.label}
           </TableHead>
@@ -243,25 +246,46 @@ export function WorkOrderRowCells({ row }: { row: WorkOrderTableRow }) {
         {/* Already falls back to an em dash of its own. */}
         <CellText value={formatTrainLine(row.train_line)} />
       </TableCell>
-      <TableCell className="px-4 py-4">
-        {row.completion_photo_url === undefined ? (
-          <CellText value={undefined} />
-        ) : (
-          <a
-            href={row.completion_photo_url}
-            target="_blank"
-            rel="noreferrer"
-            aria-label="Open completion photo full size"
-          >
-            <img
-              src={row.completion_photo_url}
-              alt="Completion"
-              className="size-10 rounded-md border border-slate-200 object-cover transition-opacity hover:opacity-80"
-            />
-          </a>
-        )}
-      </TableCell>
+      <CompletionPhotoCell row={row} />
     </>
+  );
+}
+
+/**
+ * The Photo column: a button per row, opening the shot at a size worth looking
+ * at rather than the 40px thumbnail the column can afford.
+ *
+ * Rendered for every row, greyed and disabled where there is no photo, rather
+ * than swapped for an em dash — an order is only photographed once it is
+ * completed, so the disabled state is the common one and reads as "nothing to
+ * see yet" instead of leaving a blank the operator has to interpret.
+ */
+function CompletionPhotoCell({ row }: { row: WorkOrderTableRow }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const url = row.completion_photo_url;
+
+  return (
+    <TableCell className="px-4 py-4 align-top">
+      <button
+        type="button"
+        disabled={url === undefined}
+        onClick={() => setIsOpen(true)}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm font-medium whitespace-nowrap text-slate-700 transition-colors hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-50 disabled:text-slate-400 disabled:hover:border-slate-200 disabled:hover:bg-slate-50"
+      >
+        <ImageIcon className="size-4" />
+        View
+      </button>
+
+      {url !== undefined && (
+        <CompletionPhotoDialog
+          open={isOpen}
+          url={url}
+          panelSplit={row.panel_split}
+          site={row.site}
+          onOpenChange={setIsOpen}
+        />
+      )}
+    </TableCell>
   );
 }
 
@@ -314,53 +338,58 @@ export function WorkOrderTable({
 
       {/* Fixed layout with explicit widths so one long value cannot stretch a
           column — it wraps and grows the row instead. Min-width keeps every
-          column readable, scrolling sideways rather than crushing them. */}
-      <Table
-        className={`${
-          selection === undefined
-            ? WORK_ORDER_TABLE_MIN_WIDTH
-            : WORK_ORDER_TABLE_SELECTABLE_MIN_WIDTH
-        } table-fixed`}
-      >
-        <WorkOrderTableHead selection={selection} />
-        <TableBody>
-          {rows.length === 0 && (
-            <TableRow>
-              <TableCell
-                colSpan={WORK_ORDER_COLUMNS.length + (selection === undefined ? 0 : 1)}
-                className="px-6 py-10 text-center text-sm text-slate-400"
-              >
-                No work orders match this filter.
-              </TableCell>
-            </TableRow>
-          )}
-          {rows.map((row) => (
-            <TableRow
-              key={row.key}
-              className={`border-slate-100 ${
-                selection?.selected.has(row.key) === true ? "bg-blue-50/60" : ""
-              }`}
-            >
-              {/* Outside `WorkOrderRowCells` on purpose: that component is
-                  shared with the import preview and the team tabs, which have
-                  no selection and must keep their column count. */}
-              {selection !== undefined && (
-                <TableCell className="px-4 py-4 align-top">
-                  <div className={CHECKBOX_CELL_ALIGN}>
-                    <Checkbox
-                      aria-label={`Select ${row.panel_split}`}
-                      checked={selection.selected.has(row.key)}
-                      onCheckedChange={() => selection.onToggle(row.key)}
-                      className={CHECKBOX_CLASS}
-                    />
-                  </div>
+          column readable, scrolling sideways rather than crushing them.
+          `TableScrollArea` owns the scrolling, so the table's own container is
+          told not to, or the two would nest. */}
+      <TableScrollArea>
+        <Table
+          containerClassName="overflow-visible"
+          className={`${
+            selection === undefined
+              ? WORK_ORDER_TABLE_MIN_WIDTH
+              : WORK_ORDER_TABLE_SELECTABLE_MIN_WIDTH
+          } table-fixed`}
+        >
+          <WorkOrderTableHead selection={selection} />
+          <TableBody>
+            {rows.length === 0 && (
+              <TableRow>
+                <TableCell
+                  colSpan={WORK_ORDER_COLUMNS.length + (selection === undefined ? 0 : 1)}
+                  className="px-6 py-10 text-center text-sm text-slate-400"
+                >
+                  No work orders match this filter.
                 </TableCell>
-              )}
-              <WorkOrderRowCells row={row} />
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+              </TableRow>
+            )}
+            {rows.map((row) => (
+              <TableRow
+                key={row.key}
+                className={`border-slate-100 ${
+                  selection?.selected.has(row.key) === true ? "bg-blue-50/60" : ""
+                }`}
+              >
+                {/* Outside `WorkOrderRowCells` on purpose: that component is
+                    shared with the import preview and the team tabs, which have
+                    no selection and must keep their column count. */}
+                {selection !== undefined && (
+                  <TableCell className="px-4 py-4 align-top">
+                    <div className={CHECKBOX_CELL_ALIGN}>
+                      <Checkbox
+                        aria-label={`Select ${row.panel_split}`}
+                        checked={selection.selected.has(row.key)}
+                        onCheckedChange={() => selection.onToggle(row.key)}
+                        className={CHECKBOX_CLASS}
+                      />
+                    </div>
+                  </TableCell>
+                )}
+                <WorkOrderRowCells row={row} />
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableScrollArea>
 
       <TablePagination {...pagination} />
     </section>

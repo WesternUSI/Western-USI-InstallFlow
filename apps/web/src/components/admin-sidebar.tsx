@@ -17,6 +17,7 @@ import {
   FileSpreadsheet,
   LayoutDashboard,
   LogOut,
+  Mail,
   UploadCloud,
   UserCog,
   Users,
@@ -29,10 +30,12 @@ import { useSidebar } from "@/lib/sidebar-context";
 const NAV_GROUPS = [
   {
     label: null,
+    adminOnly: false,
     items: [{ to: "/dashboard", label: "Dashboard", icon: LayoutDashboard }],
   },
   {
     label: "Work Orders",
+    adminOnly: false,
     items: [
       { to: "/import-work-orders", label: "Import Work Orders", icon: UploadCloud },
       { to: "/manage-orders", label: "Manage Orders", icon: ClipboardList },
@@ -40,6 +43,7 @@ const NAV_GROUPS = [
   },
   {
     label: "Site Database",
+    adminOnly: false,
     items: [
       { to: "/import-site-data", label: "Import Site Data", icon: FileSpreadsheet },
       { to: "/manage-site-data", label: "Manage Site Data", icon: Database },
@@ -47,10 +51,18 @@ const NAV_GROUPS = [
   },
   {
     label: "Teams & Users",
+    adminOnly: false,
     items: [
       { to: "/teams", label: "Teams", icon: Users },
       { to: "/users", label: "Users", icon: UserCog },
     ],
+  },
+  {
+    label: null,
+    // Hidden from office staff, matching the mutations behind it. A UX gate
+    // only — `emails.*` re-checks the role server-side. See design.md §3.3.
+    adminOnly: true,
+    items: [{ to: "/emails", label: "Emails", icon: Mail }],
   },
 ] as const;
 
@@ -115,8 +127,9 @@ export function AdminSidebar() {
       </div>
 
       <nav className="flex-1 overflow-y-auto py-4">
-        {NAV_GROUPS.map((group, index) => (
-          <div key={group.label ?? "root"} className={cn("flex flex-col gap-2", index > 0 && "mt-6")}>
+        {NAV_GROUPS.filter((group) => !group.adminOnly || user?.role === "admin").map(
+          (group, index) => (
+          <div key={group.items[0].to} className={cn("flex flex-col gap-2", index > 0 && "mt-6")}>
             {group.label && (
               <p className="px-7 text-[11px] font-bold tracking-[0.55px] text-[#6B7280] uppercase">
                 {group.label}
