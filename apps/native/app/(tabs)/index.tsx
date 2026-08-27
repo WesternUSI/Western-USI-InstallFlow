@@ -1,12 +1,11 @@
 import { useUser } from "@clerk/expo";
-import { Ionicons } from "@expo/vector-icons";
 import { type Href, useRouter } from "expo-router";
 import React from "react";
 import { Image, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { NavCard } from "@/components/nav-card";
-import { formatSyncTime, useSync } from "@/contexts/sync-context";
+import { useCurrentUser } from "@/hooks/use-current-user";
 
 function greetingFor(date: Date) {
   const hour = date.getHours();
@@ -24,12 +23,19 @@ function greetingFor(date: Date) {
 
 export default function Home() {
   const { user } = useUser();
+  const { convexUser } = useCurrentUser();
   const insets = useSafeAreaInsets();
-  const { lastSyncedAt } = useSync();
   const router = useRouter();
 
   const greeting = greetingFor(new Date());
-  const displayName = user?.firstName?.trim() || user?.emailAddresses[0]?.emailAddress.split("@")[0];
+  // `users.name` is the field admins actually manage (set on invite, editable
+  // later via User Details) — Clerk's firstName is only ever set once at
+  // invite time and goes stale if an admin renames the account afterwards.
+  const convexFirstName = convexUser?.name?.trim().split(/\s+/)[0];
+  const displayName =
+    convexFirstName ||
+    user?.firstName?.trim() ||
+    user?.emailAddresses[0]?.emailAddress.split("@")[0];
 
   return (
     <View className="flex-1 bg-[#f7f9fb]" style={{ paddingTop: insets.top }}>
@@ -72,39 +78,6 @@ export default function Home() {
           />
         </View>
 
-        <View className="mt-10 flex-row items-center px-4">
-          <View className="h-px flex-1 bg-[#e2e8f0]" />
-          <Text className="mx-3 text-[12px] font-bold tracking-[2px] text-[#8b95a1]">SYNC</Text>
-          <View className="h-px flex-1 bg-[#e2e8f0]" />
-        </View>
-
-        <View className="mt-5 px-4">
-          <View
-            className="flex-row items-center rounded-2xl bg-white px-4 py-4"
-            style={{
-              shadowColor: "#0f172a",
-              shadowOpacity: 0.05,
-              shadowRadius: 10,
-              shadowOffset: { width: 0, height: 3 },
-              elevation: 1,
-            }}
-          >
-            <View className="flex-1 flex-row items-center">
-              <View className="h-2.5 w-2.5 rounded-full bg-[#22c55e]" />
-              <Text className="ml-3 flex-1 text-[14px] text-[#6c7278]">
-                <Text className="font-bold text-[#0f172a]">Last synced: </Text>
-                {formatSyncTime(lastSyncedAt)}
-              </Text>
-            </View>
-
-            <View className="mx-3 h-8 w-px bg-[#e2e8f0]" />
-
-            <View className="flex-row items-center">
-              <Ionicons name="checkmark-circle" size={20} color="#22c55e" />
-              <Text className="ml-2 text-[14px] text-[#0f172a]">All data up to date</Text>
-            </View>
-          </View>
-        </View>
       </ScrollView>
     </View>
   );

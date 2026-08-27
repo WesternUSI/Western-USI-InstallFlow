@@ -10,7 +10,6 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 
 import { AppThemeProvider } from "@/contexts/app-theme-context";
-import { SyncProvider } from "@/contexts/sync-context";
 import { TeamProvider } from "@/contexts/team-context";
 
 export const unstable_settings = {
@@ -47,11 +46,9 @@ export default function Layout() {
           <KeyboardProvider>
             <AppThemeProvider>
               <HeroUINativeProvider>
-                <SyncProvider>
-                  <TeamProvider>
-                    <StackLayout />
-                  </TeamProvider>
-                </SyncProvider>
+                <TeamProvider>
+                  <StackLayout />
+                </TeamProvider>
               </HeroUINativeProvider>
             </AppThemeProvider>
           </KeyboardProvider>

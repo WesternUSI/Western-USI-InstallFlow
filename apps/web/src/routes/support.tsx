@@ -12,7 +12,6 @@ function RouteComponent() {
         Western USI Installer is used internally by Western USI staff and contractors to manage
         advertising panel installation work orders.
       </p>
-
       <p className="mt-4 text-sm leading-6">
         If you're having trouble signing in, syncing, or using the app, or have any other
         question, contact us at{" "}

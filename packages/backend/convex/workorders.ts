@@ -25,13 +25,18 @@ export function deriveStatus(workOrder: Doc<"workorders">): WorkOrderStatus {
 /**
  * Carries every column read off the Installation Schedule, so the admin
  * table can show the sheet back in full rather than a chosen subset.
+ *
+ * `site` (displayed as "Location") is resolved through `site_id` into the
+ * Site Database's own `area` field — the sheet's actual LOCATION column —
+ * rather than trusting the raw text on the work order row, which is blank
+ * on most rows. Falls back to that raw text when no site matched.
  */
-function toRow(workOrder: Doc<"workorders">) {
+function toRow(workOrder: Doc<"workorders">, site: Doc<"sites"> | null) {
   return {
     _id: workOrder._id,
     status: deriveStatus(workOrder),
     contract_id: workOrder.contract_id,
-    site: workOrder.site,
+    site: site?.area ?? workOrder.site,
     panel_split: workOrder.panel_split,
     contracted_panel_id: workOrder.contracted_panel_id,
     advertiser_campaign: workOrder.advertiser_campaign,
@@ -191,9 +196,12 @@ export const list = query({
       const offset = Number(args.paginationOpts.cursor ?? "0") || 0;
       const page = matches.slice(offset, offset + args.paginationOpts.numItems);
       const nextOffset = offset + page.length;
+      const sites = await Promise.all(
+        page.map((workOrder) => (workOrder.site_id ? ctx.db.get(workOrder.site_id) : null)),
+      );
 
       return {
-        page: page.map(toRow),
+        page: page.map((workOrder, index) => toRow(workOrder, sites[index])),
         isDone: nextOffset >= matches.length,
         continueCursor: String(nextOffset),
       };
@@ -241,7 +249,13 @@ export const list = query({
     })();
 
     const result = await stream.order("desc").paginate(args.paginationOpts);
-    return { ...result, page: result.page.map(toRow) };
+    const sites = await Promise.all(
+      result.page.map((workOrder) => (workOrder.site_id ? ctx.db.get(workOrder.site_id) : null)),
+    );
+    return {
+      ...result,
+      page: result.page.map((workOrder, index) => toRow(workOrder, sites[index])),
+    };
   },
 });
 
@@ -408,9 +422,9 @@ export const byAreaForTeam = query({
  * upload (uploads are permanent history, so older ones are superseded, not
  * deleted) and only orders not yet completed, newest-first.
  *
- * `site` is resolved through `site_id` into the sites table's own `site`
- * field — the authoritative name — rather than trusting the raw LOCATION
- * text stored on the work order row. Rows with no matched site (`site_id`
+ * `site` is resolved through `site_id` into the Site Database's own `area`
+ * field — the sheet's actual LOCATION column — rather than trusting the raw
+ * LOCATION text stored on the work order row. Rows with no matched site (`site_id`
  * unset) fall back to that raw text.
  */
 export const listActiveWorkOrders = query({
@@ -443,7 +457,7 @@ export const listActiveWorkOrders = query({
       advertiser_campaign: row.advertiser_campaign,
       panel_split: row.panel_split,
       panel_name: row.panel_name,
-      site: sites[index]?.site ?? row.site,
+      site: sites[index]?.area ?? row.site,
       area_progress: row.area_progress,
       train_line: row.train_line,
       priority: row.priority,
@@ -492,7 +506,7 @@ export const getWorkOrderDetail = query({
 
     return {
       panel_name: joinUnique(rows.map((r) => r.panel_name)),
-      site: site?.site ?? rows[0].site,
+      site: site?.area ?? rows[0].site,
       panel_split: [...new Set(rows.map((r) => r.panel_split))]
         .sort((a, b) => a.localeCompare(b))
         .join(" & "),
@@ -613,7 +627,7 @@ export const getCompletionEmailData = internalQuery({
       contract_id: workOrder.contract_id, // SRS "Contract Number"
       advertiser_campaign: workOrder.advertiser_campaign,
       panel_split: workOrder.panel_split, // SRS "Panel ID"
-      site: site?.site ?? workOrder.site, // SRS "Location"
+      site: site?.area ?? workOrder.site, // SRS "Location"
       completion_notes: workOrder.completion_notes,
       photoUrl,
       recipients,
@@ -747,7 +761,7 @@ export const listAllocatedWorkOrders = query({
       advertiser_campaign: row.advertiser_campaign,
       panel_split: row.panel_split,
       panel_name: row.panel_name,
-      site: sites[index]?.site ?? row.site,
+      site: sites[index]?.area ?? row.site,
       area_progress: row.area_progress,
       train_line: row.train_line,
       priority: row.priority,
@@ -796,7 +810,7 @@ export const listWorkOrdersForArea = query({
         advertiser_campaign: row.advertiser_campaign,
         panel_split: row.panel_split,
         panel_name: row.panel_name,
-        site: sites[index]?.site ?? row.site,
+        site: sites[index]?.area ?? row.site,
         priority: row.priority,
         size: row.size,
         assigned_team: row.assigned_team,
