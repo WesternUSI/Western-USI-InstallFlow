@@ -150,20 +150,32 @@ function SiteCard({ card }: { card: WorkOrderCard }) {
   );
 }
 
+type OpenDropdown = "team" | "area" | null;
+
 export default function CompleteInstallsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { isLoaded, primaryTeam } = useTeamContext();
+  const { isLoaded, primaryTeam, teams: allTeams } = useTeamContext();
+
+  // Which team this screen is currently acting on behalf of. Independent of
+  // `primaryTeam` on purpose — same as Allocate Installs, anyone can pick any
+  // team here to complete installs for it, it's never saved, and it always
+  // starts back on the user's own primary team the next time this screen is
+  // opened.
+  const [selectedTeam, setSelectedTeam] = React.useState<string | undefined>(undefined);
+  React.useEffect(() => {
+    if (primaryTeam !== undefined) setSelectedTeam(primaryTeam);
+  }, [primaryTeam]);
 
   const byArea = useQuery(api.workorders.byArea);
   const rows = useQuery(
     api.workorders.listAllocatedWorkOrders,
-    primaryTeam === undefined
-      ? "skip"
-      : { team: primaryTeam },
+    selectedTeam === undefined ? "skip" : { team: selectedTeam },
   );
 
-  const [areaDropdownOpen, setAreaDropdownOpen] = React.useState(false);
+  const [openDropdown, setOpenDropdown] = React.useState<OpenDropdown>(null);
+  const toggleDropdown = (name: Exclude<OpenDropdown, null>) =>
+    setOpenDropdown((current) => (current === name ? null : name));
   const [selectedArea, setSelectedArea] = React.useState(ALL_AREAS);
   const [reversed, setReversed] = React.useState(false);
   const [visibleCount, setVisibleCount] = React.useState(PAGE_SIZE);
@@ -198,8 +210,6 @@ export default function CompleteInstallsScreen() {
   const visibleCards = cards.slice(0, visibleCount);
   const canShowMore = visibleCount < cards.length;
 
-  const teamSummary = primaryTeam ?? "No team";
-
   const isFiltered = selectedArea !== ALL_AREAS || visibleCount > PAGE_SIZE;
 
   const handleShowAll = () => {
@@ -227,7 +237,7 @@ export default function CompleteInstallsScreen() {
     </View>
   );
 
-  const isLoading = !isLoaded || byArea === undefined || (primaryTeam !== undefined && rows === undefined);
+  const isLoading = !isLoaded || byArea === undefined || (selectedTeam !== undefined && rows === undefined);
 
   if (isLoading) {
     return (
@@ -263,19 +273,30 @@ export default function CompleteInstallsScreen() {
         {header}
 
         <View className="mt-5 px-4">
-          <Text className="mb-1 text-[12px] font-semibold text-[#6c7278]">Select Team</Text>
-          <View className="flex-row items-center justify-between rounded-xl border border-[#e2e8f0] bg-[#f1f5f9] px-3.5 py-3">
-            <Text className="flex-1 text-[14px] font-semibold text-[#94a3b8]" numberOfLines={1}>
-              {teamSummary}
-            </Text>
-            <Ionicons name="lock-closed" size={14} color="#94a3b8" />
-          </View>
+          <DropdownField
+            label="Select Team"
+            value={selectedTeam ?? "Select a team"}
+            open={openDropdown === "team"}
+            onToggle={() => toggleDropdown("team")}
+          >
+            {allTeams.map((team) => (
+              <OptionRow
+                key={team}
+                label={team === primaryTeam ? `${team} (Primary)` : team}
+                selected={team === selectedTeam}
+                onPress={() => {
+                  setSelectedTeam(team);
+                  setOpenDropdown(null);
+                }}
+              />
+            ))}
+          </DropdownField>
 
           <DropdownField
             label="Installation Area"
             value={selectedArea}
-            open={areaDropdownOpen}
-            onToggle={() => setAreaDropdownOpen((open) => !open)}
+            open={openDropdown === "area"}
+            onToggle={() => toggleDropdown("area")}
           >
             <ScrollView style={{ maxHeight: 240 }} showsVerticalScrollIndicator={false}>
               {areaOptions.map((option) => (
@@ -285,7 +306,7 @@ export default function CompleteInstallsScreen() {
                   selected={option === selectedArea}
                   onPress={() => {
                     setSelectedArea(option);
-                    setAreaDropdownOpen(false);
+                    setOpenDropdown(null);
                   }}
                 />
               ))}

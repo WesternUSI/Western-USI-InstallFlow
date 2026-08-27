@@ -18,12 +18,13 @@ const TeamContext = React.createContext<TeamContextValue | null>(null);
 
 /**
  * The signed-in installer's admin-assigned primary team — shared here so
- * Equipment Needed, Complete Installs, and the home screen's Area Progress
- * widget all read the same value without re-deriving it from `useCurrentUser`
- * themselves. There is no merged/"additional teams" concept anymore: those
- * three screens are always scoped to `primaryTeam` only. Allocate Installs is
- * the one screen that can act on a *different* team — it keeps its own local,
- * unsaved single-team selection instead of reading from this context.
+ * Equipment Needed and the home screen's Area Progress widget read the same
+ * value without re-deriving it from `useCurrentUser` themselves. There is no
+ * merged/"additional teams" concept anymore: those two screens are always
+ * scoped to `primaryTeam` only. Allocate Installs and Complete Installs can
+ * each act on a *different* team — they keep their own local, unsaved
+ * single-team selection (defaulting to `primaryTeam`) instead of reading from
+ * this context.
  *
  * The list of teams themselves is fetched here too, since office staff can
  * now create new ones (teams used to be the fixed "Team 1".."Team 5").

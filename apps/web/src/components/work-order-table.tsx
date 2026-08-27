@@ -43,6 +43,8 @@ export interface WorkOrderTableRow {
   area_progress?: string;
   schedule?: string;
   train_line?: string;
+  /** The photo an installer submitted in Complete Installs — same one the completion email carries. */
+  completion_photo_url?: string;
 }
 
 export interface WorkOrderCounts {
@@ -111,13 +113,16 @@ export const WORK_ORDER_COLUMNS = [
   { label: "Line", width: "w-[5%]", padding: "px-4" },
   { label: "Schedule", width: "w-[5%]", padding: "px-4" },
   { label: "Train Line", width: "w-[5%]", padding: "px-4" },
+  // Not part of the Installation Schedule sheet — appended after it rather
+  // than mixed into the mirrored column order above.
+  { label: "Photo", width: "w-[70px]", padding: "px-4" },
 ] as const;
 
-/** Enough room for all seventeen columns before they start to crush. */
-export const WORK_ORDER_TABLE_MIN_WIDTH = "min-w-[2200px]";
+/** Enough room for all seventeen sheet columns plus Photo before they start to crush. */
+export const WORK_ORDER_TABLE_MIN_WIDTH = "min-w-[2270px]";
 
 /** The same, plus the 44px selection column Manage Orders adds. */
-const WORK_ORDER_TABLE_SELECTABLE_MIN_WIDTH = "min-w-[2244px]";
+const WORK_ORDER_TABLE_SELECTABLE_MIN_WIDTH = "min-w-[2314px]";
 
 /** Blue to match the row-selected state, sized down from the login checkbox. */
 const CHECKBOX_CLASS =
@@ -237,6 +242,24 @@ export function WorkOrderRowCells({ row }: { row: WorkOrderTableRow }) {
       <TableCell className="px-4 py-4 text-sm text-slate-500">
         {/* Already falls back to an em dash of its own. */}
         <CellText value={formatTrainLine(row.train_line)} />
+      </TableCell>
+      <TableCell className="px-4 py-4">
+        {row.completion_photo_url === undefined ? (
+          <CellText value={undefined} />
+        ) : (
+          <a
+            href={row.completion_photo_url}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Open completion photo full size"
+          >
+            <img
+              src={row.completion_photo_url}
+              alt="Completion"
+              className="size-10 rounded-md border border-slate-200 object-cover transition-opacity hover:opacity-80"
+            />
+          </a>
+        )}
       </TableCell>
     </>
   );

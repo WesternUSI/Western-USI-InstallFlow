@@ -262,10 +262,13 @@ export const list = query({
       if (area !== undefined) {
         return ctx.db.query("sites").withIndex("by_area", (q) => q.eq("area", area));
       }
-      return ctx.db.query("sites");
+      // No filter: still walk the `by_area` index (rather than the default
+      // table order, which is insertion time) so the Location column comes
+      // out A-Z the same way a scoped-area query would.
+      return ctx.db.query("sites").withIndex("by_area");
     })();
 
-    const result = await stream.order("desc").paginate(args.paginationOpts);
+    const result = await stream.order("asc").paginate(args.paginationOpts);
     return { ...result, page: result.page.map(publicFields) };
   },
 });

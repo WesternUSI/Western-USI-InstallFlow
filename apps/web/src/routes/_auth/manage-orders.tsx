@@ -100,6 +100,7 @@ function ManageOrdersPage() {
       area_progress: row.area_progress,
       schedule: row.schedule,
       train_line: row.train_line,
+      completion_photo_url: row.completion_photo_url,
     })) ?? [];
 
   // Deleting is admin-only. The backend enforces it too — this only decides

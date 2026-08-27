@@ -30,8 +30,16 @@ export function deriveStatus(workOrder: Doc<"workorders">): WorkOrderStatus {
  * Site Database's own `area` field — the sheet's actual LOCATION column —
  * rather than trusting the raw text on the work order row, which is blank
  * on most rows. Falls back to that raw text when no site matched.
+ *
+ * `completion_photo_url` is resolved from the stored file the installer
+ * submitted in Complete Installs — the same photo the completion email
+ * carries — so the admin table can show it too, not just email it out.
  */
-function toRow(workOrder: Doc<"workorders">, site: Doc<"sites"> | null) {
+function toRow(
+  workOrder: Doc<"workorders">,
+  site: Doc<"sites"> | null,
+  completionPhotoUrl: string | null,
+) {
   return {
     _id: workOrder._id,
     status: deriveStatus(workOrder),
@@ -54,7 +62,15 @@ function toRow(workOrder: Doc<"workorders">, site: Doc<"sites"> | null) {
     assigned_team: workOrder.assigned_team,
     priority: workOrder.priority,
     upload_date: workOrder.upload_date,
+    completion_photo_url: completionPhotoUrl ?? undefined,
   };
+}
+
+/** Storage-resolved completion photo URL for one row, or `null` if it has none. */
+function resolveCompletionPhotoUrl(ctx: QueryCtx, workOrder: Doc<"workorders">) {
+  return workOrder.completion_photo !== undefined
+    ? ctx.storage.getUrl(workOrder.completion_photo)
+    : Promise.resolve(null);
 }
 
 /** Work orders re-checked per transaction — see `relinkMissingSites`. */
@@ -199,9 +215,12 @@ export const list = query({
       const sites = await Promise.all(
         page.map((workOrder) => (workOrder.site_id ? ctx.db.get(workOrder.site_id) : null)),
       );
+      const photoUrls = await Promise.all(
+        page.map((workOrder) => resolveCompletionPhotoUrl(ctx, workOrder)),
+      );
 
       return {
-        page: page.map((workOrder, index) => toRow(workOrder, sites[index])),
+        page: page.map((workOrder, index) => toRow(workOrder, sites[index], photoUrls[index])),
         isDone: nextOffset >= matches.length,
         continueCursor: String(nextOffset),
       };
@@ -252,9 +271,12 @@ export const list = query({
     const sites = await Promise.all(
       result.page.map((workOrder) => (workOrder.site_id ? ctx.db.get(workOrder.site_id) : null)),
     );
+    const photoUrls = await Promise.all(
+      result.page.map((workOrder) => resolveCompletionPhotoUrl(ctx, workOrder)),
+    );
     return {
       ...result,
-      page: result.page.map((workOrder, index) => toRow(workOrder, sites[index])),
+      page: result.page.map((workOrder, index) => toRow(workOrder, sites[index], photoUrls[index])),
     };
   },
 });
