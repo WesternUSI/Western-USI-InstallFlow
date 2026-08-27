@@ -842,3 +842,122 @@ export const unallocateWorkOrders = mutation({
     }
   },
 });
+
+/**
+ * Work orders removed per transaction. Matches `deleteImport`'s batch, which
+ * has carried 500 deletes in one transaction since the rollback path shipped.
+ */
+const DELETE_BATCH_SIZE = 500;
+
+/**
+ * Deleting work orders is the only irreversible action in the panel, and the
+ * only one office staff are not trusted with — a completed order carries an
+ * installer's photo, notes and sign-off date, and nothing restores those.
+ */
+async function requireAdmin(ctx: QueryCtx) {
+  const identity = await ctx.auth.getUserIdentity();
+  if (identity === null) {
+    throw new Error("Not authenticated");
+  }
+
+  const user = await ctx.db
+    .query("users")
+    .withIndex("by_clerk_id", (q) => q.eq("clerk_id", identity.subject))
+    .unique();
+
+  if (user === null || user.role !== "admin") {
+    throw new Error("Only an admin can delete work orders");
+  }
+}
+
+/**
+ * Removes work orders, plus what would otherwise be left dangling behind them.
+ *
+ * Two modes, because the table offers two ways to choose rows:
+ *
+ * - `ids` — rows ticked by hand. The caller chunks these, so one call is one
+ *   transaction and `remaining` is always zero.
+ * - `filter` — the header checkbox, where the browser never holds the ids. The
+ *   filter is re-evaluated here exactly the way `list` and `counts` evaluate
+ *   it, so what gets deleted is what the operator was shown a count of. One
+ *   batch per call; the caller calls again until `remaining` is zero.
+ *   `exclude` carries the rows un-ticked afterwards, which is the only part of
+ *   that selection the browser does know.
+ */
+export const deleteWorkOrders = mutation({
+  args: {
+    ids: v.optional(v.array(v.id("workorders"))),
+    filter: v.optional(
+      v.object({
+        status: v.optional(workOrderStatusValidator),
+        search: v.optional(v.string()),
+        since: v.optional(v.string()),
+        until: v.optional(v.string()),
+        /** Rows un-ticked out of an otherwise whole-filter selection. */
+        exclude: v.optional(v.array(v.id("workorders"))),
+      }),
+    ),
+  },
+  handler: async (ctx, args): Promise<{ deleted: number; remaining: number }> => {
+    await requireAdmin(ctx);
+
+    let doomed: Doc<"workorders">[];
+    let remaining = 0;
+
+    if (args.ids !== undefined) {
+      // Ids already deleted by a concurrent call read back as null rather than
+      // failing the batch, so a retry is a no-op instead of an error.
+      const found = await Promise.all(args.ids.map((id) => ctx.db.get(id)));
+      doomed = found.filter((row): row is Doc<"workorders"> => row !== null);
+    } else if (args.filter !== undefined) {
+      const { status, since, until } = args.filter;
+      const term = args.filter.search?.trim() ?? "";
+
+      // Excluded up front rather than skipped per batch: a row skipped inside
+      // the batch would stay in `remaining` forever and the caller's loop
+      // would never finish.
+      const spared = new Set<string>(args.filter.exclude ?? []);
+
+      const matches = (await fetchAll(ctx, undefined)).filter(
+        (workOrder) =>
+          !spared.has(workOrder._id) &&
+          matchesSearch(workOrder, term) &&
+          (status === undefined || deriveStatus(workOrder) === status) &&
+          withinRange(workOrder, since, until),
+      );
+
+      doomed = matches.slice(0, DELETE_BATCH_SIZE);
+      remaining = matches.length - doomed.length;
+    } else {
+      throw new Error("Pass either ids or a filter");
+    }
+
+    const touchedImports = new Set<Id<"imports">>();
+
+    for (const workOrder of doomed) {
+      // The photo lives in file storage, which no cascade reaches. Dropping
+      // only the row would leave it stored, billed and unreachable forever.
+      if (workOrder.completion_photo !== undefined) {
+        await ctx.storage.delete(workOrder.completion_photo);
+      }
+      touchedImports.add(workOrder.import_id);
+      await ctx.db.delete(workOrder._id);
+    }
+
+    // An import row holds the totals for its upload. Once its last work order
+    // is gone those totals describe nothing, and the dashboard would go on
+    // reporting them.
+    for (const importId of touchedImports) {
+      const survivor = await ctx.db
+        .query("workorders")
+        .withIndex("by_import_id", (q) => q.eq("import_id", importId))
+        .first();
+
+      if (survivor === null) {
+        await ctx.db.delete(importId);
+      }
+    }
+
+    return { deleted: doomed.length, remaining };
+  },
+});

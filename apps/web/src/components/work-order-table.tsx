@@ -1,3 +1,4 @@
+import { Checkbox } from "@usi-installer/ui/components/checkbox";
 import {
   Table,
   TableBody,
@@ -52,6 +53,25 @@ export interface WorkOrderCounts {
   missing_site: number;
 }
 
+/**
+ * Row selection, supplied only by Manage Orders.
+ *
+ * Opt-in because this table is also the import preview and the team detail
+ * tabs, where there is nothing to select and nothing to delete. Leaving the
+ * prop off renders exactly the table those two have always rendered.
+ */
+export interface WorkOrderSelection {
+  /** Keys of the ticked rows on the page currently shown. */
+  selected: ReadonlySet<string>;
+  /** True when the whole filter is selected, not merely this page. */
+  allSelected: boolean;
+  onToggle: (key: string) => void;
+  /** Selects or clears every row the filter matches, across all pages. */
+  onToggleAll: (checked: boolean) => void;
+  /** Bar shown between the tabs and the rows while anything is ticked. */
+  banner?: ReactNode;
+}
+
 interface WorkOrderTableProps {
   title: string;
   rows: WorkOrderTableRow[];
@@ -64,6 +84,7 @@ interface WorkOrderTableProps {
   pagination: TablePaginationProps;
   onStatusChange: (status: WorkOrderStatusTab) => void;
   onSearchChange: (search: string) => void;
+  selection?: WorkOrderSelection;
 }
 
 /**
@@ -95,10 +116,40 @@ export const WORK_ORDER_COLUMNS = [
 /** Enough room for all seventeen columns before they start to crush. */
 export const WORK_ORDER_TABLE_MIN_WIDTH = "min-w-[2200px]";
 
-export function WorkOrderTableHead() {
+/** The same, plus the 44px selection column Manage Orders adds. */
+const WORK_ORDER_TABLE_SELECTABLE_MIN_WIDTH = "min-w-[2244px]";
+
+/** Blue to match the row-selected state, sized down from the login checkbox. */
+const CHECKBOX_CLASS =
+  "size-4 rounded-[4px] border-[1.5px] border-slate-300 data-checked:border-blue-600 data-checked:bg-blue-600";
+
+/**
+ * Centres the 16px box against the first line of the row beside it.
+ *
+ * Cells are top-aligned so that wrapped text grows downwards, which leaves a
+ * bare checkbox sitting a few pixels high of the status pill next to it. These
+ * match the pill's height and the header label's line box respectively, so the
+ * column reads as one straight line at any row height.
+ */
+const CHECKBOX_CELL_ALIGN = "flex h-[22px] items-center";
+const CHECKBOX_HEAD_ALIGN = "flex h-[17px] items-center";
+
+export function WorkOrderTableHead({ selection }: { selection?: WorkOrderSelection }) {
   return (
     <TableHeader>
       <TableRow className="border-slate-200 bg-gray-50 hover:bg-gray-50">
+        {selection !== undefined && (
+          <TableHead className="w-[44px] px-4 py-5 align-top">
+            <div className={CHECKBOX_HEAD_ALIGN}>
+              <Checkbox
+                aria-label="Select every row matching this filter"
+                checked={selection.allSelected}
+                onCheckedChange={(checked) => selection.onToggleAll(checked === true)}
+                className={CHECKBOX_CLASS}
+              />
+            </div>
+          </TableHead>
+        )}
         {WORK_ORDER_COLUMNS.map((column) => (
           <TableHead
             key={column.label}
@@ -202,6 +253,7 @@ export function WorkOrderTable({
   pagination,
   onStatusChange,
   onSearchChange,
+  selection,
 }: WorkOrderTableProps) {
   return (
     <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -235,16 +287,24 @@ export function WorkOrderTable({
         </TabsList>
       </Tabs>
 
+      {selection?.banner}
+
       {/* Fixed layout with explicit widths so one long value cannot stretch a
           column — it wraps and grows the row instead. Min-width keeps every
           column readable, scrolling sideways rather than crushing them. */}
-      <Table className={`${WORK_ORDER_TABLE_MIN_WIDTH} table-fixed`}>
-        <WorkOrderTableHead />
+      <Table
+        className={`${
+          selection === undefined
+            ? WORK_ORDER_TABLE_MIN_WIDTH
+            : WORK_ORDER_TABLE_SELECTABLE_MIN_WIDTH
+        } table-fixed`}
+      >
+        <WorkOrderTableHead selection={selection} />
         <TableBody>
           {rows.length === 0 && (
             <TableRow>
               <TableCell
-                colSpan={WORK_ORDER_COLUMNS.length}
+                colSpan={WORK_ORDER_COLUMNS.length + (selection === undefined ? 0 : 1)}
                 className="px-6 py-10 text-center text-sm text-slate-400"
               >
                 No work orders match this filter.
@@ -252,7 +312,27 @@ export function WorkOrderTable({
             </TableRow>
           )}
           {rows.map((row) => (
-            <TableRow key={row.key} className="border-slate-100">
+            <TableRow
+              key={row.key}
+              className={`border-slate-100 ${
+                selection?.selected.has(row.key) === true ? "bg-blue-50/60" : ""
+              }`}
+            >
+              {/* Outside `WorkOrderRowCells` on purpose: that component is
+                  shared with the import preview and the team tabs, which have
+                  no selection and must keep their column count. */}
+              {selection !== undefined && (
+                <TableCell className="px-4 py-4 align-top">
+                  <div className={CHECKBOX_CELL_ALIGN}>
+                    <Checkbox
+                      aria-label={`Select ${row.panel_split}`}
+                      checked={selection.selected.has(row.key)}
+                      onCheckedChange={() => selection.onToggle(row.key)}
+                      className={CHECKBOX_CLASS}
+                    />
+                  </div>
+                </TableCell>
+              )}
               <WorkOrderRowCells row={row} />
             </TableRow>
           ))}

@@ -1,8 +1,10 @@
 import { api } from "@usi-installer/backend/convex/_generated/api";
+import type { Id } from "@usi-installer/backend/convex/_generated/dataModel";
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { Info } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 
 import {
   ALL_TIME,
@@ -10,12 +12,15 @@ import {
   DurationSelect,
   durationRange,
 } from "@/components/duration-select";
+import { DeleteWorkOrdersDialog } from "@/components/delete-work-orders-dialog";
 import { PageHeader } from "@/components/page-header";
 import { WorkOrderStats } from "@/components/work-order-stats";
+import { WorkOrderSelectionBanner } from "@/components/work-order-selection-banner";
 import { type WorkOrderTableRow, WorkOrderTable } from "@/components/work-order-table";
 import { WorkOrderTableSkeleton } from "@/components/work-order-table-skeleton";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
 import { useDebouncedValue, useStickyValue } from "@/hooks/use-debounced-value";
+import { chunk } from "@/lib/chunk";
 import type { WorkOrderStatusTab } from "@/lib/workOrderStatus";
 
 export const Route = createFileRoute("/_auth/manage-orders")({
@@ -23,6 +28,9 @@ export const Route = createFileRoute("/_auth/manage-orders")({
 });
 
 const PAGE_SIZE = 25;
+
+/** Ids sent per delete call, matching the backend's own batch. */
+const DELETE_CHUNK = 500;
 
 const EMPTY_COUNTS = {
   all: 0,
@@ -44,9 +52,11 @@ function ManageOrdersPage() {
 
   // Keyed on the debounced term, not the raw one, so the cursor is dropped at
   // the same moment the query arguments actually change.
+  const filterKey = `${status}|${debouncedSearch}|${since ?? ""}|${until ?? ""}`;
+
   const { paginationOpts, page, hasPrevious, next, previous } = useCursorPagination(
     PAGE_SIZE,
-    `${status}|${debouncedSearch}|${since ?? ""}|${until ?? ""}`,
+    filterKey,
   );
 
   // Rows come back one cursor page at a time; totals need their own pass over
@@ -92,6 +102,135 @@ function ManageOrdersPage() {
       train_line: row.train_line,
     })) ?? [];
 
+  // Deleting is admin-only. The backend enforces it too — this only decides
+  // whether office staff are shown a control they would be refused.
+  const currentUser = useQuery(api.users.currentUser);
+  const canDelete = currentUser?.role === "admin";
+
+  const deleteWorkOrders = useMutation(api.workorders.deleteWorkOrders);
+
+  // Whole rows, not just ids: a selection survives paging, and the confirm
+  // dialog still has to count completed rows the table no longer shows.
+  const [picked, setPicked] = useState<ReadonlyMap<string, WorkOrderTableRow>>(new Map());
+  // Set by the header checkbox, where the ids never reach the browser and the
+  // filter is re-evaluated server-side instead.
+  const [allMatching, setAllMatching] = useState(false);
+  // Rows un-ticked out of a whole-filter selection. Whole rows again, so the
+  // dialog can subtract their completed count from the filter's.
+  const [excluded, setExcluded] = useState<ReadonlyMap<string, WorkOrderTableRow>>(new Map());
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  const [deletedSoFar, setDeletedSoFar] = useState<number | null>(null);
+
+  // Change the filter and the old selection no longer describes anything the
+  // operator can see — keeping it invites deleting rows off-screen.
+  useEffect(() => {
+    setPicked(new Map());
+    setAllMatching(false);
+    setExcluded(new Map());
+  }, [filterKey]);
+
+  const countCompleted = (rowsToCount: Iterable<WorkOrderTableRow>) =>
+    [...rowsToCount].filter((row) => row.status === "completed").length;
+
+  const totalMatching = counts?.[status === "all" ? "all" : status] ?? 0;
+  const selectedCount = allMatching ? totalMatching - excluded.size : picked.size;
+
+  // Narrowing to a status other than Completed means the filter cannot contain
+  // a completed row, so there is nothing to warn about.
+  const completedInFilter =
+    status === "all" || status === "completed" ? (counts?.completed ?? 0) : 0;
+
+  const completedCount = allMatching
+    ? completedInFilter - countCompleted(excluded.values())
+    : countCompleted(picked.values());
+
+  // What the table paints as ticked. Under a whole-filter selection every row
+  // on the page counts as ticked unless it has been explicitly un-ticked.
+  const selectedKeys = useMemo(
+    () =>
+      allMatching
+        ? new Set(rows.filter((row) => !excluded.has(row.key)).map((row) => row.key))
+        : new Set(picked.keys()),
+    [allMatching, excluded, picked, rows],
+  );
+
+  function clearSelection() {
+    setPicked(new Map());
+    setAllMatching(false);
+    setExcluded(new Map());
+  }
+
+  function toggleRow(key: string) {
+    const row = rows.find((candidate) => candidate.key === key);
+
+    // Under a whole-filter selection a tick removes a row from the selection
+    // rather than adding one, so it is recorded as an exclusion. Dropping back
+    // to an explicit list is not an option — the other pages' ids were never
+    // sent to the browser.
+    const update = (previous: ReadonlyMap<string, WorkOrderTableRow>) => {
+      const next = new Map(previous);
+      if (next.has(key)) next.delete(key);
+      else if (row !== undefined) next.set(key, row);
+      return next;
+    };
+
+    if (allMatching) setExcluded(update);
+    else setPicked(update);
+  }
+
+  // The header box covers the filter, not the page. Ticking 25 rows at a time
+  // is no use for clearing an import of a few thousand, and a box that stopped
+  // at the page edge would quietly under-select.
+  function toggleAll(checked: boolean) {
+    setPicked(new Map());
+    setExcluded(new Map());
+    setAllMatching(checked);
+  }
+
+  async function handleDelete() {
+    setDeletedSoFar(0);
+    let done = 0;
+
+    try {
+      if (allMatching) {
+        // The server deletes one batch per call and reports what is left.
+        let remaining = 1;
+        while (remaining > 0) {
+          const result = await deleteWorkOrders({
+            filter: {
+              status: status === "all" ? undefined : status,
+              search: debouncedSearch,
+              since,
+              until,
+              exclude: [...excluded.keys()] as Id<"workorders">[],
+            },
+          });
+          done += result.deleted;
+          remaining = result.remaining;
+          setDeletedSoFar(done);
+          // A batch that deletes nothing while claiming rows remain would spin
+          // forever; stop rather than hammer the deployment.
+          if (result.deleted === 0) break;
+        }
+      } else {
+        const ids = [...picked.keys()] as Id<"workorders">[];
+        for (const batch of chunk(ids, DELETE_CHUNK)) {
+          const result = await deleteWorkOrders({ ids: batch });
+          done += result.deleted;
+          setDeletedSoFar(done);
+        }
+      }
+
+      toast.success(`Deleted ${done.toLocaleString()} work order${done === 1 ? "" : "s"}`);
+      clearSelection();
+      setIsConfirmOpen(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not delete work orders");
+    } finally {
+      setDeletedSoFar(null);
+    }
+  }
+
   return (
     <>
       <PageHeader
@@ -124,8 +263,35 @@ function ManageOrdersPage() {
             }}
             onStatusChange={setStatus}
             onSearchChange={setSearch}
+            selection={
+              canDelete
+                ? {
+                    selected: selectedKeys,
+                    allSelected: allMatching,
+                    onToggle: toggleRow,
+                    onToggleAll: toggleAll,
+                    banner:
+                      selectedCount > 0 ? (
+                        <WorkOrderSelectionBanner
+                          selectedCount={selectedCount}
+                          onClear={clearSelection}
+                          onDelete={() => setIsConfirmOpen(true)}
+                        />
+                      ) : undefined,
+                  }
+                : undefined
+            }
           />
         )}
+
+        <DeleteWorkOrdersDialog
+          open={isConfirmOpen}
+          total={selectedCount}
+          completed={completedCount}
+          deletedSoFar={deletedSoFar}
+          onOpenChange={setIsConfirmOpen}
+          onConfirm={handleDelete}
+        />
 
         <div className="flex items-start gap-3 rounded-xl border border-blue-100 bg-blue-50/70 px-6 py-4">
           <Info className="mt-0.5 size-5 shrink-0 text-blue-500" />
