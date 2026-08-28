@@ -19,8 +19,8 @@ function WorkOrderCardView({ card }: { card: WorkOrderCard }) {
     >
       <View className="flex-row items-start justify-between">
         <View className="flex-1 pr-2">
-          <Text className="text-[19px] font-bold text-[#1a1c1e]">{card.panelNameLabel}</Text>
-          <Text className="mt-1 text-[16px] font-medium text-[#6c7278]">{card.site}</Text>
+          <Text className="text-[19px] font-bold text-[#1a1c1e]">{card.site}</Text>
+          <Text className="mt-1 text-[16px] font-medium text-[#6c7278]">{card.panelNameLabel}</Text>
           <Text className="mt-1 text-[15px] font-medium text-[#94a3b8]">{card.panelIdsLabel}</Text>
         </View>
         {card.priority && (

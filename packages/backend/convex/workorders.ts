@@ -25,6 +25,38 @@ export function deriveStatus(workOrder: Doc<"workorders">): WorkOrderStatus {
 }
 
 /**
+ * A work order's Area, resolved from the Site Database row its Panel ID
+ * matched — not the raw "Line" column on the imported schedule row, which is
+ * blank on most rows. Prefers the live site value, then the import-time
+ * snapshot (`train_line`), then the raw column. Panel ID is the source of
+ * truth for Area, the same way `site` (Location) is resolved through `site_id`.
+ */
+function resolveArea(
+  workOrder: Doc<"workorders">,
+  site: Doc<"sites"> | null | undefined,
+): string | undefined {
+  for (const value of [site?.area_progress, workOrder.train_line, workOrder.area_progress]) {
+    if (value !== undefined && value.trim() !== "") return value;
+  }
+  return undefined;
+}
+
+/** `resolveArea` with the "Unassigned" fallback the grouping screens apply. */
+function areaLabel(workOrder: Doc<"workorders">, site: Doc<"sites"> | null | undefined): string {
+  return resolveArea(workOrder, site)?.trim() || "Unassigned";
+}
+
+/**
+ * Every site keyed by id, for the aggregate Area queries that don't already
+ * hold the matched row. The sites table is a fixed asset list of a few
+ * hundred rows (see `sites.list`), so one collect is cheap.
+ */
+async function sitesById(ctx: QueryCtx): Promise<Map<Id<"sites">, Doc<"sites">>> {
+  const all = await ctx.db.query("sites").collect();
+  return new Map(all.map((site) => [site._id, site]));
+}
+
+/**
  * Carries every column read off the Installation Schedule, so the admin
  * table can show the sheet back in full rather than a chosen subset.
  *
@@ -378,13 +410,13 @@ export const byArea = query({
     await requireIdentity(ctx);
 
     const all = await ctx.db.query("workorders").collect();
+    const sites = await sitesById(ctx);
     const byLine = new Map<string, { imported: number; allocated: number; completed: number }>();
 
-    // SRS's "Train Line" maps to this field (schema comment: `// Line`) — the
-    // raw per-row import value, not `train_line` (this codebase's own later
-    // addition, snapshotting the matched site's *Area* instead).
+    // Area comes from the Site Database row the work order's Panel ID matched
+    // (see `resolveArea`), not the raw "Line" column, which is blank on most rows.
     for (const workOrder of all) {
-      const line = workOrder.area_progress ?? "Unassigned";
+      const line = areaLabel(workOrder, workOrder.site_id ? sites.get(workOrder.site_id) : null);
       const entry = byLine.get(line) ?? { imported: 0, allocated: 0, completed: 0 };
 
       entry.imported++;
@@ -423,12 +455,13 @@ export const byAreaForTeam = query({
     await requireIdentity(ctx);
 
     const all = await ctx.db.query("workorders").collect();
+    const sites = await sitesById(ctx);
     const byLine = new Map<string, { total: number; completed: number }>();
 
     for (const workOrder of all) {
       if (workOrder.assigned_team !== args.team) continue;
 
-      const line = workOrder.area_progress ?? "Unassigned";
+      const line = areaLabel(workOrder, workOrder.site_id ? sites.get(workOrder.site_id) : null);
       const entry = byLine.get(line) ?? { total: 0, completed: 0 };
       entry.total++;
       if (deriveStatus(workOrder) === "completed") entry.completed++;
@@ -482,7 +515,7 @@ export const listActiveWorkOrders = query({
       panel_split: row.panel_split,
       panel_name: row.panel_name,
       site: sites[index]?.area ?? row.site,
-      area_progress: row.area_progress,
+      area_progress: resolveArea(row, sites[index]),
       train_line: row.train_line,
       priority: row.priority,
       missing_value: row.missing_value,
@@ -787,7 +820,7 @@ export const listAllocatedWorkOrders = query({
       panel_split: row.panel_split,
       panel_name: row.panel_name,
       site: sites[index]?.area ?? row.site,
-      area_progress: row.area_progress,
+      area_progress: resolveArea(row, sites[index]),
       train_line: row.train_line,
       priority: row.priority,
       missing_value: row.missing_value,
@@ -807,9 +840,9 @@ export const listAllocatedWorkOrders = query({
  * read-only and let the rest go through Complete Installation. Not
  * restricted to the latest upload, since `byAreaForTeam` isn't either.
  *
- * The `train_line` arg is named for the value it carries (whatever
- * `byAreaForTeam` labelled the row with) rather than the schema field it's
- * matched against — see that query's comment for why it reads `area_progress`.
+ * The `train_line` arg carries whatever `byAreaForTeam` labelled the row with,
+ * so it is matched back through the same `areaLabel` (Panel ID -> Site Database
+ * Area), not against the raw schema field.
  */
 export const listWorkOrdersForArea = query({
   args: { train_line: v.string(), team: teamValidator },
@@ -817,16 +850,16 @@ export const listWorkOrdersForArea = query({
     await requireIdentity(ctx);
 
     const all = await ctx.db.query("workorders").collect();
+    const sitesMap = await sitesById(ctx);
     const rows = all.filter((row) => {
-      if ((row.area_progress ?? "Unassigned") !== args.train_line) return false;
+      const site = row.site_id ? sitesMap.get(row.site_id) : null;
+      if (areaLabel(row, site) !== args.train_line) return false;
       if (row.assigned_team !== args.team) return false;
       const status = deriveStatus(row);
       return status === "completed" || status === "allocated";
     });
 
-    const sites = await Promise.all(
-      rows.map((row) => (row.site_id ? ctx.db.get(row.site_id) : null)),
-    );
+    const sites = rows.map((row) => (row.site_id ? sitesMap.get(row.site_id) ?? null : null));
 
     return rows
       .map((row, index) => ({

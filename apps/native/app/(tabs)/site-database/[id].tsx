@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { ImageLightbox } from "@/components/image-lightbox";
 import { openMapsDirections, openMapsSearch } from "@/lib/openMapsLocation";
 import { parseDmsCoordinates } from "@/lib/parseDmsCoordinates";
 
@@ -74,6 +75,7 @@ function MapActions({ location }: { location?: string }) {
 
 function ImageCarousel({ urls }: { urls: string[] }) {
   const [index, setIndex] = React.useState(0);
+  const [zoomVisible, setZoomVisible] = React.useState(false);
   const count = urls.length;
 
   if (count === 0) {
@@ -89,10 +91,22 @@ function ImageCarousel({ urls }: { urls: string[] }) {
 
   return (
     <View className="overflow-hidden rounded-2xl bg-[#0f172a]">
-      <Image
-        source={{ uri: urls[safeIndex] }}
-        style={{ width: "100%", height: 220 }}
-        resizeMode="cover"
+      <Pressable
+        accessibilityRole="imagebutton"
+        accessibilityLabel="Enlarge image"
+        onPress={() => setZoomVisible(true)}
+      >
+        <Image
+          source={{ uri: urls[safeIndex] }}
+          style={{ width: "100%", height: 220 }}
+          resizeMode="cover"
+        />
+      </Pressable>
+      <ImageLightbox
+        visible={zoomVisible}
+        images={urls}
+        initialIndex={safeIndex}
+        onClose={() => setZoomVisible(false)}
       />
       <View className="absolute right-3 top-3 rounded-md bg-black/55 px-2 py-1">
         <Text className="text-[12px] font-semibold text-white">
@@ -169,8 +183,8 @@ export default function SiteDetailScreen() {
         ) : (
           <View className="mt-5 px-4">
             <View className="rounded-2xl border border-[#e2e8f0] bg-white px-4 py-4">
-              <Text className="text-[17px] font-bold leading-6 text-[#1a1c1e]">{site.site}</Text>
-              <Text className="mt-1 text-[14px] font-medium text-[#6c7278]">{site.area}</Text>
+              <Text className="text-[17px] font-bold leading-6 text-[#1a1c1e]">{site.area}</Text>
+              <Text className="mt-1 text-[14px] font-medium text-[#6c7278]">{site.site}</Text>
               <Text className="mt-2 text-[13px] font-medium text-[#94a3b8]">{site.panel_id}</Text>
             </View>
 

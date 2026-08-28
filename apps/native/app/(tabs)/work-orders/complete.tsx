@@ -117,8 +117,8 @@ function SiteCard({ card }: { card: WorkOrderCard }) {
     >
       <Pressable accessibilityRole="button" onPress={goToDetail} className="flex-row items-start justify-between">
         <View className="flex-1 pr-2">
-          <Text className="text-[15px] font-bold text-[#1a1c1e]">{card.panelNameLabel}</Text>
-          <Text className="mt-0.5 text-[13px] font-medium text-[#6c7278]">{card.site}</Text>
+          <Text className="text-[15px] font-bold text-[#1a1c1e]">{card.site}</Text>
+          <Text className="mt-0.5 text-[13px] font-medium text-[#6c7278]">{card.panelNameLabel}</Text>
           <Text className="mt-0.5 text-[12px] font-medium text-[#94a3b8]">
             {card.panelIdsLabel}
           </Text>

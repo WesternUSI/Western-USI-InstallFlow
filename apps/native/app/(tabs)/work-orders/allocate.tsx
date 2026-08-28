@@ -139,8 +139,8 @@ function WorkOrderAllocateCard({
     >
       <View className="flex-row items-start justify-between">
         <View className="flex-1 pr-2">
-          <Text className={`text-[15px] font-bold ${mutedText}`}>{card.panelNameLabel}</Text>
-          <Text className={`mt-0.5 text-[13px] font-medium ${mutedSubtext}`}>{card.site}</Text>
+          <Text className={`text-[15px] font-bold ${mutedText}`}>{card.site}</Text>
+          <Text className={`mt-0.5 text-[13px] font-medium ${mutedSubtext}`}>{card.panelNameLabel}</Text>
           <Text className={`mt-0.5 text-[12px] font-medium ${mutedSubtext}`}>
             {card.panelIdsLabel}
           </Text>

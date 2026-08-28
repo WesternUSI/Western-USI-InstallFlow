@@ -3,8 +3,11 @@ import type { Id } from "@usi-installer/backend/convex/_generated/dataModel";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "convex/react";
 import { type Href, useLocalSearchParams, useRouter } from "expo-router";
+import React from "react";
 import { ActivityIndicator, Image, Linking, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+import { ImageLightbox } from "@/components/image-lightbox";
 
 function Chip({ label }: { label: string }) {
   return (
@@ -33,6 +36,8 @@ export default function InstallDetailScreen() {
     api.workorders.getWorkOrderDetail,
     ids.length === 0 ? "skip" : { ids },
   );
+
+  const [zoomIndex, setZoomIndex] = React.useState<number | null>(null);
 
   const openMaps = () => {
     if (!detail?.location) return;
@@ -86,8 +91,8 @@ export default function InstallDetailScreen() {
         <View className="mx-4 mt-5 rounded-2xl border border-[#e2e8f0] bg-white px-4 py-4">
           <View className="flex-row items-start justify-between">
             <View className="flex-1 pr-2">
-              <Text className="text-[17px] font-bold text-[#1a1c1e]">{detail.panel_name}</Text>
-              <Text className="mt-0.5 text-[14px] font-medium text-[#6c7278]">{detail.site}</Text>
+              <Text className="text-[17px] font-bold text-[#1a1c1e]">{detail.site}</Text>
+              <Text className="mt-0.5 text-[14px] font-medium text-[#6c7278]">{detail.panel_name}</Text>
               <Text className="mt-0.5 text-[12px] font-medium text-[#94a3b8]">
                 {detail.panel_split}
               </Text>
@@ -172,9 +177,12 @@ export default function InstallDetailScreen() {
         <View className="mx-4 mt-5 rounded-2xl border border-[#e2e8f0] bg-white px-4 py-4">
           {detail.images.length > 0 ? (
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              {detail.images.map((image) => (
-                <View
+              {detail.images.map((image, imageIndex) => (
+                <Pressable
                   key={image.storage_id}
+                  accessibilityRole="imagebutton"
+                  accessibilityLabel="Enlarge image"
+                  onPress={() => setZoomIndex(imageIndex)}
                   className="mr-3 overflow-hidden rounded-2xl bg-[#e2e8f0]"
                   style={{ width: 150, height: 110 }}
                 >
@@ -183,7 +191,7 @@ export default function InstallDetailScreen() {
                     style={{ width: "100%", height: "100%" }}
                     resizeMode="cover"
                   />
-                </View>
+                </Pressable>
               ))}
             </ScrollView>
           ) : (
@@ -234,6 +242,13 @@ export default function InstallDetailScreen() {
           </Pressable>
         </View>
       </ScrollView>
+
+      <ImageLightbox
+        visible={zoomIndex !== null}
+        images={detail.images.map((image) => image.url)}
+        initialIndex={zoomIndex ?? 0}
+        onClose={() => setZoomIndex(null)}
+      />
     </View>
   );
 }

@@ -23,6 +23,8 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { ImageLightbox } from "@/components/image-lightbox";
+
 export default function CompletePhotoScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -35,6 +37,7 @@ export default function CompletePhotoScreen() {
   const [photoUri, setPhotoUri] = React.useState<string | null>(null);
   const [notes, setNotes] = React.useState("");
   const [submitting, setSubmitting] = React.useState(false);
+  const [zoomVisible, setZoomVisible] = React.useState(false);
 
   const handleTakePhoto = async () => {
     const permission = await ImagePicker.requestCameraPermissionsAsync();
@@ -125,13 +128,19 @@ export default function CompletePhotoScreen() {
             </Pressable>
           ) : (
             <>
-              <View className="overflow-hidden rounded-2xl bg-[#e2e8f0]" style={{ height: 280 }}>
+              <Pressable
+                accessibilityRole="imagebutton"
+                accessibilityLabel="Enlarge photo"
+                onPress={() => setZoomVisible(true)}
+                className="overflow-hidden rounded-2xl bg-[#e2e8f0]"
+                style={{ height: 280 }}
+              >
                 <Image
                   source={{ uri: photoUri }}
                   style={{ width: "100%", height: "100%" }}
                   resizeMode="cover"
                 />
-              </View>
+              </Pressable>
 
               <Text className="mb-1 mt-4 text-[12px] font-semibold text-[#6c7278]">
                 Notes (optional)
@@ -172,6 +181,12 @@ export default function CompletePhotoScreen() {
           )}
         </View>
       </ScrollView>
+
+      <ImageLightbox
+        visible={zoomVisible}
+        images={photoUri ? [photoUri] : []}
+        onClose={() => setZoomVisible(false)}
+      />
     </View>
   );
 }

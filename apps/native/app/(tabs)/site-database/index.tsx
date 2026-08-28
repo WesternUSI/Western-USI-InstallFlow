@@ -149,9 +149,9 @@ export default function SiteDatabaseScreen() {
                 <View className="flex-row items-center">
                   <View className="flex-1 pr-3">
                     <Text className="text-[15px] font-bold leading-5 text-[#1a1c1e]">
-                      {site.site}
+                      {site.area}
                     </Text>
-                    <Text className="mt-1 text-[13px] font-medium text-[#6c7278]">{site.area}</Text>
+                    <Text className="mt-1 text-[13px] font-medium text-[#6c7278]">{site.site}</Text>
                     <Text className="mt-2 text-[12px] font-medium text-[#94a3b8]">
                       {site.panel_id}
                     </Text>

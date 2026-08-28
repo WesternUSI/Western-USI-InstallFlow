@@ -109,11 +109,10 @@ function mergeAndSortCards(rows: WorkOrderRow[]): WorkOrderCard[] {
 }
 
 /**
- * Groups work orders by `area_progress` — the SRS's "Train Line" maps to
- * this field (schema comment: `// Line`, the raw per-row import value), kept
- * consistent with the Area Progress widgets and Installation Area filters
- * elsewhere. Not `train_line`, this codebase's own later addition that
- * snapshots the matched site's *Area* instead and can disagree with it.
+ * Groups work orders by `area_progress` — the query fills this field with the
+ * Area from the Site Database row the work order's Panel ID matched (see
+ * `resolveArea` in convex/workorders.ts), so it stays consistent with the Area
+ * Progress widgets and Installation Area filters, which resolve it the same way.
  * Areas are left in whatever order they're first encountered, no sort
  * applied at that level — then merges and sorts cards within each area. See
  * `mergeAndSortCards` for the merge and sort rules.
