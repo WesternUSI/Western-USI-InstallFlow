@@ -48,6 +48,11 @@ export interface WorkOrderTableRow {
   train_line?: string;
   /** The photo an installer submitted in Complete Installs — same one the completion email carries. */
   completion_photo_url?: string;
+  /**
+   * Red fill in the uploaded schedule, or set by hand since. Optional because
+   * the team detail tabs read a narrower row shape.
+   */
+  priority?: boolean;
 }
 
 export interface WorkOrderCounts {
@@ -90,6 +95,8 @@ interface WorkOrderTableProps {
   onStatusChange: (status: WorkOrderStatusTab) => void;
   onSearchChange: (search: string) => void;
   selection?: WorkOrderSelection;
+  /** Supplied by Manage Orders for admins; priority is read-only elsewhere. */
+  onTogglePriority?: (key: string, priority: boolean) => void;
 }
 
 /**
@@ -120,14 +127,15 @@ export const WORK_ORDER_COLUMNS = [
   { label: "Area", width: "w-[5%]", padding: "px-4" },
   // Not part of the Installation Schedule sheet — appended after it rather
   // than mixed into the mirrored column order above.
+  { label: "Priority", width: "w-[100px]", padding: "px-4" },
   { label: "Photo", width: "w-[110px]", padding: "px-4" },
 ] as const;
 
-/** Enough room for all seventeen sheet columns plus Photo before they start to crush. */
-export const WORK_ORDER_TABLE_MIN_WIDTH = "min-w-[2310px]";
+/** Room for the seventeen sheet columns plus Priority and Photo. */
+export const WORK_ORDER_TABLE_MIN_WIDTH = "min-w-[2410px]";
 
 /** The same, plus the 44px selection column Manage Orders adds. */
-const WORK_ORDER_TABLE_SELECTABLE_MIN_WIDTH = "min-w-[2354px]";
+const WORK_ORDER_TABLE_SELECTABLE_MIN_WIDTH = "min-w-[2454px]";
 
 /** Blue to match the row-selected state, sized down from the login checkbox. */
 const CHECKBOX_CLASS =
@@ -185,7 +193,14 @@ function StatusPill({ status }: { status: WorkOrderStatus }) {
 
 /** The cells for one work order, shared by Manage Orders, the import preview
  * and the team detail tabs so all three stay in step. */
-export function WorkOrderRowCells({ row }: { row: WorkOrderTableRow }) {
+export function WorkOrderRowCells({
+  row,
+  onTogglePriority,
+}: {
+  row: WorkOrderTableRow;
+  /** Omitted where priority is read-only: the import preview and team tabs. */
+  onTogglePriority?: (key: string, priority: boolean) => void;
+}) {
   return (
     <>
       <TableCell className="px-6 py-4">
@@ -248,8 +263,58 @@ export function WorkOrderRowCells({ row }: { row: WorkOrderTableRow }) {
         {/* Already falls back to an em dash of its own. */}
         <CellText value={formatTrainLine(row.train_line)} />
       </TableCell>
+      <PriorityCell row={row} onToggle={onTogglePriority} />
       <CompletionPhotoCell row={row} />
     </>
+  );
+}
+
+/**
+ * The Priority column.
+ *
+ * Red rather than the blue used everywhere else, because blue already means
+ * "this row is selected" one column-group away, and two identical checkboxes
+ * on the same row doing unrelated things would be a trap.
+ *
+ * Read-only on the import preview and the team tabs. On the preview that is
+ * deliberate: it is where the red highlighting in the sheet gets checked
+ * before any of it is saved.
+ */
+function PriorityCell({
+  row,
+  onToggle,
+}: {
+  row: WorkOrderTableRow;
+  onToggle?: (key: string, priority: boolean) => void;
+}) {
+  const isPriority = row.priority === true;
+
+  const box =
+    "size-4 rounded-[4px] border-[1.5px] border-slate-300 data-checked:border-red-500 data-checked:bg-red-500";
+
+  return (
+    <TableCell className="px-4 py-4 align-top">
+      <div className="flex h-[22px] items-center">
+        {onToggle === undefined ? (
+          // Not disabled: that would fade it, and the preview needs the flagged
+          // rows to read as clearly as they do on Manage Orders.
+          <Checkbox
+            checked={isPriority}
+            aria-readonly
+            aria-label={isPriority ? "Priority" : "Normal priority"}
+            className={`${box} pointer-events-none`}
+          />
+        ) : (
+          <Checkbox
+            checked={isPriority}
+            aria-label={isPriority ? "Priority — uncheck to turn off" : "Mark as priority"}
+            title={isPriority ? "Priority — uncheck to turn off" : "Mark as priority"}
+            onCheckedChange={(checked) => onToggle(row.key, checked === true)}
+            className={`${box} cursor-pointer`}
+          />
+        )}
+      </div>
+    </TableCell>
   );
 }
 
@@ -303,6 +368,7 @@ export function WorkOrderTable({
   onStatusChange,
   onSearchChange,
   selection,
+  onTogglePriority,
 }: WorkOrderTableProps) {
   return (
     <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -386,7 +452,7 @@ export function WorkOrderTable({
                     </div>
                   </TableCell>
                 )}
-                <WorkOrderRowCells row={row} />
+                <WorkOrderRowCells row={row} onTogglePriority={onTogglePriority} />
               </TableRow>
             ))}
           </TableBody>

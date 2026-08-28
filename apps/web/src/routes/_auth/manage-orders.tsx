@@ -101,6 +101,7 @@ function ManageOrdersPage() {
       schedule: row.schedule,
       train_line: row.train_line,
       completion_photo_url: row.completion_photo_url,
+      priority: row.priority,
     })) ?? [];
 
   // Deleting is admin-only. The backend enforces it too — this only decides
@@ -109,6 +110,15 @@ function ManageOrdersPage() {
   const canDelete = currentUser?.role === "admin";
 
   const deleteWorkOrders = useMutation(api.workorders.deleteWorkOrders);
+  const setPriority = useMutation(api.workorders.setPriority);
+
+  async function handleTogglePriority(key: string, priority: boolean) {
+    try {
+      await setPriority({ id: key as Id<"workorders">, priority });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not change priority");
+    }
+  }
 
   // Whole rows, not just ids: a selection survives paging, and the confirm
   // dialog still has to count completed rows the table no longer shows.
@@ -264,6 +274,7 @@ function ManageOrdersPage() {
             }}
             onStatusChange={setStatus}
             onSearchChange={setSearch}
+            onTogglePriority={canDelete ? handleTogglePriority : undefined}
             selection={
               canDelete
                 ? {

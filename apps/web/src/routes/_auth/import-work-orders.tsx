@@ -111,6 +111,9 @@ function ImportWorkOrdersPage() {
         area_progress: row.area_progress,
         schedule: row.schedule,
         train_line: match?.train_line,
+        // Shown read-only, so the red highlighting can be checked against the
+        // sheet before any of it is saved.
+        priority: row.priority,
       };
     });
   }, [parsed, siteMatches]);

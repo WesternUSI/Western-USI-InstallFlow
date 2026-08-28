@@ -606,8 +606,8 @@ supplies the `—` fallback in one place.
 
 | Table | Columns | Min width |
 |---|---|---|
-| Work orders / team orders / import preview | 17 + Photo | `2310px` |
-| Manage Orders with selection on | + selection | `2354px` |
+| Work orders / team orders / import preview | 17 + Priority + Photo | `2410px` |
+| Manage Orders with selection on | + selection | `2454px` |
 | Manage Site Data | 11 | `1700px` |
 | Manage Site Data with selection on | 12 | `1744px` |
 | Site import preview | 9 | `1500px` |
@@ -624,8 +624,36 @@ Co-ordinates`, …), so an operator can reconcile the table against the file
 they uploaded line by line. That is why their min-widths are far larger than
 everything else — those tables are meant to be scrolled.
 
-**Photo is the one column not from the sheet**, appended after the mirrored
-sheet order rather than mixed into it. It renders a View button per row, which
+**Priority and Photo are the two columns not from the sheet**, appended after
+the mirrored sheet order rather than mixed into it, Priority first.
+
+Priority comes from a red fill on the uploaded row, detected in
+`lib/parseWorkOrder.ts`. Matching one exact hex (`FF0000`) did not survive real
+sheets: whoever highlights a row picks whatever red is in front of them, so the
+test is on **hue** instead — roughly 335°–20°, with a saturation floor that
+rules out greys and lightness bounds that rule out near-black and near-white.
+Pure red, dark `C00000`, maroon and pale `FFC7CE` all pass; orange does not.
+
+**Any red cell flags the row, not all of them.** Highlighting is done by hand
+and often lands on a single cell — the contract number, or whichever column the
+person was looking at. The old rule required every non-empty cell to be red and
+missed those, which is what this replaced.
+
+One case it still cannot catch: a fill set from a *theme* colour rather than a
+literal one carries no RGB in the sheet, so it reads as no fill. The manual
+toggle is the answer for those.
+
+**A checkbox, not a pill.** A pill reads as a label and gives no hint that it
+can be clicked — the first attempt at this column was one, and it looked like a
+status. It is **red**, not the blue used for row selection: blue already means
+"this row is selected" a few columns away, and two identical checkboxes on one
+row doing unrelated things would be a trap.
+
+Read-only on the import preview and the team tabs, rendered `pointer-events-none`
+rather than `disabled` — disabling fades it, and the preview needs the flagged
+rows to read as clearly as they do on Manage Orders. On the preview that is
+deliberate: it is where the red detection gets checked against the sheet
+**before** anything is saved. It renders a View button per row, which
 opens `CompletionPhotoDialog` — a 40px thumbnail is not enough to check an
 install by, and opening the raw file in a new tab loses the panel it belongs to
 and drops the operator out of the table.
@@ -837,7 +865,7 @@ apps/web/
 |---|---|
 | `users` | `currentUser`, `list`, `get`, `overview`, `inviteInstaller`, `updateAccount`, `resendCredentials`, `removeUser` |
 | `teams` | `overview`, `allMembers`, `orders`, `setMemberTeam`, `removeMember` |
-| `workorders` | `list`, `counts`, `searchOptions`, `dashboardStats`, `byArea`, `deleteWorkOrders` |
+| `workorders` | `list`, `counts`, `searchOptions`, `dashboardStats`, `byArea`, `deleteWorkOrders`, `setPriority` |
 | `sites` | `list`, `counts`, `stats`, `areas`, `getSite`, `update`, `searchOptions`, `hasSites`, `resolveByPanelSplits`, `upsertSites`, `recordSiteImport`, `latestImport`, `generateUploadUrl`, `addSiteImage`, `removeSiteImage`, `deleteSites` |
 | `imports` | `createImport`, `addWorkOrders`, `finalizeImport`, `deleteImport`, `latest` |
 | `notifications` | `list`, `markRead`, `markAllRead` |

@@ -62,6 +62,7 @@ function toOrderRow(workOrder: Doc<"workorders">) {
     proposed_install_date: workOrder.proposed_install_date,
     end_date: workOrder.end_date,
     schedule: workOrder.schedule,
+    priority: workOrder.priority,
   };
 }
 

@@ -62,7 +62,22 @@ const COLUMN_ALIASES: Record<string, WorkOrderField> = {
   schedule: "schedule",
 };
 
-const RED_FILL_RGB = "FF0000";
+/**
+ * How red a fill has to be to mean priority.
+ *
+ * Matching one exact hex did not survive contact with real sheets: whoever
+ * highlights a row picks whatever red is in front of them that day, so pure
+ * FF0000, the darker C00000, a pale FFC7CE and everything between all turn up.
+ * The test is therefore on hue rather than an exact value.
+ *
+ * Saturation rules out greys, and the lightness bounds rule out near-black and
+ * near-white, so an unfilled or plain cell cannot read as a faint red.
+ */
+const RED_HUE_START = 335;
+const RED_HUE_END = 20;
+const RED_MIN_SATURATION = 0.2;
+const RED_MIN_LIGHTNESS = 0.12;
+const RED_MAX_LIGHTNESS = 0.93;
 
 export function parseWorkOrder(buffer: ArrayBuffer): ParseWorkOrderResult {
   // `cellDates` is intentionally off — dates are converted from raw serials.
@@ -136,24 +151,79 @@ export function parseWorkOrder(buffer: ArrayBuffer): ParseWorkOrderResult {
 }
 
 /**
- * A row is priority when it is highlighted red. Blank cells are ignored,
- * because the fill is applied to the visible content rather than the full
- * width of the sheet — so "the whole row is red" means every cell that has
- * content is red.
+ * The cell fill, as six hex digits, or null when the sheet does not say.
+ *
+ * A solid fill puts the colour on `fgColor`; `bgColor` is the fallback for
+ * pattern fills. Values arrive as either RRGGBB or ARGB, hence the trim.
+ *
+ * A fill defined as a theme colour rather than a literal one has no `rgb` at
+ * all, and reads as null — see the note on `isRowPriority`.
+ */
+function fillRgb(cell: XLSX.CellObject): string | null {
+  const raw = cell.s?.fgColor?.rgb ?? cell.s?.bgColor?.rgb;
+  if (typeof raw !== "string") return null;
+
+  const hex = raw.length === 8 ? raw.slice(2) : raw;
+  return hex.length === 6 ? hex.toUpperCase() : null;
+}
+
+/** Hue in degrees, saturation and lightness in 0..1. */
+function toHsl(hex: string): { h: number; s: number; l: number } {
+  const r = Number.parseInt(hex.slice(0, 2), 16) / 255;
+  const g = Number.parseInt(hex.slice(2, 4), 16) / 255;
+  const b = Number.parseInt(hex.slice(4, 6), 16) / 255;
+
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+  const l = (max + min) / 2;
+
+  if (delta === 0) return { h: 0, s: 0, l };
+
+  const s = delta / (1 - Math.abs(2 * l - 1));
+
+  let h: number;
+  if (max === r) h = ((g - b) / delta) % 6;
+  else if (max === g) h = (b - r) / delta + 2;
+  else h = (r - g) / delta + 4;
+
+  h *= 60;
+  if (h < 0) h += 360;
+
+  return { h, s, l };
+}
+
+function isRedFill(cell: XLSX.CellObject): boolean {
+  const hex = fillRgb(cell);
+  if (hex === null) return false;
+
+  const { h, s, l } = toHsl(hex);
+  return (
+    (h >= RED_HUE_START || h <= RED_HUE_END) &&
+    s >= RED_MIN_SATURATION &&
+    l >= RED_MIN_LIGHTNESS &&
+    l <= RED_MAX_LIGHTNESS
+  );
+}
+
+/**
+ * A row is priority when any cell in it is filled red.
+ *
+ * Any, not all: highlighting is done by hand, and a row often ends up with the
+ * fill on one cell — the contract number, or whichever column the person was
+ * looking at. Requiring the whole row missed those, which is the case this
+ * replaced.
+ *
+ * Known limit: a fill set from a theme colour rather than a literal one has no
+ * RGB in the sheet, so it cannot be read and the row will not be flagged. The
+ * admin can switch priority on by hand for those.
  */
 function isRowPriority(sheet: XLSX.WorkSheet, rowIndex: number, columnCount: number): boolean {
-  let filledCells = 0;
-
   for (let col = 0; col < columnCount; col++) {
     const cell = sheet[XLSX.utils.encode_cell({ r: rowIndex, c: col })];
-    if (cell == null || cell.v === "" || cell.v == null) continue;
-
-    filledCells++;
-    const fgColor = cell.s?.fgColor?.rgb;
-    if (typeof fgColor !== "string" || !fgColor.toUpperCase().endsWith(RED_FILL_RGB)) {
-      return false;
-    }
+    if (cell == null) continue;
+    if (isRedFill(cell)) return true;
   }
 
-  return filledCells > 0;
+  return false;
 }

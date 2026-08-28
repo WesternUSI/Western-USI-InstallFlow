@@ -998,3 +998,28 @@ export const deleteWorkOrders = mutation({
     return { deleted: doomed.length, remaining };
   },
 });
+
+/**
+ * Turns a work order priority flag on or off by hand.
+ *
+ * Priority normally comes from a red fill in the uploaded schedule, but that
+ * only works when the sheet says so: a theme colour cannot be read back, a
+ * highlight gets missed, or the job simply becomes urgent after the upload.
+ * Admin only, since it changes what the app tells installers to do first.
+ *
+ * Deliberately not folded into `status_key` — priority is orthogonal to the
+ * status tabs, and mixing them would make a row leave its tab when flagged.
+ */
+export const setPriority = mutation({
+  args: { id: v.id("workorders"), priority: v.boolean() },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+
+    const workOrder = await ctx.db.get(args.id);
+    if (workOrder === null) {
+      throw new Error("Work order not found");
+    }
+
+    await ctx.db.patch(args.id, { priority: args.priority });
+  },
+});
