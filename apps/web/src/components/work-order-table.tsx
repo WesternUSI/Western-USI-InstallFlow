@@ -115,7 +115,9 @@ export const WORK_ORDER_COLUMNS = [
   { label: "Existing Advertiser", width: "w-[8%]", padding: "px-4" },
   { label: "Line", width: "w-[5%]", padding: "px-4" },
   { label: "Schedule", width: "w-[5%]", padding: "px-4" },
-  { label: "Train Line", width: "w-[5%]", padding: "px-4" },
+  // Labelled Area for the operators, though the field behind it is still
+  // `train_line` — a display rename only, nothing on the backend moved.
+  { label: "Area", width: "w-[5%]", padding: "px-4" },
   // Not part of the Installation Schedule sheet — appended after it rather
   // than mixed into the mirrored column order above.
   { label: "Photo", width: "w-[110px]", padding: "px-4" },
