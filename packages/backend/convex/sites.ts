@@ -3,7 +3,13 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, mutation, query } from "./_generated/server";
-import { type SiteDetailStatus, deriveSiteDetailStatus, matchesTerm } from "./derive";
+import {
+  type SiteDetailStatus,
+  deriveSiteDetailStatus,
+  deriveWorkOrderStatus,
+  matchesTerm,
+} from "./derive";
+import { requireAdmin } from "./permissions";
 import { findSiteForPanelSplit } from "./panelIds";
 
 async function requireIdentity(ctx: QueryCtx | MutationCtx) {
@@ -612,5 +618,108 @@ export const latestImport = query({
     await requireIdentity(ctx);
 
     return await ctx.db.query("site_imports").withIndex("by_uploaded_at").order("desc").first();
+  },
+});
+
+/**
+ * Sites removed per transaction. Lower than the work-order batch because each
+ * one also drops its images and re-points every work order that named it.
+ */
+const SITE_DELETE_BATCH = 50;
+
+/**
+ * Removes sites, and repairs what pointed at them.
+ *
+ * Two modes matching the table above it: `ids` for rows ticked by hand, or
+ * `filter` for the header checkbox, where the browser never holds the ids and
+ * the filter is re-evaluated here exactly as `list` and `counts` evaluate it.
+ * `exclude` carries rows un-ticked out of a whole-filter selection.
+ *
+ * A work order whose site goes away is not deleted with it. It is unlinked and
+ * flagged `missing_value`, which lands it back in Missing Sites — the same
+ * state an import produces when a panel id matches nothing. Re-importing or
+ * re-adding the site lets the existing relink sweep pick it up again, so no
+ * completed work or photo is lost to a site being tidied away.
+ */
+export const deleteSites = mutation({
+  args: {
+    ids: v.optional(v.array(v.id("sites"))),
+    filter: v.optional(
+      v.object({
+        status: v.optional(siteDetailStatusValidator),
+        area: v.optional(v.string()),
+        search: v.optional(v.string()),
+        since_ms: v.optional(v.number()),
+        until_ms: v.optional(v.number()),
+        exclude: v.optional(v.array(v.id("sites"))),
+      }),
+    ),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ deleted: number; remaining: number; unlinked: number }> => {
+    await requireAdmin(ctx);
+
+    let doomed: Doc<"sites">[];
+    let remaining = 0;
+
+    if (args.ids !== undefined) {
+      // Rows already gone read back as null rather than failing the batch, so a
+      // retry is a no-op instead of an error.
+      const found = await Promise.all(args.ids.map((id) => ctx.db.get(id)));
+      doomed = found.filter((row): row is Doc<"sites"> => row !== null);
+    } else if (args.filter !== undefined) {
+      const { area, status, since_ms, until_ms } = args.filter;
+      const term = args.filter.search?.trim() ?? "";
+      // Excluded up front, not skipped per batch: a row skipped inside the
+      // batch would stay in `remaining` and the caller would loop forever.
+      const spared = new Set<string>(args.filter.exclude ?? []);
+
+      const matches = (await ctx.db.query("sites").collect()).filter(
+        (site) =>
+          !spared.has(site._id) &&
+          matchesSearch(site, term) &&
+          withinCreated(site, since_ms, until_ms) &&
+          (status === undefined || deriveSiteDetailStatus(site) === status) &&
+          (area === undefined || site.area === area),
+      );
+
+      doomed = matches.slice(0, SITE_DELETE_BATCH);
+      remaining = matches.length - doomed.length;
+    } else {
+      throw new Error("Pass either ids or a filter");
+    }
+
+    let unlinked = 0;
+
+    for (const site of doomed) {
+      // Reference photos live in file storage, which no cascade reaches.
+      for (const imageId of site.site_img) {
+        await ctx.storage.delete(imageId);
+      }
+
+      const workOrders = await ctx.db
+        .query("workorders")
+        .withIndex("by_site_id", (q) => q.eq("site_id", site._id))
+        .collect();
+
+      for (const workOrder of workOrders) {
+        const patch = {
+          site_id: undefined,
+          train_line: undefined,
+          missing_value: true,
+        };
+        await ctx.db.patch(workOrder._id, {
+          ...patch,
+          status_key: deriveWorkOrderStatus({ ...workOrder, ...patch }),
+        });
+        unlinked++;
+      }
+
+      await ctx.db.delete(site._id);
+    }
+
+    return { deleted: doomed.length, remaining, unlinked };
   },
 });

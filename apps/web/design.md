@@ -444,6 +444,26 @@ Convex logs, so work orders would complete and no one would be told.
 
 ### 6.4 Manage Site Data → Edit Site
 
+**Bulk delete works exactly as Manage Orders does** — admin-only row
+checkboxes, a header box covering the whole filter rather than the page, the
+same selection banner, exclusions recorded when a row is un-ticked out of a
+whole-filter selection, and `ids` / `filter` modes on `sites.deleteSites`.
+
+What differs is the wreckage. A site is what work orders are matched against,
+so `deleteSites` also repairs the rows that named it: each work order is
+unlinked and flagged `missing_value`, which lands it back in **Missing Sites** —
+the same state an import produces when a panel id matches nothing. The existing
+relink sweep then picks it up again if the site is re-imported or re-added, so
+no completed work or photo is lost to a site being tidied away. The toast
+reports how many moved.
+
+Reference photos are deleted from `_storage` with the site, and unlike the
+spreadsheet columns they are not recoverable by re-importing — the confirm
+dialog says so.
+
+Batches are 50 rather than 500: each site also drops its images and re-points
+every work order that named it.
+
 Filter bar (search, Location, Details Status, Duration) → status tabs →
 paginated table → row action into `/edit-site/$siteId`.
 
@@ -589,6 +609,7 @@ supplies the `—` fallback in one place.
 | Work orders / team orders / import preview | 17 + Photo | `2310px` |
 | Manage Orders with selection on | + selection | `2354px` |
 | Manage Site Data | 11 | `1700px` |
+| Manage Site Data with selection on | 12 | `1744px` |
 | Site import preview | 9 | `1500px` |
 | Teams index | 6 | `760px` |
 | Users | 5 | `720px` |
@@ -661,8 +682,13 @@ wrong.
 
 `CredentialsDialog` (copyable email/password), `InviteInstallerDialog`,
 `InviteSentDialog`, `AddMembersDialog`, `AddSiteDialog`, `DeleteUserDialog`,
-`DeleteWorkOrdersDialog`, `CompletionPhotoDialog`, `AddEmailRecipientDialog`,
-`RemoveEmailRecipientDialog`, `UploadErrorDialog`, `SiteDataRequiredDialog`.
+`DeleteWorkOrdersDialog`, `DeleteSitesDialog`, `CompletionPhotoDialog`,
+`AddEmailRecipientDialog`, `RemoveEmailRecipientDialog`, `UploadErrorDialog`,
+`SiteDataRequiredDialog`.
+
+`WorkOrderSelectionBanner` is shared by both delete screens — it is only a
+count, Clear and Delete, with nothing work-order-specific in it. The name is
+now narrower than what it does.
 
 `CompletionPhotoDialog` is the one that breaks the `max-w-lg` default
 (`sm:max-w-3xl`): it exists to show a photograph, and the shared width is
@@ -787,7 +813,7 @@ apps/web/
     ├── routeTree.gen.ts        generated
     ├── assets/
     ├── routes/                 file-based routes (see §3.2)
-    ├── components/             38 app components (see §7)
+    ├── components/             39 app components (see §7)
     ├── hooks/
     │   ├── use-cursor-pagination.ts
     │   └── use-debounced-value.ts
@@ -812,7 +838,7 @@ apps/web/
 | `users` | `currentUser`, `list`, `get`, `overview`, `inviteInstaller`, `updateAccount`, `resendCredentials`, `removeUser` |
 | `teams` | `overview`, `allMembers`, `orders`, `setMemberTeam`, `removeMember` |
 | `workorders` | `list`, `counts`, `searchOptions`, `dashboardStats`, `byArea`, `deleteWorkOrders` |
-| `sites` | `list`, `counts`, `stats`, `areas`, `getSite`, `update`, `searchOptions`, `hasSites`, `resolveByPanelSplits`, `upsertSites`, `recordSiteImport`, `latestImport`, `generateUploadUrl`, `addSiteImage`, `removeSiteImage` |
+| `sites` | `list`, `counts`, `stats`, `areas`, `getSite`, `update`, `searchOptions`, `hasSites`, `resolveByPanelSplits`, `upsertSites`, `recordSiteImport`, `latestImport`, `generateUploadUrl`, `addSiteImage`, `removeSiteImage`, `deleteSites` |
 | `imports` | `createImport`, `addWorkOrders`, `finalizeImport`, `deleteImport`, `latest` |
 | `notifications` | `list`, `markRead`, `markAllRead` |
 | `emails` | `list`, `addRecipient`, `setEnabled`, `removeRecipient` |
