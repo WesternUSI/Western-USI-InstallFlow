@@ -23,7 +23,7 @@ const MAX_ZOOM = 4;
 
 /**
  * Fullscreen photo viewer: pinch to zoom, drag to pan, double-tap to toggle
- * zoom, single-tap or swipe-down to dismiss. Rendered in a `Modal` so it
+ * zoom, swipe down or the X button to dismiss. Rendered in a `Modal` so it
  * covers the whole screen; gestures need their own `GestureHandlerRootView`
  * inside the modal's separate view tree.
  */
@@ -75,6 +75,7 @@ export function ImageLightbox({ visible, images, initialIndex = 0, onClose }: Im
     });
 
   const pan = Gesture.Pan()
+    .minDistance(10)
     .onUpdate((event) => {
       translateX.value = savedTranslateX.value + event.translationX;
       translateY.value = savedTranslateY.value + event.translationY;
@@ -103,17 +104,7 @@ export function ImageLightbox({ visible, images, initialIndex = 0, onClose }: Im
       }
     });
 
-  const singleTap = Gesture.Tap()
-    .numberOfTaps(1)
-    .onEnd((_event, success) => {
-      if (success) runOnJS(onClose)();
-    });
-
-  const composed = Gesture.Simultaneous(
-    pinch,
-    pan,
-    Gesture.Exclusive(doubleTap, singleTap),
-  );
+  const composed = Gesture.Simultaneous(pinch, pan, doubleTap);
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [
