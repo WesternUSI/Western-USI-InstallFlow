@@ -5,6 +5,9 @@ export const workOrderStatus = v.union(
   v.literal("pending"),
   v.literal("in_progress"),
   v.literal("completed"),
+  // A completed install that a later import has superseded. Only ever reached
+  // from "completed", and only by `workorders.archiveSupersededOrders`.
+  v.literal("archived"),
 );
 
 export default defineSchema({
@@ -132,12 +135,6 @@ export default defineSchema({
     // Written by every mutation that touches this row so the status tabs filter
     // through an index rather than after a page has been read.
     status_key: v.optional(v.string()), // completed | missing_site | pending | allocated | not_allocated
-    // Set when a later import supersedes this row, and only ever on completed
-    // work. The mobile app hides archived rows so its counts describe the
-    // current import rather than every import ever; the admin panel still shows
-    // them, because the history is the record. Optional so rows written before
-    // this existed need no backfill — every read tests `archived !== true`.
-    archived: v.optional(v.boolean()),
   })
     .index("by_import_id", ["import_id"])
     .index("by_upload_date", ["upload_date"])

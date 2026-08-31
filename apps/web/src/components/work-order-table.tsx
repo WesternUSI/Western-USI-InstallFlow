@@ -340,7 +340,7 @@ function CompletionPhotoCell({ row }: { row: WorkOrderTableRow }) {
         className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm font-medium whitespace-nowrap text-slate-700 transition-colors hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-50 disabled:text-slate-400 disabled:hover:border-slate-200 disabled:hover:bg-slate-50"
       >
         <ImageIcon className="size-4" />
-        {urls.length > 1 ? `View (${urls.length})` : "View"}
+        View
       </button>
 
       {urls.length > 0 && (

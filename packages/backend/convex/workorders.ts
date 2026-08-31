@@ -191,10 +191,10 @@ const ARCHIVE_BATCH_SIZE = 200;
  * Keyed on `import_id` rather than `upload_date` so two imports on the same day
  * behave the way two imports on different days do.
  *
- * Batched and self-rescheduling, like `relinkMissingSites`. `archived` is not
- * part of `status_key`, so a patched row keeps its place in the index being
- * walked and the cursor stays valid; already-archived rows are skipped, so a
- * re-run is a no-op.
+ * Batched and self-rescheduling, like `relinkMissingSites`. Archiving moves
+ * `current_status` and leaves `status_key` on "completed", so a patched row
+ * keeps its place in the index being walked and the cursor stays valid;
+ * already-archived rows are skipped, so a re-run is a no-op.
  */
 export const archiveSupersededOrders = internalMutation({
   args: { keep_import_id: v.id("imports"), cursor: v.optional(v.string()) },
@@ -206,10 +206,11 @@ export const archiveSupersededOrders = internalMutation({
 
     let archived = 0;
     for (const workOrder of page.page) {
-      if (workOrder.archived === true) continue;
+      if (workOrder.current_status === "archived") continue;
       if (workOrder.import_id === args.keep_import_id) continue;
 
-      await ctx.db.patch(workOrder._id, { archived: true });
+      // `status_key` deliberately stays "completed" — see `deriveWorkOrderStatus`.
+      await ctx.db.patch(workOrder._id, { current_status: "archived" });
       archived++;
     }
 
@@ -483,7 +484,7 @@ export const byArea = query({
     for (const workOrder of all) {
       // Superseded by a later import. Counting these is what stopped
       // "completed" ever returning to zero on a fresh schedule.
-      if (workOrder.archived === true) continue;
+      if (workOrder.current_status === "archived") continue;
 
       const line = areaLabel(workOrder, workOrder.site_id ? sites.get(workOrder.site_id) : null);
       const entry = byLine.get(line) ?? { imported: 0, allocated: 0, completed: 0 };
@@ -530,7 +531,7 @@ export const byAreaForTeam = query({
     for (const workOrder of all) {
       if (workOrder.assigned_team !== args.team) continue;
       // Superseded by a later import — see `byArea`.
-      if (workOrder.archived === true) continue;
+      if (workOrder.current_status === "archived") continue;
 
       const line = areaLabel(workOrder, workOrder.site_id ? sites.get(workOrder.site_id) : null);
       const entry = byLine.get(line) ?? { total: 0, completed: 0 };
@@ -574,7 +575,12 @@ export const listActiveWorkOrders = query({
       .order("desc")
       .collect();
 
-    const active = rows.filter((row) => row.current_status !== "completed");
+    const active = rows.filter(
+      // Archived cannot occur here today — this query only ever reads the
+      // latest upload, and only earlier imports get archived. Named anyway, so
+      // the filter still holds if that scoping is ever relaxed.
+      (row) => row.current_status !== "completed" && row.current_status !== "archived",
+    );
     const sites = await Promise.all(
       active.map((row) => (row.site_id ? ctx.db.get(row.site_id) : null)),
     );
@@ -696,7 +702,10 @@ export const completeWorkOrder = mutation({
     const workOrders = await Promise.all(args.ids.map((id) => ctx.db.get(id)));
 
     for (const workOrder of workOrders) {
-      if (workOrder !== null && workOrder.current_status === "completed") {
+      if (
+        workOrder !== null &&
+        (workOrder.current_status === "completed" || workOrder.current_status === "archived")
+      ) {
         throw new Error(`${workOrder.contracted_panel_id} is already completed`);
       }
     }
@@ -932,7 +941,7 @@ export const listWorkOrdersForArea = query({
     const rows = all.filter((row) => {
       // Superseded by a later import — this list sits behind the counts in
       // `byAreaForTeam`, so the two have to agree about what exists.
-      if (row.archived === true) return false;
+      if (row.current_status === "archived") return false;
 
       const site = row.site_id ? sitesMap.get(row.site_id) : null;
       if (areaLabel(row, site) !== args.train_line) return false;

@@ -23,7 +23,7 @@ export type WorkOrderStatus =
   | "not_allocated";
 
 interface WorkOrderStatusInput {
-  current_status: "pending" | "in_progress" | "completed";
+  current_status: "pending" | "in_progress" | "completed" | "archived";
   missing_value: boolean;
   assigned_team?: string;
 }
@@ -31,9 +31,21 @@ interface WorkOrderStatusInput {
 /**
  * Priority order matters: a completed install stays completed even if its site
  * never matched, and an unmatched row is flagged before allocation.
+ *
+ * Archived rows key as `completed` deliberately. Archiving is about which
+ * import a finished install belongs to, not about a different outcome — so the
+ * admin panel lists it under Completed like any other, and the status indexes
+ * need no new value. The mobile app is the only reader that cares, and it
+ * tests `current_status` directly.
+ *
+ * Keeping the marker on `current_status` rather than here is also what makes
+ * it stick: this function is recomputed by six different mutations, and any of
+ * them would otherwise quietly un-archive the row.
  */
 export function deriveWorkOrderStatus(workOrder: WorkOrderStatusInput): WorkOrderStatus {
-  if (workOrder.current_status === "completed") return "completed";
+  if (workOrder.current_status === "completed" || workOrder.current_status === "archived") {
+    return "completed";
+  }
   if (workOrder.missing_value) return "missing_site";
   if (workOrder.current_status === "in_progress") return "pending";
   if (workOrder.assigned_team !== undefined) return "allocated";

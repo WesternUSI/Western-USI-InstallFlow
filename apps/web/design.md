@@ -654,7 +654,7 @@ rather than `disabled` — disabling fades it, and the preview needs the flagged
 rows to read as clearly as they do on Manage Orders. On the preview that is
 deliberate: it is where the red detection gets checked against the sheet
 **before** anything is saved. It renders a View button per row, which
-opens `CompletionPhotoDialog` — a 40px thumbnail is not enough to check an
+opens `CompletionPhotoDialog` — a small thumbnail is not enough to check an
 install by, and opening the raw file in a new tab loses the panel it belongs to
 and drops the operator out of the table.
 
@@ -721,8 +721,14 @@ now narrower than what it does.
 `CompletionPhotoDialog` is the one that breaks the `max-w-lg` default
 (`sm:max-w-3xl`): it exists to show a photograph, and the shared width is
 narrower than a phone camera's own aspect ratio. The image is `object-contain`
-under a `max-h-[65vh]` cap, since installers shoot in both orientations and
+under a `max-h-[60vh]` cap, since installers shoot in both orientations and
 neither should be cropped or pushed off-screen.
+
+An installer can submit several shots of one panel, so it is a **carousel**, not
+a stack: arrows, a `2 / 3` badge, a thumbnail strip and left/right keys, opening
+on the first photo each time. Stacking them made the dialog a long scroll in
+which no single photo was ever shown at full height. It mirrors the carousel the
+mobile app uses for site images, so the two read the same way.
 
 Shared `DialogContent` is `w-[calc(100%-2rem)] max-w-lg` — the calc keeps a
 gutter on phones instead of letting dialogs touch the edges.
@@ -873,14 +879,24 @@ apps/web/
 fresh set of work orders and keeps the previous ones, so the mobile app used to
 count every install ever done and its "completed" total never returned to zero
 on a new schedule. `imports.finalizeImport` now schedules
-`workorders.archiveSupersededOrders`, which sets `archived: true` on completed
-rows belonging to any earlier import.
+`workorders.archiveSupersededOrders`, which moves completed rows belonging to
+any earlier import to `current_status: "archived"`.
+
+**The marker lives on `current_status`, not on `status_key` and not on a column
+of its own.** Two reasons, and both are load-bearing:
+
+- `status_key` is recomputed by six different mutations. A marker held there
+  would be quietly overwritten by any of them, un-archiving the row.
+- `deriveWorkOrderStatus` maps archived back to `completed`, so `status_key`
+  never changes and **this panel needs no changes at all**. Manage Orders, the
+  status tabs, the counts, the dashboard and every index keep working exactly as
+  before, and archived rows list under Completed like any other finished
+  install — which is what they are. Archiving is about which import a finished
+  install belongs to, not a different outcome.
 
 Only the app-facing queries (`byArea`, `byAreaForTeam`, `listWorkOrdersForArea`)
-skip those rows. **Every query this panel uses ignores the flag** — Manage
-Orders, the counts and the dashboard still show every order ever imported,
-because the panel is where the history is the record. Nothing here needed to
-change for it, and nothing here should start filtering on it.
+test `current_status === "archived"` and skip those rows. Nothing in this panel
+should start filtering on it.
 
 Only *completed* rows are archived. An older row still outstanding is
 unfinished work and stays visible everywhere.
