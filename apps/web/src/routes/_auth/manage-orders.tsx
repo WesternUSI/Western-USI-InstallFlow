@@ -100,7 +100,7 @@ function ManageOrdersPage() {
       area_progress: row.area_progress,
       schedule: row.schedule,
       train_line: row.train_line,
-      completion_photo_url: row.completion_photo_url,
+      completion_photo_urls: row.completion_photo_urls,
       priority: row.priority,
     })) ?? [];
 

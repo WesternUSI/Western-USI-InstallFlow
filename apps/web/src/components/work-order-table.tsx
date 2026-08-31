@@ -46,8 +46,8 @@ export interface WorkOrderTableRow {
   area_progress?: string;
   schedule?: string;
   train_line?: string;
-  /** The photo an installer submitted in Complete Installs — same one the completion email carries. */
-  completion_photo_url?: string;
+  /** The photos an installer submitted in Complete Installs — same ones the completion email carries. */
+  completion_photo_urls?: string[];
   /**
    * Red fill in the uploaded schedule, or set by hand since. Optional because
    * the team detail tabs read a narrower row shape.
@@ -329,24 +329,24 @@ function PriorityCell({
  */
 function CompletionPhotoCell({ row }: { row: WorkOrderTableRow }) {
   const [isOpen, setIsOpen] = useState(false);
-  const url = row.completion_photo_url;
+  const urls = row.completion_photo_urls ?? [];
 
   return (
     <TableCell className="px-4 py-4 align-top">
       <button
         type="button"
-        disabled={url === undefined}
+        disabled={urls.length === 0}
         onClick={() => setIsOpen(true)}
         className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm font-medium whitespace-nowrap text-slate-700 transition-colors hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-50 disabled:text-slate-400 disabled:hover:border-slate-200 disabled:hover:bg-slate-50"
       >
         <ImageIcon className="size-4" />
-        View
+        {urls.length > 1 ? `View (${urls.length})` : "View"}
       </button>
 
-      {url !== undefined && (
+      {urls.length > 0 && (
         <CompletionPhotoDialog
           open={isOpen}
-          url={url}
+          urls={urls}
           panelSplit={row.panel_split}
           site={row.site}
           onOpenChange={setIsOpen}

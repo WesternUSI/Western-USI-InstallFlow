@@ -40,14 +40,15 @@ export const sendCompletionEmail = internalAction({
       `Notes: ${data.completion_notes ?? "—"}`,
     ];
 
-    // FR-CE-4: attach the high-resolution completion photo.
+    // FR-CE-4: attach the high-resolution completion photos.
     const attachments: { filename: string; content: string }[] = [];
-    if (data.photoUrl) {
-      const photoResponse = await fetch(data.photoUrl);
+    for (const [i, photoUrl] of data.photoUrls.entries()) {
+      const photoResponse = await fetch(photoUrl);
       if (photoResponse.ok) {
         const photoBuffer = await photoResponse.arrayBuffer();
+        const suffix = data.photoUrls.length > 1 ? `-${i + 1}` : "";
         attachments.push({
-          filename: `completion-${data.panel_split}.jpg`,
+          filename: `completion-${data.panel_split}${suffix}.jpg`,
           content: Buffer.from(photoBuffer).toString("base64"),
         });
       } else {
@@ -90,7 +91,11 @@ export const sendCompletionEmail = internalAction({
         </tr>
       </table>
       <p style="margin:0;color:#6B7280;">${
-        data.photoUrl ? "The completion photo is attached." : "No completion photo was attached."
+        attachments.length === 0
+          ? "No completion photo was attached."
+          : attachments.length === 1
+            ? "The completion photo is attached."
+            : `${attachments.length} completion photos are attached.`
       }</p>
     `);
 

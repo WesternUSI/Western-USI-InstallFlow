@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { EquipmentField } from "@/components/equipment-field";
 import { PageHeader } from "@/components/page-header";
 import { SiteImageField } from "@/components/site-image-field";
+import { resizeImageForUpload } from "@/lib/resizeImage";
 
 export const Route = createFileRoute("/_auth/edit-site/$siteId")({
   component: EditSitePage,
@@ -82,11 +83,12 @@ function EditSitePage() {
     try {
       // Each file gets its own upload URL, then is attached to the site.
       for (const file of files) {
+        const resized = await resizeImageForUpload(file);
         const uploadUrl = await generateUploadUrl();
         const response = await fetch(uploadUrl, {
           method: "POST",
-          headers: { "Content-Type": file.type },
-          body: file,
+          headers: { "Content-Type": resized.type },
+          body: resized,
         });
         if (!response.ok) {
           throw new Error(`Could not upload ${file.name}`);

@@ -89,6 +89,14 @@ function ImageCarousel({ urls }: { urls: string[] }) {
 
   const safeIndex = Math.min(index, count - 1);
 
+  // Pull the next photo into the cache once this one is on screen, so stepping
+  // through the carousel doesn't start a fresh download on every tap.
+  const prefetchNext = () => {
+    if (count < 2) return;
+    const next = urls[(safeIndex + 1) % count];
+    if (next) void Image.prefetch(next).catch(() => {});
+  };
+
   return (
     <View className="overflow-hidden rounded-2xl bg-[#0f172a]">
       <Pressable
@@ -100,6 +108,7 @@ function ImageCarousel({ urls }: { urls: string[] }) {
           source={{ uri: urls[safeIndex] }}
           style={{ width: "100%", height: 220 }}
           resizeMode="cover"
+          onLoadEnd={prefetchNext}
         />
       </Pressable>
       <ImageLightbox

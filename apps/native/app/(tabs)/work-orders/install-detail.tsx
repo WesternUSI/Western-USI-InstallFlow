@@ -38,6 +38,9 @@ export default function InstallDetailScreen() {
   );
 
   const [zoomIndex, setZoomIndex] = React.useState<number | null>(null);
+  // The strip shows one photo at a time but mounts them all, so without this
+  // every site photo downloads at once and the visible one arrives last.
+  const [firstImageSettled, setFirstImageSettled] = React.useState(false);
 
   const openMaps = () => {
     if (!detail?.location) return;
@@ -186,11 +189,18 @@ export default function InstallDetailScreen() {
                   className="mr-3 overflow-hidden rounded-2xl bg-[#e2e8f0]"
                   style={{ width: 150, height: 110 }}
                 >
-                  <Image
-                    source={{ uri: image.url }}
-                    style={{ width: "100%", height: "100%" }}
-                    resizeMode="cover"
-                  />
+                  {(imageIndex === 0 || firstImageSettled) && (
+                    <Image
+                      source={{ uri: image.url }}
+                      style={{ width: "100%", height: "100%" }}
+                      resizeMode="cover"
+                      // onLoadEnd rather than onLoad so a photo that fails to
+                      // load still releases the ones queued behind it.
+                      onLoadEnd={
+                        imageIndex === 0 ? () => setFirstImageSettled(true) : undefined
+                      }
+                    />
+                  )}
                 </Pressable>
               ))}
             </ScrollView>

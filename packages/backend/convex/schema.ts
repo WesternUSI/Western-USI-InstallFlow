@@ -122,7 +122,11 @@ export default defineSchema({
     train_line: v.optional(v.string()),
     // Set together by Complete Installs' photo submission, once per work
     // order — the site's reference photos live on `sites.site_img` instead.
+    // `completion_photo` is the original single-photo field, kept so rows
+    // completed before multi-photo still read; new completions write the
+    // full set to `completion_photos` and leave `completion_photo` unset.
     completion_photo: v.optional(v.id("_storage")),
+    completion_photos: v.optional(v.array(v.id("_storage"))),
     completion_notes: v.optional(v.string()),
     completed_at: v.optional(v.number()),
     // Written by every mutation that touches this row so the status tabs filter

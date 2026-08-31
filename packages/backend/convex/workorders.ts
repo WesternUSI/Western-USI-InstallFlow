@@ -65,14 +65,14 @@ async function sitesById(ctx: QueryCtx): Promise<Map<Id<"sites">, Doc<"sites">>>
  * rather than trusting the raw text on the work order row, which is blank
  * on most rows. Falls back to that raw text when no site matched.
  *
- * `completion_photo_url` is resolved from the stored file the installer
- * submitted in Complete Installs — the same photo the completion email
- * carries — so the admin table can show it too, not just email it out.
+ * `completion_photo_urls` are resolved from the stored files the installer
+ * submitted in Complete Installs — the same photos the completion email
+ * carries — so the admin table can show them too, not just email them out.
  */
 function toRow(
   workOrder: Doc<"workorders">,
   site: Doc<"sites"> | null,
-  completionPhotoUrl: string | null,
+  completionPhotoUrls: string[],
 ) {
   return {
     _id: workOrder._id,
@@ -96,15 +96,29 @@ function toRow(
     assigned_team: workOrder.assigned_team,
     priority: workOrder.priority,
     upload_date: workOrder.upload_date,
-    completion_photo_url: completionPhotoUrl ?? undefined,
+    completion_photo_urls: completionPhotoUrls,
   };
 }
 
-/** Storage-resolved completion photo URL for one row, or `null` if it has none. */
-function resolveCompletionPhotoUrl(ctx: QueryCtx, workOrder: Doc<"workorders">) {
-  return workOrder.completion_photo !== undefined
-    ? ctx.storage.getUrl(workOrder.completion_photo)
-    : Promise.resolve(null);
+/**
+ * Every completion photo storage id for one row. Reads the multi-photo
+ * `completion_photos`, falling back to the original single `completion_photo`
+ * for rows completed before multi-photo existed.
+ */
+function completionPhotoIds(workOrder: Doc<"workorders">): Id<"_storage">[] {
+  if (workOrder.completion_photos !== undefined) return workOrder.completion_photos;
+  return workOrder.completion_photo !== undefined ? [workOrder.completion_photo] : [];
+}
+
+/** Storage-resolved completion photo URLs for one row, empty if it has none. */
+async function resolveCompletionPhotoUrls(
+  ctx: QueryCtx,
+  workOrder: Doc<"workorders">,
+): Promise<string[]> {
+  const urls = await Promise.all(
+    completionPhotoIds(workOrder).map((id) => ctx.storage.getUrl(id)),
+  );
+  return urls.filter((url): url is string => url !== null);
 }
 
 /** Work orders re-checked per transaction — see `relinkMissingSites`. */
@@ -301,7 +315,7 @@ export const list = query({
         page.map((workOrder) => (workOrder.site_id ? ctx.db.get(workOrder.site_id) : null)),
       );
       const photoUrls = await Promise.all(
-        page.map((workOrder) => resolveCompletionPhotoUrl(ctx, workOrder)),
+        page.map((workOrder) => resolveCompletionPhotoUrls(ctx, workOrder)),
       );
 
       return {
@@ -357,7 +371,7 @@ export const list = query({
       result.page.map((workOrder) => (workOrder.site_id ? ctx.db.get(workOrder.site_id) : null)),
     );
     const photoUrls = await Promise.all(
-      result.page.map((workOrder) => resolveCompletionPhotoUrl(ctx, workOrder)),
+      result.page.map((workOrder) => resolveCompletionPhotoUrls(ctx, workOrder)),
     );
     return {
       ...result,
@@ -651,22 +665,32 @@ export const generateUploadUrl = mutation({
   },
 });
 
+/** Most completion photos one submission may carry — matches the app's picker cap. */
+const MAX_COMPLETION_PHOTOS = 5;
+
 /**
  * Marks every work order in `ids` (one card's merged panel-split rows)
- * completed with the same photo and notes, since they represent one physical
+ * completed with the same photos and notes, since they represent one physical
  * install photographed once. Rejects anything already completed rather than
- * silently overwriting an earlier completion's photo.
+ * silently overwriting an earlier completion's photos.
  */
 export const completeWorkOrder = mutation({
   args: {
     ids: v.array(v.id("workorders")),
-    photo: v.id("_storage"),
+    photos: v.array(v.id("_storage")),
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (identity === null) {
       throw new Error("Not authenticated");
+    }
+
+    if (args.photos.length === 0) {
+      throw new Error("At least one completion photo is required");
+    }
+    if (args.photos.length > MAX_COMPLETION_PHOTOS) {
+      throw new Error(`At most ${MAX_COMPLETION_PHOTOS} completion photos are allowed`);
     }
 
     const workOrders = await Promise.all(args.ids.map((id) => ctx.db.get(id)));
@@ -683,7 +707,7 @@ export const completeWorkOrder = mutation({
 
       const patch = {
         current_status: "completed" as const,
-        completion_photo: args.photo,
+        completion_photos: args.photos,
         completion_notes: args.notes,
         completed_at,
       };
@@ -723,10 +747,7 @@ export const getCompletionEmailData = internalQuery({
     if (workOrder === null) return null;
 
     const site = workOrder.site_id !== undefined ? await ctx.db.get(workOrder.site_id) : null;
-    const photoUrl =
-      workOrder.completion_photo !== undefined
-        ? await ctx.storage.getUrl(workOrder.completion_photo)
-        : null;
+    const photoUrls = await resolveCompletionPhotoUrls(ctx, workOrder);
 
     // Managed on the panel's Emails page. Admins are still the default there,
     // but they can be switched off or taken out, and other addresses added.
@@ -744,7 +765,7 @@ export const getCompletionEmailData = internalQuery({
       panel_split: workOrder.panel_split, // SRS "Panel ID"
       site: site?.area ?? workOrder.site, // SRS "Location"
       completion_notes: workOrder.completion_notes,
-      photoUrl,
+      photoUrls,
       recipients,
     };
   },
@@ -1031,15 +1052,16 @@ export const deleteWorkOrders = mutation({
     }
 
     const touchedImports = new Set<Id<"imports">>();
-    // Gathered rather than deleted in the row loop, because one photo covers
-    // every panel completed in the same submission — `completeWorkOrder` writes
-    // the same storage id onto all of them. Deleting per row meant deleting the
-    // same file twice, which threw and rolled the whole transaction back.
+    // Gathered rather than deleted in the row loop, because one set of photos
+    // covers every panel completed in the same submission — `completeWorkOrder`
+    // writes the same storage ids onto all of them. Deleting per row meant
+    // deleting the same file twice, which threw and rolled the whole
+    // transaction back.
     const photos = new Set<Id<"_storage">>();
 
     for (const workOrder of doomed) {
-      if (workOrder.completion_photo !== undefined) {
-        photos.add(workOrder.completion_photo);
+      for (const photo of completionPhotoIds(workOrder)) {
+        photos.add(photo);
       }
       touchedImports.add(workOrder.import_id);
       await ctx.db.delete(workOrder._id);

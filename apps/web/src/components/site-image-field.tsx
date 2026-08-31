@@ -36,6 +36,10 @@ export function SiteImageField({
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [index, setIndex] = useState(0);
+  // Latches once the first cover has arrived. Until then the thumbnails hold
+  // back, so the large photo gets the whole connection instead of competing
+  // with three more downloads of the same size.
+  const [coverReady, setCoverReady] = useState(false);
 
   // Keep the shown picture in range as images are added and removed.
   useEffect(() => {
@@ -145,7 +149,13 @@ export function SiteImageField({
         >
           {/* Cover — the photo currently being stepped through. */}
           <div className="group relative col-span-2 aspect-[4/3] overflow-hidden rounded-[10px] bg-slate-100 sm:col-span-1 sm:row-span-2 sm:aspect-auto">
-            <img src={cover.url} alt="Site" className="size-full object-cover" />
+            <img
+              src={cover.url}
+              alt="Site"
+              className="size-full object-cover"
+              onLoad={() => setCoverReady(true)}
+              onError={() => setCoverReady(true)}
+            />
 
             <button
               type="button"
@@ -202,7 +212,9 @@ export function SiteImageField({
                   onClick={() => setIndex(images.indexOf(image))}
                   className="size-full"
                 >
-                  <img src={image.url} alt="" className="size-full object-cover" />
+                  {coverReady && (
+                    <img src={image.url} alt="" className="size-full object-cover" />
+                  )}
                 </button>
 
                 <button
