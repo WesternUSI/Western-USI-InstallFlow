@@ -96,7 +96,6 @@ function ImageCarousel({ urls }: { urls: string[] }) {
     const next = urls[(safeIndex + 1) % count];
     if (next) void Image.prefetch(next).catch(() => {});
   };
-
   return (
     <View className="overflow-hidden rounded-2xl bg-[#0f172a]">
       <Pressable

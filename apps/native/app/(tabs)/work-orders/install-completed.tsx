@@ -34,7 +34,7 @@ export default function InstallCompletedScreen() {
 
       <Pressable
         accessibilityRole="button"
-        onPress={() => router.replace("/work-orders/complete" as Href)}
+        onPress={() => router.replace("/work-orders" as Href)}
         className="h-[50px] w-full items-center justify-center rounded-2xl bg-[#2563eb]"
       >
         <Text className="text-[15px] font-bold text-white">Done</Text>
