@@ -696,7 +696,13 @@ export const deleteSites = mutation({
     for (const site of doomed) {
       // Reference photos live in file storage, which no cascade reaches.
       for (const imageId of site.site_img) {
-        await ctx.storage.delete(imageId);
+        // A file already gone is the state we were after; letting it throw
+        // would roll back every deletion in the batch for no reason.
+        try {
+          await ctx.storage.delete(imageId);
+        } catch {
+          // Already deleted — nothing to do.
+        }
       }
 
       const workOrders = await ctx.db

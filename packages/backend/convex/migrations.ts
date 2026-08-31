@@ -1,3 +1,4 @@
+import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { internalMutation } from "./_generated/server";
 import { deriveSiteDetailStatus, deriveWorkOrderStatus } from "./derive";
@@ -106,5 +107,38 @@ export const stripLegacyUserFields = internalMutation({
     }
 
     return { updated: pending.length };
+  },
+});
+
+/**
+ * Archives the completed work orders that predate the current import.
+ *
+ * From now on `imports.finalizeImport` does this on every upload, but the rows
+ * already in the table were completed before that existed — they are what
+ * inflates the app counts today, and no future import reaches back for them.
+ *
+ * Schedules the same sweep the import path uses rather than repeating it, so
+ * there is one definition of what superseded means. That sweep walks and
+ * reschedules itself, so unlike the migrations above this is run **once**, not
+ * until it reports zero. Safe to re-run: archived rows are skipped.
+ */
+export const archiveOldCompleted = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const latest = await ctx.db
+      .query("imports")
+      .withIndex("by_imported_at")
+      .order("desc")
+      .first();
+
+    if (latest === null) {
+      return { scheduled: false, keeping: null };
+    }
+
+    await ctx.scheduler.runAfter(0, internal.workorders.archiveSupersededOrders, {
+      keep_import_id: latest._id,
+    });
+
+    return { scheduled: true, keeping: latest.name };
   },
 });

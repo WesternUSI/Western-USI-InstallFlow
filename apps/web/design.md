@@ -868,6 +868,22 @@ apps/web/
 | `workorders` | `list`, `counts`, `searchOptions`, `dashboardStats`, `byArea`, `deleteWorkOrders`, `setPriority` |
 | `sites` | `list`, `counts`, `stats`, `areas`, `getSite`, `update`, `searchOptions`, `hasSites`, `resolveByPanelSplits`, `upsertSites`, `recordSiteImport`, `latestImport`, `generateUploadUrl`, `addSiteImage`, `removeSiteImage`, `deleteSites` |
 | `imports` | `createImport`, `addWorkOrders`, `finalizeImport`, `deleteImport`, `latest` |
+
+**Archiving is invisible to this app, on purpose.** Every upload inserts a
+fresh set of work orders and keeps the previous ones, so the mobile app used to
+count every install ever done and its "completed" total never returned to zero
+on a new schedule. `imports.finalizeImport` now schedules
+`workorders.archiveSupersededOrders`, which sets `archived: true` on completed
+rows belonging to any earlier import.
+
+Only the app-facing queries (`byArea`, `byAreaForTeam`, `listWorkOrdersForArea`)
+skip those rows. **Every query this panel uses ignores the flag** — Manage
+Orders, the counts and the dashboard still show every order ever imported,
+because the panel is where the history is the record. Nothing here needed to
+change for it, and nothing here should start filtering on it.
+
+Only *completed* rows are archived. An older row still outstanding is
+unfinished work and stays visible everywhere.
 | `notifications` | `list`, `markRead`, `markAllRead` |
 | `emails` | `list`, `addRecipient`, `setEnabled`, `removeRecipient` |
 

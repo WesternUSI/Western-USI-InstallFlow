@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, mutation, query } from "./_generated/server";
 import { deriveWorkOrderStatus } from "./derive";
@@ -143,6 +144,14 @@ export const finalizeImport = mutation({
 
     const { import_id, ...totals } = args;
     await ctx.db.patch(import_id, totals);
+
+    // This schedule supersedes the last one, so the installs completed under it
+    // stop counting towards what the app shows. Scheduled from here rather than
+    // from `createImport`: an upload that fails part-way never reaches finalize,
+    // so a broken import cannot archive the previous one's work.
+    await ctx.scheduler.runAfter(0, internal.workorders.archiveSupersededOrders, {
+      keep_import_id: import_id,
+    });
   },
 });
 

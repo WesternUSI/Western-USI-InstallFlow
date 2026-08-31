@@ -159,6 +159,57 @@ export const relinkMissingSites = internalMutation({
   },
 });
 
+/** Completed rows swept per transaction — see `archiveSupersededOrders`. */
+const ARCHIVE_BATCH_SIZE = 200;
+
+/**
+ * Archives completed work orders left behind by an earlier import.
+ *
+ * Every upload inserts a fresh set of rows and keeps the previous ones, so
+ * without this the app's per-area counts accumulate every install ever done and
+ * "completed" never returns to zero on a new schedule. Archiving hides those
+ * rows from the app; the admin panel keeps showing them, because the history is
+ * the record.
+ *
+ * Only completed rows are touched. An older row that is still outstanding is
+ * unfinished work and has to stay visible.
+ *
+ * Keyed on `import_id` rather than `upload_date` so two imports on the same day
+ * behave the way two imports on different days do.
+ *
+ * Batched and self-rescheduling, like `relinkMissingSites`. `archived` is not
+ * part of `status_key`, so a patched row keeps its place in the index being
+ * walked and the cursor stays valid; already-archived rows are skipped, so a
+ * re-run is a no-op.
+ */
+export const archiveSupersededOrders = internalMutation({
+  args: { keep_import_id: v.id("imports"), cursor: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<{ archived: number }> => {
+    const page = await ctx.db
+      .query("workorders")
+      .withIndex("by_status_key", (q) => q.eq("status_key", "completed"))
+      .paginate({ numItems: ARCHIVE_BATCH_SIZE, cursor: args.cursor ?? null });
+
+    let archived = 0;
+    for (const workOrder of page.page) {
+      if (workOrder.archived === true) continue;
+      if (workOrder.import_id === args.keep_import_id) continue;
+
+      await ctx.db.patch(workOrder._id, { archived: true });
+      archived++;
+    }
+
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.workorders.archiveSupersededOrders, {
+        keep_import_id: args.keep_import_id,
+        cursor: page.continueCursor,
+      });
+    }
+
+    return { archived };
+  },
+});
+
 function emptyCounts() {
   return { all: 0, completed: 0, allocated: 0, not_allocated: 0, missing_site: 0, pending: 0 };
 }
@@ -416,6 +467,10 @@ export const byArea = query({
     // Area comes from the Site Database row the work order's Panel ID matched
     // (see `resolveArea`), not the raw "Line" column, which is blank on most rows.
     for (const workOrder of all) {
+      // Superseded by a later import. Counting these is what stopped
+      // "completed" ever returning to zero on a fresh schedule.
+      if (workOrder.archived === true) continue;
+
       const line = areaLabel(workOrder, workOrder.site_id ? sites.get(workOrder.site_id) : null);
       const entry = byLine.get(line) ?? { imported: 0, allocated: 0, completed: 0 };
 
@@ -460,6 +515,8 @@ export const byAreaForTeam = query({
 
     for (const workOrder of all) {
       if (workOrder.assigned_team !== args.team) continue;
+      // Superseded by a later import — see `byArea`.
+      if (workOrder.archived === true) continue;
 
       const line = areaLabel(workOrder, workOrder.site_id ? sites.get(workOrder.site_id) : null);
       const entry = byLine.get(line) ?? { total: 0, completed: 0 };
@@ -852,6 +909,10 @@ export const listWorkOrdersForArea = query({
     const all = await ctx.db.query("workorders").collect();
     const sitesMap = await sitesById(ctx);
     const rows = all.filter((row) => {
+      // Superseded by a later import — this list sits behind the counts in
+      // `byAreaForTeam`, so the two have to agree about what exists.
+      if (row.archived === true) return false;
+
       const site = row.site_id ? sitesMap.get(row.site_id) : null;
       if (areaLabel(row, site) !== args.train_line) return false;
       if (row.assigned_team !== args.team) return false;
@@ -970,15 +1031,30 @@ export const deleteWorkOrders = mutation({
     }
 
     const touchedImports = new Set<Id<"imports">>();
+    // Gathered rather than deleted in the row loop, because one photo covers
+    // every panel completed in the same submission — `completeWorkOrder` writes
+    // the same storage id onto all of them. Deleting per row meant deleting the
+    // same file twice, which threw and rolled the whole transaction back.
+    const photos = new Set<Id<"_storage">>();
 
     for (const workOrder of doomed) {
-      // The photo lives in file storage, which no cascade reaches. Dropping
-      // only the row would leave it stored, billed and unreachable forever.
       if (workOrder.completion_photo !== undefined) {
-        await ctx.storage.delete(workOrder.completion_photo);
+        photos.add(workOrder.completion_photo);
       }
       touchedImports.add(workOrder.import_id);
       await ctx.db.delete(workOrder._id);
+    }
+
+    // The photo lives in file storage, which no cascade reaches. Dropping only
+    // the row would leave it stored, billed and unreachable forever.
+    for (const photo of photos) {
+      // A file already gone is the state we were after. Letting that throw
+      // would undo the row deletions above for no reason.
+      try {
+        await ctx.storage.delete(photo);
+      } catch {
+        // Already deleted — nothing to do.
+      }
     }
 
     // An import row holds the totals for its upload. Once its last work order
@@ -990,8 +1066,14 @@ export const deleteWorkOrders = mutation({
         .withIndex("by_import_id", (q) => q.eq("import_id", importId))
         .first();
 
-      if (survivor === null) {
+      if (survivor !== null) continue;
+
+      // Same reasoning as the photos: an earlier partial run may already have
+      // taken this row, and that is not a failure.
+      try {
         await ctx.db.delete(importId);
+      } catch {
+        // Already deleted — nothing to do.
       }
     }
 
