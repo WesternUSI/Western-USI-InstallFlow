@@ -6,8 +6,8 @@
  */
 
 // East Perth railway station, Perth WA — 31°56'38"S 115°52'37"E.
-const EAST_PERTH_LAT = -31.943896;
-const EAST_PERTH_LNG = 115.876976;
+export const EAST_PERTH_LAT = -31.943896;
+export const EAST_PERTH_LNG = 115.876976;
 
 const DMS_PATTERN = /(\d+)°(\d+)'([\d.]+)"([NS])\s+(\d+)°(\d+)'([\d.]+)"([EW])/;
 

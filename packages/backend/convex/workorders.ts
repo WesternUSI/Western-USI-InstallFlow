@@ -1,11 +1,18 @@
 import { paginationOptsValidator } from "convex/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type QueryCtx, internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import {
+  type QueryCtx,
+  action,
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+} from "./_generated/server";
 import { type WorkOrderStatus, deriveWorkOrderStatus, matchesTerm } from "./derive";
 import { enabledRecipientEmails } from "./emails";
-import { distanceFromEastPerthKm } from "./geo";
+import { EAST_PERTH_LAT, EAST_PERTH_LNG, distanceFromEastPerthKm, parseCoordinates } from "./geo";
 import { findSiteForPanelSplit } from "./panelIds";
 import { requireAdmin } from "./permissions";
 
@@ -232,7 +239,7 @@ function emptyCounts() {
 async function requireIdentity(ctx: QueryCtx) {
   const identity = await ctx.auth.getUserIdentity();
   if (identity === null) {
-    throw new Error("Not authenticated");
+    throw new ConvexError("Your session has expired. Sign in again and retry.");
   }
 }
 
@@ -561,7 +568,7 @@ export const listActiveWorkOrders = query({
   handler: async (ctx) => {
     const identity = await ctx.auth.getUserIdentity();
     if (identity === null) {
-      throw new Error("Not authenticated");
+      throw new ConvexError("Your session has expired. Sign in again and retry.");
     }
 
     const latest = await ctx.db.query("workorders").withIndex("by_upload_date").order("desc").first();
@@ -618,7 +625,7 @@ export const getWorkOrderDetail = query({
       (row): row is Doc<"workorders"> => row !== null,
     );
     if (rows.length === 0) {
-      throw new Error("Work order not found");
+      throw new ConvexError("That work order no longer exists. Refresh and try again.");
     }
 
     const siteId = rows.find((row) => row.site_id !== undefined)?.site_id;
@@ -665,7 +672,7 @@ export const generateUploadUrl = mutation({
   handler: async (ctx) => {
     const identity = await ctx.auth.getUserIdentity();
     if (identity === null) {
-      throw new Error("Not authenticated");
+      throw new ConvexError("Your session has expired. Sign in again and retry.");
     }
     return await ctx.storage.generateUploadUrl();
   },
@@ -683,20 +690,26 @@ const MAX_COMPLETION_PHOTOS = 5;
 export const completeWorkOrder = mutation({
   args: {
     ids: v.array(v.id("workorders")),
-    photos: v.array(v.id("_storage")),
+    // `photos` is what the multi-photo app sends. `photo` is the single-photo
+    // arg the pre-2026-08-31 app build sends — kept optional so an installer
+    // who hasn't updated can still complete installs against this backend.
+    // Drop `photo` once that build is out of circulation.
+    photos: v.optional(v.array(v.id("_storage"))),
+    photo: v.optional(v.id("_storage")),
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (identity === null) {
-      throw new Error("Not authenticated");
+      throw new ConvexError("Your session has expired. Sign in again and retry.");
     }
 
-    if (args.photos.length === 0) {
-      throw new Error("At least one completion photo is required");
+    const photos = args.photos ?? (args.photo !== undefined ? [args.photo] : []);
+    if (photos.length === 0) {
+      throw new ConvexError("Add at least one completion photo before submitting.");
     }
-    if (args.photos.length > MAX_COMPLETION_PHOTOS) {
-      throw new Error(`At most ${MAX_COMPLETION_PHOTOS} completion photos are allowed`);
+    if (photos.length > MAX_COMPLETION_PHOTOS) {
+      throw new ConvexError(`You can attach at most ${MAX_COMPLETION_PHOTOS} completion photos.`);
     }
 
     const workOrders = await Promise.all(args.ids.map((id) => ctx.db.get(id)));
@@ -706,7 +719,9 @@ export const completeWorkOrder = mutation({
         workOrder !== null &&
         (workOrder.current_status === "completed" || workOrder.current_status === "archived")
       ) {
-        throw new Error(`${workOrder.contracted_panel_id} is already completed`);
+        throw new ConvexError(
+          `${workOrder.contracted_panel_id} has already been completed. Refresh your work orders.`,
+        );
       }
     }
 
@@ -716,7 +731,7 @@ export const completeWorkOrder = mutation({
 
       const patch = {
         current_status: "completed" as const,
-        completion_photos: args.photos,
+        completion_photos: photos,
         completion_notes: args.notes,
         completed_at,
       };
@@ -800,7 +815,7 @@ export const allocateWorkOrders = mutation({
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (identity === null) {
-      throw new Error("Not authenticated");
+      throw new ConvexError("Your session has expired. Sign in again and retry.");
     }
 
     const workOrders = await Promise.all(args.ids.map((id) => ctx.db.get(id)));
@@ -811,8 +826,8 @@ export const allocateWorkOrders = mutation({
         workOrder.assigned_team !== undefined &&
         workOrder.assigned_team !== args.team
       ) {
-        throw new Error(
-          `${workOrder.contracted_panel_id} is already assigned to ${workOrder.assigned_team}`,
+        throw new ConvexError(
+          `${workOrder.contracted_panel_id} is already assigned to ${workOrder.assigned_team}.`,
         );
       }
     }
@@ -878,7 +893,7 @@ export const listAllocatedWorkOrders = query({
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (identity === null) {
-      throw new Error("Not authenticated");
+      throw new ConvexError("Your session has expired. Sign in again and retry.");
     }
 
     const latest = await ctx.db.query("workorders").withIndex("by_upload_date").order("desc").first();
@@ -915,7 +930,110 @@ export const listAllocatedWorkOrders = query({
       assigned_team: row.assigned_team,
       // SRS FR-CI-6: Complete Installs orders by distance from East Perth.
       distance_km: distanceFromEastPerthKm(sites[index]?.location),
+      // For the per-card Navigate button — null when the site has no (or
+      // unparseable) GPS coordinates.
+      coordinates: sites[index]?.location ? parseCoordinates(sites[index].location) : null,
     }));
+  },
+});
+
+/** Site GPS coordinates for a set of work orders, keyed by work order id — used by `optimizeRoute` to build the Routes API request. Null where the site has no (or unparseable) coordinates. */
+export const getCoordinatesForWorkOrders = internalQuery({
+  args: { workOrderIds: v.array(v.id("workorders")) },
+  handler: async (ctx, args) => {
+    const rows = await Promise.all(args.workOrderIds.map((id) => ctx.db.get(id)));
+    const sites = await Promise.all(
+      rows.map((row) => (row?.site_id ? ctx.db.get(row.site_id) : null)),
+    );
+    return args.workOrderIds.map((workOrderId, index) => ({
+      workOrderId,
+      coordinates: sites[index]?.location ? parseCoordinates(sites[index].location) : null,
+    }));
+  },
+});
+
+/**
+ * Optimizes the visiting order for a set of allocated installs using the
+ * Google Routes API's waypoint optimization: starts from the caller's live
+ * GPS location (`origin`) and ends at the East Perth anchor used elsewhere
+ * for distance sorting — Google's API always requires a fixed origin and
+ * destination, so East Perth stands in as the trip's endpoint. Stops without
+ * usable GPS coordinates can't be routed, so they're appended at the end in
+ * their original order, same convention as the furthest-first sort.
+ */
+export const optimizeRoute = action({
+  args: {
+    origin: v.object({ lat: v.number(), lng: v.number() }),
+    stops: v.array(v.object({ key: v.string(), workOrderId: v.id("workorders") })),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new ConvexError("Your session has expired. Sign in again and retry.");
+    }
+
+    if (args.stops.length === 0) return { order: [] };
+
+    const coordinates = await ctx.runQuery(internal.workorders.getCoordinatesForWorkOrders, {
+      workOrderIds: args.stops.map((s) => s.workOrderId),
+    });
+    const coordsByWorkOrderId = new Map(coordinates.map((c) => [c.workOrderId, c.coordinates]));
+
+    const routable: { key: string; lat: number; lng: number }[] = [];
+    const unroutable: string[] = [];
+    for (const stop of args.stops) {
+      const coords = coordsByWorkOrderId.get(stop.workOrderId);
+      if (coords) {
+        routable.push({ key: stop.key, lat: coords.lat, lng: coords.lng });
+      } else {
+        unroutable.push(stop.key);
+      }
+    }
+
+    if (routable.length <= 1) {
+      return { order: [...routable.map((r) => r.key), ...unroutable] };
+    }
+
+    const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+    if (!apiKey) {
+      throw new ConvexError("Route optimization isn't configured yet. Contact your admin.");
+    }
+
+    const toWaypoint = (lat: number, lng: number) => ({ location: { latLng: { latitude: lat, longitude: lng } } });
+
+    const response = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": apiKey,
+        "X-Goog-FieldMask": "routes.optimizedIntermediateWaypointIndex",
+      },
+      body: JSON.stringify({
+        origin: toWaypoint(args.origin.lat, args.origin.lng),
+        destination: toWaypoint(EAST_PERTH_LAT, EAST_PERTH_LNG),
+        intermediates: routable.map((r) => toWaypoint(r.lat, r.lng)),
+        travelMode: "DRIVE",
+        optimizeWaypointOrder: true,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`Routes API error (${response.status}): ${errorText}`);
+      throw new ConvexError("Couldn't reach the route optimizer. Try again shortly.");
+    }
+
+    const data = (await response.json()) as {
+      routes?: { optimizedIntermediateWaypointIndex?: number[] }[];
+    };
+    const optimizedIndex = data.routes?.[0]?.optimizedIntermediateWaypointIndex;
+    if (!optimizedIndex) {
+      console.error(`Routes API returned no usable route: ${JSON.stringify(data)}`);
+      throw new ConvexError("Couldn't reach the route optimizer. Try again shortly.");
+    }
+
+    const orderedKeys = optimizedIndex.map((i) => routable[i].key);
+    return { order: [...orderedKeys, ...unroutable] };
   },
 });
 
@@ -976,7 +1094,7 @@ export const unallocateWorkOrders = mutation({
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (identity === null) {
-      throw new Error("Not authenticated");
+      throw new ConvexError("Your session has expired. Sign in again and retry.");
     }
 
     for (const id of args.ids) {
@@ -1130,7 +1248,7 @@ export const setPriority = mutation({
 
     const workOrder = await ctx.db.get(args.id);
     if (workOrder === null) {
-      throw new Error("Work order not found");
+      throw new ConvexError("That work order no longer exists. Refresh and try again.");
     }
 
     await ctx.db.patch(args.id, { priority: args.priority });

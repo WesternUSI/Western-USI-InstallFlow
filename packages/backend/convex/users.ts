@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
@@ -390,7 +390,7 @@ export const completePasswordChange = action({
   handler: async (ctx, args): Promise<void> => {
     const identity = await ctx.auth.getUserIdentity();
     if (identity === null) {
-      throw new Error("Not authenticated");
+      throw new ConvexError("Your session has expired. Sign in again and retry.");
     }
 
     const clerkSecretKey = process.env.CLERK_SECRET_KEY;
@@ -469,7 +469,9 @@ async function clerkFetch(path: string, secretKey: string, init?: RequestInit): 
     } catch {
       // Not JSON — fall back to the raw body.
     }
-    throw new Error(message);
+    // ConvexError so Clerk's own message (e.g. "password found in a data breach")
+    // reaches the client instead of being redacted to "Server Error" in prod.
+    throw new ConvexError(message);
   }
 
   return response;
