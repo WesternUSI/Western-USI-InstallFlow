@@ -18,14 +18,32 @@ export interface StatTile {
 }
 
 /**
+ * Wide-screen columns per tile count. Spelled out because Tailwind reads class
+ * names literally — a template string would not survive the build.
+ */
+const COLUMNS: Record<number, string> = {
+  1: "xl:grid-cols-1",
+  2: "xl:grid-cols-2",
+  3: "xl:grid-cols-3",
+  4: "xl:grid-cols-4",
+};
+
+/**
  * The row of headline numbers shared by the Teams screens. `WorkOrderStats` and
  * `SiteStats` keep their own copies because they also own their queries; this
  * one is handed its values.
+ *
+ * Columns follow the number of tiles, so a row of three spreads across the card
+ * instead of sitting in three quarters of it with a gap on the end.
  */
 export function StatTiles({ tiles }: { tiles: StatTile[] }) {
   return (
     <section className="rounded-xl border border-gray-100 bg-white shadow-sm">
-      <div className="grid divide-gray-100 sm:grid-cols-2 sm:divide-x xl:grid-cols-4">
+      <div
+        className={`grid divide-gray-100 sm:grid-cols-2 sm:divide-x ${
+          COLUMNS[tiles.length] ?? "xl:grid-cols-4"
+        }`}
+      >
         {tiles.map((tile) => (
           <div key={tile.label} className="flex flex-col px-6 py-4">
             <div className="flex items-center gap-3">

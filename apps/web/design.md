@@ -255,10 +255,20 @@ what the Convex layer derives. Never hard-code a status label in a component.
 
 ### 4.5 Stat tiles
 
-Four-across headline numbers (`sm:grid-cols-2 xl:grid-cols-4`, divided by
-vertical rules) with a tinted icon chip and an oversized toned value. Tones:
-`blue` / `orange` / `green` / `red`. `undefined` renders as `—`, so tiles never
-collapse while loading.
+Headline numbers across a card (`sm:grid-cols-2`, divided by vertical rules)
+with a tinted icon chip and an oversized toned value. Tones: `blue` / `orange` /
+`green` / `red`. `undefined` renders as `—`, so tiles never collapse while
+loading.
+
+**Wide-screen columns follow the tile count**, not a fixed four: `StatTiles`
+looks the class up in `COLUMNS` (spelled out, since Tailwind reads class names
+literally and would not see a template string). A row of three then spreads
+across the card instead of filling three quarters of it.
+
+Work orders, Teams and a team's detail all show **three** tiles. Pending was
+dropped from each — it counts `current_status: "in_progress"`, which nothing
+sets: the app moves an order straight from allocated to completed, so the tile
+was permanently zero.
 
 `StatTiles` takes values as props; `WorkOrderStats` and `SiteStats` are
 separate components that own their own queries.

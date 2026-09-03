@@ -21,7 +21,6 @@ import { useMutation, useQuery } from "convex/react";
 import {
   CheckCircle2,
   ChevronLeft,
-  Clock,
   Plus,
   Trash2,
   UserCog,
@@ -241,13 +240,6 @@ function TeamDetailPage() {
               label: "Completed Orders",
               value: stats?.completed,
               description: "Total completed orders",
-            },
-            {
-              icon: Clock,
-              tone: "red",
-              label: "Pending Orders",
-              value: stats?.pending,
-              description: "Total pending orders",
             },
           ]}
         />

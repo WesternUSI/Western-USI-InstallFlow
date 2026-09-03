@@ -15,7 +15,6 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
-  Clock,
   LayoutGrid,
   Plus,
   Users,
@@ -172,13 +171,6 @@ function TeamsPage() {
               label: "Completed Orders",
               value: overview?.totals.completed,
               description: "Total completed orders",
-            },
-            {
-              icon: Clock,
-              tone: "red",
-              label: "Pending Orders",
-              value: overview?.totals.pending,
-              description: "Total pending orders across all teams",
             },
           ]}
         />

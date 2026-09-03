@@ -1,6 +1,6 @@
 import { api } from "@usi-installer/backend/convex/_generated/api";
 import { useQuery } from "convex/react";
-import { CheckCircle2, Clock, Inbox, Users } from "lucide-react";
+import { CheckCircle2, Inbox, Users } from "lucide-react";
 
 interface StatTileProps {
   icon: typeof Inbox;
@@ -34,7 +34,7 @@ function StatTile({
 }
 
 /**
- * The four headline work order counts. The dashboard shows them under a
+ * The three headline work order counts. The dashboard shows them under a
  * heading; Manage Orders shows the same row without one.
  */
 export function WorkOrderStats({ title }: { title?: string }) {
@@ -47,7 +47,7 @@ export function WorkOrderStats({ title }: { title?: string }) {
           <h2 className="text-base font-bold text-gray-900">{title}</h2>
         </div>
       )}
-      <div className="grid divide-gray-100 sm:grid-cols-2 sm:divide-x xl:grid-cols-4">
+      <div className="grid divide-gray-100 sm:grid-cols-2 sm:divide-x xl:grid-cols-3">
         <StatTile
           icon={Inbox}
           iconClass="bg-blue-50 text-blue-600"
@@ -71,14 +71,6 @@ export function WorkOrderStats({ title }: { title?: string }) {
           value={stats?.completed}
           description="Successfully completed installs"
           valueClass="text-green-500"
-        />
-        <StatTile
-          icon={Clock}
-          iconClass="bg-red-50 text-red-500"
-          label="Pending Orders"
-          value={stats?.pending}
-          description="Installation in progress"
-          valueClass="text-red-500"
         />
       </div>
     </section>
