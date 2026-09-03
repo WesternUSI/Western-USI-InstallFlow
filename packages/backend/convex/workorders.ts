@@ -554,9 +554,15 @@ export const byAreaForTeam = query({
 });
 
 /**
- * The active work order set for Browse Work Orders: only the most recent
- * upload (uploads are permanent history, so older ones are superseded, not
- * deleted) and only orders not yet completed, newest-first.
+ * The active work order set for Browse Work Orders: every order not yet
+ * completed, from any upload, newest upload first.
+ *
+ * Deliberately *not* scoped to the newest `upload_date`. It used to be, which
+ * meant importing a single new row dropped every outstanding order from an
+ * earlier batch out of the app while the admin panel still listed them.
+ * Superseding old work is `archiveSupersededOrders`' job, and it only archives
+ * rows that are already completed — so "archived" is the one thing that hides
+ * an order here, which is also what `byArea` counts by.
  *
  * `site` is resolved through `site_id` into the Site Database's own `area`
  * field — the sheet's actual LOCATION column — rather than trusting the raw
@@ -571,21 +577,13 @@ export const listActiveWorkOrders = query({
       throw new ConvexError("Your session has expired. Sign in again and retry.");
     }
 
-    const latest = await ctx.db.query("workorders").withIndex("by_upload_date").order("desc").first();
-    if (!latest) {
-      return [];
-    }
-
     const rows = await ctx.db
       .query("workorders")
-      .withIndex("by_upload_date", (q) => q.eq("upload_date", latest.upload_date))
+      .withIndex("by_upload_date")
       .order("desc")
       .collect();
 
     const active = rows.filter(
-      // Archived cannot occur here today — this query only ever reads the
-      // latest upload, and only earlier imports get archived. Named anyway, so
-      // the filter still holds if that scoping is ever relaxed.
       (row) => row.current_status !== "completed" && row.current_status !== "archived",
     );
     const sites = await Promise.all(
@@ -884,9 +882,12 @@ export const equipmentNeeded = query({
 
 /**
  * The allocated (not completed, not pending, not missing-site) work order set
- * for Complete Installs. Scoped to the same "most recent upload" window as
- * `listActiveWorkOrders`, and further filtered to `team` — Complete Installs
+ * for Complete Installs. Covers every upload, on the same reasoning as
+ * `listActiveWorkOrders`, and is further filtered to `team` — Complete Installs
  * shows only the caller's primary team's work, same as Equipment Needed.
+ *
+ * Archived rows need no explicit filter: `deriveWorkOrderStatus` reports them
+ * as "completed", so they can never match "allocated".
  */
 export const listAllocatedWorkOrders = query({
   args: { team: teamValidator },
@@ -896,14 +897,9 @@ export const listAllocatedWorkOrders = query({
       throw new ConvexError("Your session has expired. Sign in again and retry.");
     }
 
-    const latest = await ctx.db.query("workorders").withIndex("by_upload_date").order("desc").first();
-    if (!latest) {
-      return [];
-    }
-
     const rows = await ctx.db
       .query("workorders")
-      .withIndex("by_upload_date", (q) => q.eq("upload_date", latest.upload_date))
+      .withIndex("by_upload_date")
       .order("desc")
       .collect();
 

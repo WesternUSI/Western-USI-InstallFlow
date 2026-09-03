@@ -8,6 +8,7 @@ import { Stack } from "expo-router";
 import { HeroUINativeProvider } from "heroui-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
+import { Toaster } from "sonner-native";
 
 import { AppThemeProvider } from "@/contexts/app-theme-context";
 import { TeamProvider } from "@/contexts/team-context";
@@ -49,6 +50,7 @@ export default function Layout() {
                 <TeamProvider>
                   <StackLayout />
                 </TeamProvider>
+                <Toaster position="top-center" richColors />
               </HeroUINativeProvider>
             </AppThemeProvider>
           </KeyboardProvider>

@@ -1,13 +1,14 @@
 import { api } from "@usi-installer/backend/convex/_generated/api";
 import { Ionicons } from "@expo/vector-icons";
 import { useAction } from "convex/react";
-import { useToast } from "heroui-native";
 import React from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { SignOutButton } from "@/components/sign-out-button";
+import { toUserMessage } from "@/lib/errors";
+import { useAppToast } from "@/lib/toast";
 
 /**
  * Mandatory gate shown instead of the tabs whenever the signed-in installer's
@@ -19,7 +20,7 @@ import { SignOutButton } from "@/components/sign-out-button";
  */
 export function ChangePasswordScreen() {
   const insets = useSafeAreaInsets();
-  const { toast } = useToast();
+  const { showSuccess } = useAppToast();
   const completePasswordChange = useAction(api.users.completePasswordChange);
 
   const [newPassword, setNewPassword] = React.useState("");
@@ -38,14 +39,10 @@ export function ChangePasswordScreen() {
     setErrorMessage(null);
     try {
       await completePasswordChange({ new_password: newPassword });
-      toast.show({
-        label: "Password updated",
-        description: "You're all set.",
-        variant: "success",
-      });
+      showSuccess("Password updated", "You're all set.");
     } catch (error) {
       setErrorMessage(
-        error instanceof Error ? error.message : "Couldn't update your password. Please try again.",
+        toUserMessage(error, "Couldn't update your password. Please try again."),
       );
     } finally {
       setSubmitting(false);

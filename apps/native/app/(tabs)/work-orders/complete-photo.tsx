@@ -24,6 +24,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ImageLightbox } from "@/components/image-lightbox";
+import { toUserMessage } from "@/lib/errors";
+import { useAppToast } from "@/lib/toast";
 
 // Matches `completeWorkOrder`'s server-side cap.
 const MAX_PHOTOS = 5;
@@ -36,6 +38,7 @@ export default function CompletePhotoScreen() {
 
   const generateUploadUrl = useMutation(api.workorders.generateUploadUrl);
   const completeWorkOrder = useMutation(api.workorders.completeWorkOrder);
+  const { showError } = useAppToast();
 
   const [photoUris, setPhotoUris] = React.useState<string[]>([]);
   const [notes, setNotes] = React.useState("");
@@ -88,7 +91,10 @@ export default function CompletePhotoScreen() {
       await completeWorkOrder({ ids, photos: storageIds, notes: notes.trim() || undefined });
       router.replace("/work-orders/install-completed" as Href);
     } catch (error) {
-      Alert.alert("Couldn't submit", error instanceof Error ? error.message : "Try again.");
+      showError(
+        "Couldn't submit",
+        toUserMessage(error, "Couldn't submit. Check your connection and try again."),
+      );
     } finally {
       setSubmitting(false);
     }

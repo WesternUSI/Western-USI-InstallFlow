@@ -1,11 +1,12 @@
 import { useSignIn } from "@clerk/expo";
 import { Ionicons } from "@expo/vector-icons";
 import { type Href, useRouter } from "expo-router";
-import { useToast } from "heroui-native";
 import React from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+import { useAppToast } from "@/lib/toast";
 
 type Step = "email" | "code" | "password";
 
@@ -20,7 +21,7 @@ export default function ForgotPasswordScreen() {
   const { signIn } = useSignIn();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { toast } = useToast();
+  const { showSuccess } = useAppToast();
 
   const [step, setStep] = React.useState<Step>("email");
   const [emailAddress, setEmailAddress] = React.useState("");
@@ -88,11 +89,7 @@ export default function ForgotPasswordScreen() {
 
       await signIn.finalize({
         navigate: () => {
-          toast.show({
-            label: "Password reset",
-            description: "You're signed in with your new password.",
-            variant: "success",
-          });
+          showSuccess("Password reset", "You're signed in with your new password.");
           router.replace("/" as Href);
         },
       });

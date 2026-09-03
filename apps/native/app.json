@@ -30,6 +30,12 @@
         {
           "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera to take install completion photos."
         }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location to optimize the install route."
+        }
       ]
     ],
     "experiments": {
@@ -39,7 +45,8 @@
     "ios": {
       "bundleIdentifier": "com.slidingscale.usiinstaller",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSMotionUsageDescription": "Allow $(PRODUCT_NAME) to use motion data to improve the accuracy of your location while optimizing the install route."
       }
     },
     "extra": {

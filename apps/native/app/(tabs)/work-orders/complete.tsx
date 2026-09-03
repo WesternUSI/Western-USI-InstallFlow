@@ -1,13 +1,17 @@
 import { api } from "@usi-installer/backend/convex/_generated/api";
+import type { Id } from "@usi-installer/backend/convex/_generated/dataModel";
 import { Ionicons } from "@expo/vector-icons";
-import { useQuery } from "convex/react";
+import { useAction, useQuery } from "convex/react";
 import { type Href, useRouter } from "expo-router";
+import * as Location from "expo-location";
 import React from "react";
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
+import { ActivityIndicator, Linking, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useTeamContext } from "@/contexts/team-context";
+import { toUserMessage } from "@/lib/errors";
 import { listWorkOrderCards, type WorkOrderCard } from "@/lib/groupWorkOrders";
+import { useAppToast } from "@/lib/toast";
 
 const ALL_AREAS = "All areas";
 const PAGE_SIZE = 5;
@@ -108,6 +112,12 @@ function SiteCard({ card }: { card: WorkOrderCard }) {
     router.push(
       `/work-orders/install-detail?ids=${encodeURIComponent(card.workOrderIds.join(","))}` as Href,
     );
+  const openNavigate = () => {
+    if (!card.coordinates) return;
+    Linking.openURL(
+      `https://www.google.com/maps/dir/?api=1&destination=${card.coordinates.lat},${card.coordinates.lng}`,
+    );
+  };
 
   return (
     <View
@@ -139,10 +149,22 @@ function SiteCard({ card }: { card: WorkOrderCard }) {
         </View>
       </Pressable>
 
+      {card.coordinates && (
+        <Pressable
+          accessibilityRole="button"
+          onPress={openNavigate}
+          className="mt-3.5 h-[40px] flex-row items-center justify-center rounded-xl bg-[#2563eb]"
+          style={{ gap: 6 }}
+        >
+          <Ionicons name="navigate" size={15} color="#ffffff" />
+          <Text className="text-[13px] font-bold text-white">Navigate</Text>
+        </Pressable>
+      )}
+
       <Pressable
         accessibilityRole="button"
         onPress={goToDetail}
-        className="mt-3.5 h-[44px] items-center justify-center rounded-xl bg-[#16a34a]"
+        className={`${card.coordinates ? "mt-2.5" : "mt-3.5"} h-[44px] items-center justify-center rounded-xl bg-[#16a34a]`}
       >
         <Text className="text-[14px] font-bold text-white">Complete Installation</Text>
       </Pressable>
@@ -172,6 +194,8 @@ export default function CompleteInstallsScreen() {
     api.workorders.listAllocatedWorkOrders,
     selectedTeam === undefined ? "skip" : { team: selectedTeam },
   );
+  const optimizeRoute = useAction(api.workorders.optimizeRoute);
+  const { showError } = useAppToast();
 
   const [openDropdown, setOpenDropdown] = React.useState<OpenDropdown>(null);
   const toggleDropdown = (name: Exclude<OpenDropdown, null>) =>
@@ -179,6 +203,15 @@ export default function CompleteInstallsScreen() {
   const [selectedArea, setSelectedArea] = React.useState(ALL_AREAS);
   const [reversed, setReversed] = React.useState(false);
   const [visibleCount, setVisibleCount] = React.useState(PAGE_SIZE);
+  // Result of the last "Optimize Route" tap — a card-key ordering that
+  // supersedes the distance sort until the team/area filter changes (the
+  // site set it was computed for no longer matches otherwise).
+  const [optimizedOrder, setOptimizedOrder] = React.useState<string[] | null>(null);
+  const [isOptimizing, setIsOptimizing] = React.useState(false);
+
+  React.useEffect(() => {
+    setOptimizedOrder(null);
+  }, [selectedTeam, selectedArea]);
 
   const areaOptions = React.useMemo(() => {
     if (!rows) return [ALL_AREAS];
@@ -196,6 +229,17 @@ export default function CompleteInstallsScreen() {
 
   const cards = React.useMemo(() => {
     const built = listWorkOrderCards(filteredRows);
+
+    if (optimizedOrder) {
+      const byKey = new Map(built.map((card) => [card.key, card]));
+      const ordered = optimizedOrder
+        .map((key) => byKey.get(key))
+        .filter((card): card is WorkOrderCard => card !== undefined);
+      const orderedKeys = new Set(optimizedOrder);
+      const leftover = built.filter((card) => !orderedKeys.has(card.key));
+      return [...ordered, ...leftover];
+    }
+
     // SRS FR-CI-6: default is furthest-from-East-Perth first, Reverse Order
     // flips to nearest-first. Cards whose site has no usable GPS coordinates
     // can't be placed either way, so they sort last regardless of direction.
@@ -205,7 +249,7 @@ export default function CompleteInstallsScreen() {
       reversed ? a.distanceKm! - b.distanceKm! : b.distanceKm! - a.distanceKm!,
     );
     return [...withDistance, ...withoutDistance];
-  }, [filteredRows, reversed]);
+  }, [filteredRows, reversed, optimizedOrder]);
 
   const visibleCards = cards.slice(0, visibleCount);
   const canShowMore = visibleCount < cards.length;
@@ -215,6 +259,31 @@ export default function CompleteInstallsScreen() {
   const handleShowAll = () => {
     setSelectedArea(ALL_AREAS);
     setVisibleCount(PAGE_SIZE);
+  };
+
+  const handleOptimizeRoute = async () => {
+    if (isOptimizing || cards.length === 0) return;
+    setIsOptimizing(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        showError("Location permission required", "Allow location access to optimize the route.");
+        return;
+      }
+      const position = await Location.getCurrentPositionAsync({});
+      const { order } = await optimizeRoute({
+        origin: { lat: position.coords.latitude, lng: position.coords.longitude },
+        stops: cards.map((card) => ({
+          key: card.key,
+          workOrderId: card.workOrderIds[0] as Id<"workorders">,
+        })),
+      });
+      setOptimizedOrder(order);
+    } catch (err) {
+      showError("Couldn't optimize route", toUserMessage(err));
+    } finally {
+      setIsOptimizing(false);
+    }
   };
 
   const header = (
@@ -335,7 +404,10 @@ export default function CompleteInstallsScreen() {
             </Pressable>
             <Pressable
               accessibilityRole="button"
-              onPress={() => setReversed((current) => !current)}
+              onPress={() => {
+                setOptimizedOrder(null);
+                setReversed((current) => !current);
+              }}
               className="h-[44px] flex-1 items-center justify-center rounded-2xl bg-[#2563eb]"
             >
               <Text className="text-[14px] font-bold text-white">
@@ -343,6 +415,23 @@ export default function CompleteInstallsScreen() {
               </Text>
             </Pressable>
           </View>
+
+          <Pressable
+            accessibilityRole="button"
+            disabled={isOptimizing || cards.length === 0}
+            onPress={handleOptimizeRoute}
+            className="mt-2.5 h-[44px] flex-row items-center justify-center rounded-2xl bg-[#4338ca]"
+            style={{ gap: 6, opacity: isOptimizing || cards.length === 0 ? 0.6 : 1 }}
+          >
+            {isOptimizing ? (
+              <ActivityIndicator color="#ffffff" />
+            ) : (
+              <>
+                <Ionicons name="navigate-circle" size={17} color="#ffffff" />
+                <Text className="text-[14px] font-bold text-white">Optimize Route</Text>
+              </>
+            )}
+          </Pressable>
         </View>
         <View className="mt-5 px-4">
           {(byArea ?? []).map((row) => (

@@ -11,6 +11,7 @@ interface WorkOrderRow {
   size?: string;
   assigned_team?: string;
   distance_km?: number | null;
+  coordinates?: { lat: number; lng: number } | null;
   status?: "completed" | "allocated";
 }
 
@@ -26,6 +27,8 @@ export interface WorkOrderCard {
   assignedTeam: string[];
   /** Distance from East Perth Station, in km — null when the site has no (or unparseable) GPS coordinates. */
   distanceKm: number | null;
+  /** GPS coordinates for the Navigate button — null when the site has no (or unparseable) coordinates. */
+  coordinates: { lat: number; lng: number } | null;
   /** Only set when every merged row carries a status — "completed" only if all of them are. */
   status?: "completed" | "allocated";
 }
@@ -90,6 +93,7 @@ function mergeAndSortCards(rows: WorkOrderRow[]): WorkOrderCard[] {
           mergedRows.map((r) => r.assigned_team).filter((t): t is string => t !== undefined),
         ),
         distanceKm: mergedRows[0].distance_km ?? null,
+        coordinates: mergedRows[0].coordinates ?? null,
         status: mergedRows.some((r) => r.status === undefined)
           ? undefined
           : mergedRows.every((r) => r.status === "completed")

@@ -1,11 +1,12 @@
 import { useUser } from "@clerk/expo";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useToast } from "heroui-native";
 import React from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+import { useAppToast } from "@/lib/toast";
 
 function clerkErrorMessage(error: unknown, fallback: string): string {
   if (
@@ -62,7 +63,7 @@ export default function ChangePasswordScreen() {
   const { user } = useUser();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { toast } = useToast();
+  const { showSuccess } = useAppToast();
 
   const [currentPassword, setCurrentPassword] = React.useState("");
   const [newPassword, setNewPassword] = React.useState("");
@@ -86,11 +87,7 @@ export default function ChangePasswordScreen() {
         newPassword,
         signOutOfOtherSessions: true,
       });
-      toast.show({
-        label: "Password updated",
-        description: "Your password has been changed.",
-        variant: "success",
-      });
+      showSuccess("Password updated", "Your password has been changed.");
       router.back();
     } catch (error) {
       setErrorMessage(clerkErrorMessage(error, "Couldn't update your password. Please try again."));

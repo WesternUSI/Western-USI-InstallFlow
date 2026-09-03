@@ -3,14 +3,15 @@ import type { Id } from "@usi-installer/backend/convex/_generated/dataModel";
 import { Ionicons } from "@expo/vector-icons";
 import { useMutation, useQuery } from "convex/react";
 import { useRouter } from "expo-router";
-import { useToast } from "heroui-native";
 import React from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useTeamContext } from "@/contexts/team-context";
 import { useCurrentUser } from "@/hooks/use-current-user";
+import { toUserMessage } from "@/lib/errors";
 import { listWorkOrderCards, type WorkOrderCard } from "@/lib/groupWorkOrders";
+import { useAppToast } from "@/lib/toast";
 
 const ALL_AREAS = "All areas";
 const ALL_ADVERTISERS = "All advertisers";
@@ -199,11 +200,10 @@ export default function AllocateInstallsScreen() {
   const insets = useSafeAreaInsets();
   const { isLoaded: userLoaded } = useCurrentUser();
   const { primaryTeam, teams: allTeams } = useTeamContext();
-  const { toast } = useToast();
+  const { showSuccess, showError } = useAppToast();
 
   const rows = useQuery(api.workorders.listActiveWorkOrders);
   const byArea = useQuery(api.workorders.byArea);
-  const searchOptions = useQuery(api.workorders.searchOptions);
   const allocateWorkOrders = useMutation(api.workorders.allocateWorkOrders);
   const unallocateWorkOrders = useMutation(api.workorders.unallocateWorkOrders);
 
@@ -235,13 +235,16 @@ export default function AllocateInstallsScreen() {
     return [ALL_AREAS, ...areas];
   }, [rows]);
 
+  // Built from `rows` rather than every work order ever imported, so the menu
+  // can't offer a campaign whose installs are all finished — picking one of
+  // those looked identical to having no work at all.
   const advertiserOptions = React.useMemo(() => {
-    const advertisers = (searchOptions ?? [])
-      .filter((o) => o.kind === "Advertiser")
-      .map((o) => o.value)
+    if (!rows) return [ALL_ADVERTISERS];
+    const advertisers = [...new Set(rows.map((r) => r.advertiser_campaign.trim()))]
+      .filter((value) => value !== "")
       .sort((a, b) => a.localeCompare(b));
     return [ALL_ADVERTISERS, ...advertisers];
-  }, [searchOptions]);
+  }, [rows]);
 
   const filteredRows = React.useMemo(() => {
     if (!rows) return [];
@@ -249,7 +252,8 @@ export default function AllocateInstallsScreen() {
       const areaMatches =
         selectedArea === ALL_AREAS || (row.area_progress?.trim() || "Unassigned") === selectedArea;
       const advertiserMatches =
-        selectedAdvertiser === ALL_ADVERTISERS || row.advertiser_campaign === selectedAdvertiser;
+        selectedAdvertiser === ALL_ADVERTISERS ||
+        row.advertiser_campaign.trim() === selectedAdvertiser;
       // Work orders already allocated to a team other than the one currently
       // selected here are none of this view's business — only unallocated
       // rows and rows for the selected team show up.
@@ -352,19 +356,17 @@ export default function AllocateInstallsScreen() {
         for (const card of targetCards) next.delete(card.key);
         return next;
       });
-      toast.show({
-        label: action === "allocate" ? "Allocated" : "Unallocated",
-        description: `${targetCards.length} install${targetCards.length === 1 ? "" : "s"} ${
+      showSuccess(
+        action === "allocate" ? "Allocated" : "Unallocated",
+        `${targetCards.length} install${targetCards.length === 1 ? "" : "s"} ${
           action === "allocate" ? "allocated to" : "removed from"
         } ${team}.`,
-        variant: "success",
-      });
+      );
     } catch (error) {
-      toast.show({
-        label: action === "allocate" ? "Couldn't allocate" : "Couldn't unallocate",
-        description: error instanceof Error ? error.message : "Try again.",
-        variant: "danger",
-      });
+      showError(
+        action === "allocate" ? "Couldn't allocate" : "Couldn't unallocate",
+        toUserMessage(error),
+      );
     } finally {
       setBusy(false);
     }
