@@ -6,6 +6,7 @@ import { type Href, useRouter } from "expo-router";
 import * as Location from "expo-location";
 import React from "react";
 import { ActivityIndicator, Linking, Pressable, ScrollView, Text, View } from "react-native";
+import { ScrollView as GestureScrollView } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useTeamContext } from "@/contexts/team-context";
@@ -367,7 +368,11 @@ export default function CompleteInstallsScreen() {
             open={openDropdown === "area"}
             onToggle={() => toggleDropdown("area")}
           >
-            <ScrollView style={{ maxHeight: 240 }} showsVerticalScrollIndicator={false}>
+            <GestureScrollView
+              style={{ maxHeight: 240 }}
+              nestedScrollEnabled
+              showsVerticalScrollIndicator={false}
+            >
               {areaOptions.map((option) => (
                 <OptionRow
                   key={option}
@@ -379,7 +384,7 @@ export default function CompleteInstallsScreen() {
                   }}
                 />
               ))}
-            </ScrollView>
+            </GestureScrollView>
           </DropdownField>
 
           <View className="mt-4 flex-row" style={{ gap: 10 }}>

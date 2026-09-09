@@ -5,6 +5,7 @@ import { useMutation, useQuery } from "convex/react";
 import { useRouter } from "expo-router";
 import React from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
+import { ScrollView as GestureScrollView } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useTeamContext } from "@/contexts/team-context";
@@ -16,7 +17,6 @@ import { useAppToast } from "@/lib/toast";
 const ALL_AREAS = "All areas";
 const ALL_ADVERTISERS = "All advertisers";
 const PAGE_SIZE = 5;
-
 type OpenDropdown = "team" | "area" | "advertiser" | null;
 
 /**
@@ -91,7 +91,7 @@ function OptionRow({
       className="flex-row items-center justify-between border-b border-[#f1f5f9] px-3.5 py-3"
     >
       <Text className="text-[14px] font-medium text-[#1a1c1e]">{label}</Text>
-      {selected && <Ionicons name="checkmark" size={16} color="#2563eb" />}
+      {selected && <Ionicons name="checkmark" size={16} color="#16a34a" />}
     </Pressable>
   );
 }
@@ -221,7 +221,7 @@ export default function AllocateInstallsScreen() {
   const [busy, setBusy] = React.useState(false);
 
   const [openDropdown, setOpenDropdown] = React.useState<OpenDropdown>(null);
-  const [selectedArea, setSelectedArea] = React.useState(ALL_AREAS);
+  const [selectedAreas, setSelectedAreas] = React.useState<Set<string>>(new Set());
   const [selectedAdvertiser, setSelectedAdvertiser] = React.useState(ALL_ADVERTISERS);
 
   const toggleDropdown = (name: Exclude<OpenDropdown, null>) =>
@@ -234,6 +234,13 @@ export default function AllocateInstallsScreen() {
     );
     return [ALL_AREAS, ...areas];
   }, [rows]);
+
+  const areaLabel =
+    selectedAreas.size === 0
+      ? ALL_AREAS
+      : selectedAreas.size === 1
+        ? [...selectedAreas][0]
+        : `${selectedAreas.size} areas selected`;
 
   // Built from `rows` rather than every work order ever imported, so the menu
   // can't offer a campaign whose installs are all finished — picking one of
@@ -250,7 +257,7 @@ export default function AllocateInstallsScreen() {
     if (!rows) return [];
     return rows.filter((row) => {
       const areaMatches =
-        selectedArea === ALL_AREAS || (row.area_progress?.trim() || "Unassigned") === selectedArea;
+        selectedAreas.size === 0 || selectedAreas.has(row.area_progress?.trim() || "Unassigned");
       const advertiserMatches =
         selectedAdvertiser === ALL_ADVERTISERS ||
         row.advertiser_campaign.trim() === selectedAdvertiser;
@@ -260,7 +267,7 @@ export default function AllocateInstallsScreen() {
       const teamVisible = row.assigned_team === undefined || row.assigned_team === selectedTeam;
       return areaMatches && advertiserMatches && teamVisible;
     });
-  }, [rows, selectedArea, selectedAdvertiser, selectedTeam]);
+  }, [rows, selectedAreas, selectedAdvertiser, selectedTeam]);
 
   const cards = React.useMemo(() => listWorkOrderCards(filteredRows), [filteredRows]);
   const visibleCards = cards.slice(0, visibleCount);
@@ -323,12 +330,6 @@ export default function AllocateInstallsScreen() {
       }
       return next;
     });
-  };
-
-  const handleShowAll = () => {
-    setSelectedArea(ALL_AREAS);
-    setSelectedAdvertiser(ALL_ADVERTISERS);
-    setVisibleCount(PAGE_SIZE);
   };
 
   const checkedCards = cards.filter((card) => checkedOrderIds.has(card.key));
@@ -402,23 +403,43 @@ export default function AllocateInstallsScreen() {
 
           <DropdownField
             label="Installation Area"
-            value={selectedArea}
+            value={areaLabel}
             open={openDropdown === "area"}
             onToggle={() => toggleDropdown("area")}
           >
-            <ScrollView style={{ maxHeight: 240 }} showsVerticalScrollIndicator={false}>
+            <GestureScrollView
+              style={{ maxHeight: 240 }}
+              nestedScrollEnabled
+              showsVerticalScrollIndicator={false}
+            >
               {areaOptions.map((option) => (
                 <OptionRow
                   key={option}
                   label={option}
-                  selected={option === selectedArea}
+                  selected={
+                    option === ALL_AREAS ? selectedAreas.size === 0 : selectedAreas.has(option)
+                  }
                   onPress={() => {
-                    setSelectedArea(option);
-                    setOpenDropdown(null);
+                    // Areas toggle and leave the menu open so several can be
+                    // picked in one pass; "All areas" clears the selection.
+                    if (option === ALL_AREAS) {
+                      setSelectedAreas(new Set());
+                      setOpenDropdown(null);
+                      return;
+                    }
+                    setSelectedAreas((current) => {
+                      const next = new Set(current);
+                      if (next.has(option)) {
+                        next.delete(option);
+                      } else {
+                        next.add(option);
+                      }
+                      return next;
+                    });
                   }}
                 />
               ))}
-            </ScrollView>
+            </GestureScrollView>
           </DropdownField>
 
           <DropdownField
@@ -427,7 +448,11 @@ export default function AllocateInstallsScreen() {
             open={openDropdown === "advertiser"}
             onToggle={() => toggleDropdown("advertiser")}
           >
-            <ScrollView style={{ maxHeight: 240 }} showsVerticalScrollIndicator={false}>
+            <GestureScrollView
+              style={{ maxHeight: 240 }}
+              nestedScrollEnabled
+              showsVerticalScrollIndicator={false}
+            >
               {advertiserOptions.map((option) => (
                 <OptionRow
                   key={option}
@@ -439,16 +464,8 @@ export default function AllocateInstallsScreen() {
                   }}
                 />
               ))}
-            </ScrollView>
+            </GestureScrollView>
           </DropdownField>
-
-          <Pressable
-            accessibilityRole="button"
-            onPress={handleShowAll}
-            className="mt-4 h-[44px] items-center justify-center rounded-2xl bg-[#2563eb]"
-          >
-            <Text className="text-[14px] font-bold text-white">Show All</Text>
-          </Pressable>
         </View>
 
         <View className="mt-5 px-4">
