@@ -595,7 +595,7 @@ export const listActiveWorkOrders = query({
       contracted_panel_id: row.contracted_panel_id,
       advertiser_campaign: row.advertiser_campaign,
       panel_split: row.panel_split,
-      panel_name: row.panel_name,
+      panel_name: sites[index]?.site ?? row.panel_name,
       site: sites[index]?.area ?? row.site,
       area_progress: resolveArea(row, sites[index]),
       train_line: row.train_line,
@@ -644,7 +644,7 @@ export const getWorkOrderDetail = query({
     );
 
     return {
-      panel_name: joinUnique(rows.map((r) => r.panel_name)),
+      panel_name: site?.site ?? joinUnique(rows.map((r) => r.panel_name)),
       site: site?.area ?? rows[0].site,
       panel_split: [...new Set(rows.map((r) => r.panel_split))]
         .sort((a, b) => a.localeCompare(b))
@@ -916,7 +916,7 @@ export const listAllocatedWorkOrders = query({
       contracted_panel_id: row.contracted_panel_id,
       advertiser_campaign: row.advertiser_campaign,
       panel_split: row.panel_split,
-      panel_name: row.panel_name,
+      panel_name: sites[index]?.site ?? row.panel_name,
       site: sites[index]?.area ?? row.site,
       area_progress: resolveArea(row, sites[index]),
       train_line: row.train_line,
@@ -1072,7 +1072,7 @@ export const listWorkOrdersForArea = query({
         contracted_panel_id: row.contracted_panel_id,
         advertiser_campaign: row.advertiser_campaign,
         panel_split: row.panel_split,
-        panel_name: row.panel_name,
+        panel_name: sites[index]?.site ?? row.panel_name,
         site: sites[index]?.area ?? row.site,
         priority: row.priority,
         size: row.size,
