@@ -10,6 +10,32 @@ export const workOrderStatus = v.union(
   v.literal("archived"),
 );
 
+/**
+ * The Installation Schedule columns as they come off one row of the sheet,
+ * before an import turns them into a work order.
+ *
+ * Only `scheduled_work_order_rows` is built from this. `workorders` spells its
+ * own columns out, because it carries a good deal more than the sheet does.
+ */
+export const workOrderSourceFields = {
+  contract_id: v.string(),
+  advertiser_campaign: v.string(),
+  contracted_panel_id: v.string(),
+  panel_split: v.string(),
+  site: v.string(),
+  panel_name: v.string(),
+  quantity: v.optional(v.number()),
+  format: v.optional(v.string()),
+  size: v.optional(v.string()),
+  proposed_install_date: v.optional(v.string()),
+  end_date: v.optional(v.string()),
+  comments: v.optional(v.string()),
+  existing_advertiser: v.optional(v.string()),
+  area_progress: v.optional(v.string()),
+  schedule: v.optional(v.string()),
+  priority: v.boolean(),
+};
+
 export default defineSchema({
   users: defineTable({
     clerk_id: v.string(),
@@ -88,6 +114,54 @@ export default defineSchema({
     total_rows: v.number(),
     missing_sites: v.number(),
   }).index("by_imported_at", ["imported_at"]),
+
+  /**
+   * An Installation Schedule upload parked for a future date.
+   *
+   * Nothing about a pending batch exists in `workorders` or `imports` — the
+   * rows sit in `scheduled_work_order_rows` until `release_at`, which is what
+   * keeps a pre-scheduled week invisible to installers *and* to the admin
+   * panel's own work order screens. `scheduledImports.releaseScheduledImport`
+   * is what turns one of these into a real import.
+   */
+  scheduled_imports: defineTable({
+    file_name: v.string(),
+    uploaded_at: v.number(), // Date.now(), when the file was brought in
+    uploaded_by: v.optional(v.id("users")),
+    uploaded_by_name: v.string(),
+    release_date: v.string(), // YYYY-MM-DD, the day the batch goes live
+    release_at: v.number(), // midnight of `release_date` in Australia/Sydney
+    total_rows: v.number(),
+    /**
+     * `pending` until `release_at`, `releasing` while rows are being moved
+     * across (a big schedule takes several transactions), `released` once the
+     * staging rows are gone. Only `pending` batches can be cancelled or moved.
+     */
+    status: v.union(v.literal("pending"), v.literal("releasing"), v.literal("released")),
+    /**
+     * The `scheduler.runAt` job that will release this batch, kept so cancel
+     * and reschedule can call `scheduler.cancel` on it. Unset until
+     * `finalizeScheduledImport` — a half-uploaded batch must never be able to
+     * fire, the same reason `imports.finalizeImport` archives only at the end.
+     */
+    job_id: v.optional(v.id("_scheduled_functions")),
+    /** Set once the release has created the real import row. */
+    import_id: v.optional(v.id("imports")),
+  })
+    .index("by_release_at", ["release_at"])
+    .index("by_status", ["status"]),
+
+  /**
+   * The staged rows of one `scheduled_imports` batch, straight from the sheet.
+   *
+   * Site matching is deliberately *not* done here. It happens when the batch is
+   * released, against the Site Database as it stands that day, so a site added
+   * between upload and release is picked up rather than missed.
+   */
+  scheduled_work_order_rows: defineTable({
+    scheduled_import_id: v.id("scheduled_imports"),
+    ...workOrderSourceFields,
+  }).index("by_scheduled_import", ["scheduled_import_id"]),
 
   /**
    * One panel's installation for one campaign, sourced from the Installation

@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as crons from "../crons.js";
 import type * as derive from "../derive.js";
 import type * as email from "../email.js";
 import type * as emails from "../emails.js";
@@ -20,6 +21,8 @@ import type * as notifications from "../notifications.js";
 import type * as panelIds from "../panelIds.js";
 import type * as permissions from "../permissions.js";
 import type * as privateData from "../privateData.js";
+import type * as releaseTime from "../releaseTime.js";
+import type * as scheduledImports from "../scheduledImports.js";
 import type * as sites from "../sites.js";
 import type * as teams from "../teams.js";
 import type * as users from "../users.js";
@@ -32,6 +35,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  crons: typeof crons;
   derive: typeof derive;
   email: typeof email;
   emails: typeof emails;
@@ -44,6 +48,8 @@ declare const fullApi: ApiFromModules<{
   panelIds: typeof panelIds;
   permissions: typeof permissions;
   privateData: typeof privateData;
+  releaseTime: typeof releaseTime;
+  scheduledImports: typeof scheduledImports;
   sites: typeof sites;
   teams: typeof teams;
   users: typeof users;
