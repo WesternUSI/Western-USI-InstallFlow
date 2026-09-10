@@ -5,7 +5,10 @@ import { useMutation, useQuery } from "convex/react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { nextReleaseZoneDate } from "@usi-installer/backend/convex/releaseTime";
+
 import { ExcelDropzone } from "@/components/excel-dropzone";
+import { ImportScheduleCard, formatReleaseDate } from "@/components/import-schedule-card";
 import type { SearchOption } from "@/components/search-input";
 import { SiteDataRequiredDialog } from "@/components/site-data-required-dialog";
 import { type UploadError, UploadErrorDialog } from "@/components/upload-error-dialog";
@@ -58,6 +61,10 @@ function ImportWorkOrdersPage() {
   const addWorkOrders = useMutation(api.imports.addWorkOrders);
   const finalizeImport = useMutation(api.imports.finalizeImport);
   const deleteImport = useMutation(api.imports.deleteImport);
+  const createScheduledImport = useMutation(api.scheduledImports.createScheduledImport);
+  const addScheduledRows = useMutation(api.scheduledImports.addScheduledRows);
+  const finalizeScheduledImport = useMutation(api.scheduledImports.finalizeScheduledImport);
+  const cancelScheduledImport = useMutation(api.scheduledImports.cancelScheduledImport);
 
   // Work orders are matched to sites by panel id, so importing them into an
   // empty Site Database would flag every row as a missing site.
@@ -68,6 +75,9 @@ function ImportWorkOrdersPage() {
   const [isImporting, setIsImporting] = useState(false);
   const [progress, setProgress] = useState(0);
   const [showSiteDataGate, setShowSiteDataGate] = useState(false);
+  // null imports straight away, the way this screen always has. A date parks
+  // the batch until midnight on that day instead.
+  const [releaseDate, setReleaseDate] = useState<string | null>(null);
 
   const [status, setStatus] = useState<WorkOrderStatusTab>("all");
   const [search, setSearch] = useState("");
@@ -192,10 +202,57 @@ function ImportWorkOrdersPage() {
         setStatus("all");
         setSearch("");
         setPage(1);
+        setReleaseDate(null);
       } catch (error) {
         setUploadError(describeWorkOrderFailure(buffer, error));
       }
     });
+  }
+
+  /**
+   * Stages the batch instead of importing it. Rows are written to the staging
+   * table only — nothing reaches `workorders` until the release date, so the
+   * site matching this screen previewed is redone that day against whatever the
+   * Site Database looks like then.
+   */
+  async function handleSchedule(parsedFile: ParsedFile, date: string) {
+    const scheduledImportId = await createScheduledImport({
+      file_name: parsedFile.fileName,
+      release_date: date,
+    });
+
+    try {
+      let done = 0;
+      for (const rows of chunk(parsedFile.rows, UPLOAD_BATCH_SIZE)) {
+        await addScheduledRows({ scheduled_import_id: scheduledImportId, rows });
+        done += rows.length;
+        setProgress(done);
+      }
+
+      // Arming the release is the last step: a batch that failed part-way
+      // through uploading has no job and can never fire.
+      await finalizeScheduledImport({
+        scheduled_import_id: scheduledImportId,
+        total_rows: parsedFile.rows.length,
+      });
+
+      toast.success(
+        `${parsedFile.rows.length.toLocaleString()} work orders scheduled for ${formatReleaseDate(date)}`,
+      );
+      void navigate({ to: "/scheduled-imports" });
+    } catch (error) {
+      // Roll the half-staged batch back so it never shows on Scheduled Imports.
+      try {
+        let remaining = 1;
+        while (remaining > 0) {
+          remaining = (await cancelScheduledImport({ scheduled_import_id: scheduledImportId }))
+            .remaining;
+        }
+      } catch {
+        // The rollback is best effort; the original failure is what matters.
+      }
+      toast.error(error instanceof Error ? error.message : "Could not schedule that import");
+    }
   }
 
   async function handleConfirm() {
@@ -203,6 +260,15 @@ function ImportWorkOrdersPage() {
 
     setIsImporting(true);
     setProgress(0);
+
+    if (releaseDate !== null) {
+      try {
+        await handleSchedule(parsed, releaseDate);
+      } finally {
+        setIsImporting(false);
+      }
+      return;
+    }
 
     const importId = await createImport({
       file_name: parsed.fileName,
@@ -320,6 +386,13 @@ function ImportWorkOrdersPage() {
           stats={{ totalRows: parsed.rows.length, missingSites }}
         />
 
+        <ImportScheduleCard
+          value={releaseDate}
+          minDate={nextReleaseZoneDate()}
+          disabled={isImporting}
+          onChange={setReleaseDate}
+        />
+
         <div className="flex justify-end gap-2">
           <Button
             variant="outline"
@@ -333,8 +406,10 @@ function ImportWorkOrdersPage() {
           </Button>
           <Button disabled={isImporting || isResolving} onClick={() => void handleConfirm()}>
             {isImporting
-              ? `Importing… ${progress.toLocaleString()} / ${parsed.rows.length.toLocaleString()}`
-              : "Confirm Import"}
+              ? `${releaseDate === null ? "Importing" : "Scheduling"}… ${progress.toLocaleString()} / ${parsed.rows.length.toLocaleString()}`
+              : releaseDate === null
+                ? "Confirm Import"
+                : "Schedule Import"}
           </Button>
         </div>
       </div>

@@ -11,6 +11,7 @@ import {
 import { cn } from "@usi-installer/ui/lib/utils";
 import { useQuery } from "convex/react";
 import {
+  CalendarClock,
   ChevronRight,
   ClipboardList,
   Database,
@@ -38,6 +39,7 @@ const NAV_GROUPS = [
     adminOnly: false,
     items: [
       { to: "/import-work-orders", label: "Import Work Orders", icon: UploadCloud },
+      { to: "/scheduled-imports", label: "Scheduled Imports", icon: CalendarClock },
       { to: "/manage-orders", label: "Manage Orders", icon: ClipboardList },
     ],
   },
