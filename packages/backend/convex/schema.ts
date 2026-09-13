@@ -156,7 +156,7 @@ export default defineSchema({
    *
    * Site matching is deliberately *not* done here. It happens when the batch is
    * released, against the Site Database as it stands that day, so a site added
-   * between upload and release is picked up rather than missed.
+   * between uploaad and release is picked up rather than missed.
    */
   scheduled_work_order_rows: defineTable({
     scheduled_import_id: v.id("scheduled_imports"),
