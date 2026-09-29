@@ -1,6 +1,5 @@
 import { api } from "@usi-installer/backend/convex/_generated/api";
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { Button } from "@usi-installer/ui/components/button";
 import {
   Table,
   TableBody,
@@ -10,12 +9,11 @@ import {
   TableRow,
 } from "@usi-installer/ui/components/table";
 import { useQuery } from "convex/react";
-import { ShieldPlus, UserCheck, UserPlus, UserX, Users } from "lucide-react";
+import { UserCheck, UserX, Users } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { FilterSelect } from "@/components/filter-select";
-import { InviteAdminDialog } from "@/components/invite-admin-dialog";
-import { InviteInstallerDialog } from "@/components/invite-installer-dialog";
+import { InviteUserForm } from "@/components/invite-user-form";
 import { PageHeader } from "@/components/page-header";
 import { SearchInput } from "@/components/search-input";
 import { StatTiles } from "@/components/stat-tiles";
@@ -45,8 +43,6 @@ function UsersPage() {
   const [team, setTeam] = useState(ALL_TEAMS);
   const [status, setStatus] = useState(ALL_STATUSES);
   const [page, setPage] = useState(1);
-  const [inviteOpen, setInviteOpen] = useState(false);
-  const [inviteAdminOpen, setInviteAdminOpen] = useState(false);
 
   const overview = useQuery(api.users.overview);
   const teamNames = useTeamNames();
@@ -108,42 +104,7 @@ function UsersPage() {
           ]}
         />
 
-        <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-4 px-6 py-5">
-            <div className="flex flex-col gap-1">
-              <h2 className="text-base font-bold text-slate-900">Invite New Installers</h2>
-              <p className="text-sm text-slate-500">
-                Easily onboard new installers, assign them to a team, and share exclusive
-                credentials for app access.
-              </p>
-            </div>
-            <Button
-              className="h-[38px] gap-1.5 rounded-lg"
-              onClick={() => setInviteOpen(true)}
-            >
-              <UserPlus className="size-4" />
-              Invite Installer
-            </Button>
-          </div>
-        </section>
-
-        <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-4 px-6 py-5">
-            <div className="flex flex-col gap-1">
-              <h2 className="text-base font-bold text-slate-900">Invite New Admins</h2>
-              <p className="text-sm text-slate-500">
-                Create an administrator account and share exclusive credentials for panel access.
-              </p>
-            </div>
-            <Button
-              className="h-[38px] gap-1.5 rounded-lg"
-              onClick={() => setInviteAdminOpen(true)}
-            >
-              <ShieldPlus className="size-4" />
-              Invite Admin
-            </Button>
-          </div>
-        </section>
+        <InviteUserForm />
 
         <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="flex flex-wrap items-center gap-3 px-6 py-4">
@@ -261,8 +222,6 @@ function UsersPage() {
         </section>
       </div>
 
-      <InviteInstallerDialog open={inviteOpen} onOpenChange={setInviteOpen} />
-      <InviteAdminDialog open={inviteAdminOpen} onOpenChange={setInviteAdminOpen} />
     </>
   );
 }
