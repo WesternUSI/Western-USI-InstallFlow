@@ -1,6 +1,6 @@
 import { api } from "@usi-installer/backend/convex/_generated/api";
 import { Ionicons } from "@expo/vector-icons";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { type Href, useRouter } from "expo-router";
 import React from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
@@ -8,6 +8,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useTeamContext } from "@/contexts/team-context";
 import { NavCard } from "@/components/nav-card";
+import { useCurrentUser } from "@/hooks/use-current-user";
+import { toUserMessage } from "@/lib/errors";
+import { useAppToast } from "@/lib/toast";
 
 const PAGE_SIZE = 4;
 
@@ -42,9 +45,30 @@ function AreaProgressRow({
 export default function WorkOrdersScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { primaryTeam } = useTeamContext();
+  const { primaryTeam, teams } = useTeamContext();
+  const { convexUser } = useCurrentUser();
+  const setMemberTeam = useMutation(api.teams.setMemberTeam);
+  const { showSuccess, showError } = useAppToast();
 
   const [visibleCount, setVisibleCount] = React.useState(PAGE_SIZE);
+  const [teamMenuOpen, setTeamMenuOpen] = React.useState(false);
+  const [savingTeam, setSavingTeam] = React.useState(false);
+
+  const changePrimaryTeam = async (team: string) => {
+    setTeamMenuOpen(false);
+    if (!convexUser || team === primaryTeam) return;
+
+    setSavingTeam(true);
+    try {
+      await setMemberTeam({ user_id: convexUser._id, team });
+      setVisibleCount(PAGE_SIZE);
+      showSuccess("Primary team updated", `Your primary team is now ${team}.`);
+    } catch (error) {
+      showError("Couldn't change team", toUserMessage(error));
+    } finally {
+      setSavingTeam(false);
+    }
+  };
 
   const areaProgress = useQuery(
     api.workorders.byAreaForTeam,
@@ -62,7 +86,7 @@ export default function WorkOrdersScreen() {
         contentContainerStyle={{ paddingBottom: 28 }}
         showsVerticalScrollIndicator={false}
       >
-        <View className="flex-row items-start px-4 pt-2">
+        <View className="flex-row items-start px-4 pt-2" style={{ zIndex: 50, elevation: 8 }}>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Go back"
@@ -79,8 +103,58 @@ export default function WorkOrdersScreen() {
             </Text>
           </View>
           {primaryTeam !== undefined && (
-            <View className="mt-1.5 rounded-full bg-[#e8f0ff] px-3 py-1.5">
-              <Text className="text-[12px] font-bold text-[#2563eb]">{primaryTeam}</Text>
+            <View className="mt-1.5">
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Change primary team"
+                disabled={savingTeam}
+                onPress={() => setTeamMenuOpen((open) => !open)}
+                className="flex-row items-center rounded-full bg-[#e8f0ff] px-3 py-1.5"
+              >
+                {savingTeam ? (
+                  <ActivityIndicator size="small" color="#2563eb" />
+                ) : (
+                  <Text className="text-[12px] font-bold text-[#2563eb]">{primaryTeam}</Text>
+                )}
+                <Ionicons
+                  name={teamMenuOpen ? "chevron-up" : "chevron-down"}
+                  size={14}
+                  color="#2563eb"
+                  style={{ marginLeft: 4 }}
+                />
+              </Pressable>
+
+              {teamMenuOpen && (
+                <View
+                  className="rounded-xl border border-[#e2e8f0] bg-white"
+                  style={{
+                    position: "absolute",
+                    top: "100%",
+                    right: 0,
+                    minWidth: 150,
+                    marginTop: 6,
+                    shadowColor: "#0f172a",
+                    shadowOpacity: 0.12,
+                    shadowRadius: 10,
+                    shadowOffset: { width: 0, height: 4 },
+                    elevation: 8,
+                  }}
+                >
+                  {teams.map((team) => (
+                    <Pressable
+                      key={team}
+                      accessibilityRole="button"
+                      onPress={() => changePrimaryTeam(team)}
+                      className="flex-row items-center justify-between border-b border-[#f1f5f9] px-3.5 py-3"
+                    >
+                      <Text className="text-[14px] font-medium text-[#1a1c1e]">{team}</Text>
+                      {team === primaryTeam && (
+                        <Ionicons name="checkmark" size={16} color="#16a34a" />
+                      )}
+                    </Pressable>
+                  ))}
+                </View>
+              )}
             </View>
           )}
         </View>

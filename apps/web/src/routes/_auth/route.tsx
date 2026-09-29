@@ -5,6 +5,7 @@ import { Authenticated, AuthLoading, Unauthenticated, useQuery } from "convex/re
 import { ShieldAlert } from "lucide-react";
 
 import { AdminSidebar } from "@/components/admin-sidebar";
+import { ChangePasswordScreen } from "@/components/change-password-screen";
 import Loader from "@/components/loader";
 import { SidebarProvider } from "@/lib/sidebar-context";
 
@@ -53,6 +54,10 @@ function AdminGate() {
 
   if (user === null || (user.role !== "admin" && user.role !== "office_staff")) {
     return <RestrictedAccess />;
+  }
+
+  if (user.must_change_password) {
+    return <ChangePasswordScreen />;
   }
 
   return (
