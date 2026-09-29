@@ -81,6 +81,7 @@ export const currentUser = query({
         image_url: undefined,
         team: undefined,
         role: undefined,
+        must_change_password: undefined,
       };
     }
 
@@ -91,6 +92,7 @@ export const currentUser = query({
       image_url: user.image_url,
       team: user.team,
       role: user.role,
+      must_change_password: user.must_change_password,
     };
   },
 });
@@ -259,6 +261,7 @@ export const finishInvite = internalMutation({
     email: v.string(),
     name: v.string(),
     team: v.optional(teamValidator),
+    role: v.optional(v.union(v.literal("installer"), v.literal("admin"))),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
@@ -270,7 +273,7 @@ export const finishInvite = internalMutation({
       email: args.email,
       name: args.name,
       team: args.team,
-      role: "installer" as const,
+      role: args.role ?? ("installer" as const),
       invited_at: Date.now(),
       must_change_password: true,
     };
@@ -338,6 +341,66 @@ export const inviteInstaller = action({
       email: args.work_email,
       name: fullName,
       team: args.team,
+    });
+
+    await ctx.scheduler.runAfter(0, internal.email.sendInviteEmail, {
+      to: args.work_email,
+      name: fullName,
+      password,
+    });
+
+    return { email: args.work_email, password };
+  },
+});
+
+/** Same as `inviteInstaller`, but creates an admin account (no team). */
+export const inviteAdmin = action({
+  args: {
+    full_name: v.string(),
+    work_email: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const caller = await ctx.runQuery(api.users.getCurrentUser, {});
+    if (!caller || caller.role !== "admin") {
+      throw new Error("Not authorized");
+    }
+
+    const clerkSecretKey = process.env.CLERK_SECRET_KEY;
+    if (!clerkSecretKey) {
+      throw new Error("CLERK_SECRET_KEY is not configured on this Convex deployment");
+    }
+
+    const fullName = args.full_name.trim();
+    const [firstName, ...rest] = fullName.split(/\s+/);
+    const lastName = rest.join(" ");
+    const password = generatePassword();
+
+    const response = await fetch("https://api.clerk.com/v1/users", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${clerkSecretKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        email_address: [args.work_email],
+        password,
+        skip_password_checks: true,
+        first_name: firstName,
+        last_name: lastName === "" ? undefined : lastName,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to create Clerk user: ${response.status} ${await response.text()}`);
+    }
+
+    const created = (await response.json()) as { id: string };
+
+    await ctx.runMutation(internal.users.finishInvite, {
+      clerk_id: created.id,
+      email: args.work_email,
+      name: fullName,
+      role: "admin",
     });
 
     await ctx.scheduler.runAfter(0, internal.email.sendInviteEmail, {
