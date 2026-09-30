@@ -219,3 +219,44 @@ export const sendInviteEmail = internalAction({
     }
   },
 });
+
+/** Tells an existing account it has also been made an admin. No password: it keeps its own. */
+export const sendAdminAccessEmail = internalAction({
+  args: {
+    to: v.string(),
+    name: v.string(),
+  },
+  handler: async (_ctx, args) => {
+    const apiKey = process.env.RESEND_API_KEY;
+    if (!apiKey) {
+      console.error("RESEND_API_KEY is not set — skipping admin access email.");
+      return;
+    }
+
+    const html = brandedEmail(`
+      <p style="margin:0 0 16px;">Hi ${escapeHtml(args.name)},</p>
+      <p style="margin:0 0 20px;">You now have administrator access on Western USI InstallFlow.</p>
+      <p style="margin:0;color:#6B7280;">Sign in to the admin panel with your existing email and password. Your installer app login is unchanged.</p>
+    `);
+
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: process.env.RESEND_FROM_EMAIL ?? "onboarding@resend.dev",
+        to: [args.to],
+        subject: "You now have admin access on Western USI InstallFlow",
+        text: `Hi ${args.name},\n\nYou now have administrator access on Western USI InstallFlow. Sign in to the admin panel with your existing email and password.`,
+        html,
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      console.error(`Resend admin access email failed (${response.status}): ${body}`);
+    }
+  },
+});

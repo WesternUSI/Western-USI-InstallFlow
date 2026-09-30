@@ -1,6 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Redirect, Tabs } from "expo-router";
-import { Authenticated, AuthLoading, Unauthenticated } from "convex/react";
+import { api } from "@usi-installer/backend/convex/_generated/api";
+import { Authenticated, AuthLoading, Unauthenticated, useMutation } from "convex/react";
+import { useEffect } from "react";
 
 import { AuthLoadingView } from "@/components/auth-loading";
 import { ChangePasswordScreen } from "@/components/change-password-screen";
@@ -66,12 +68,19 @@ function TabsNavigator() {
 
 function AuthorizedGate() {
   const { isLoaded, role, convexUser } = useCurrentUser();
+  const ensureAdminTeam = useMutation(api.users.ensureAdminTeam);
+
+  // Admins use the installer app too; one with no team yet goes on Team 1.
+  const needsTeam = role === "admin" && convexUser?.team === undefined;
+  useEffect(() => {
+    if (needsTeam) void ensureAdminTeam();
+  }, [needsTeam, ensureAdminTeam]);
 
   if (!isLoaded) {
     return <AuthLoadingView />;
   }
 
-  if (role !== "installer") {
+  if (role !== "installer" && role !== "admin") {
     return <NoAccessCard />;
   }
 

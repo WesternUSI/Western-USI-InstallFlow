@@ -1,4 +1,10 @@
+import type { Doc } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
+
+/** Admin by role, or an installer/office account that was also invited as an admin. */
+export function isAdminUser(user: Pick<Doc<"users">, "role" | "has_admin_access">): boolean {
+  return user.role === "admin" || user.has_admin_access === true;
+}
 
 /**
  * Throws unless the caller is a signed-in admin.
@@ -18,7 +24,7 @@ export async function requireAdmin(ctx: QueryCtx) {
     .withIndex("by_clerk_id", (q) => q.eq("clerk_id", identity.subject))
     .unique();
 
-  if (user === null || user.role !== "admin") {
+  if (user === null || !isAdminUser(user)) {
     throw new Error("Not authorized");
   }
 

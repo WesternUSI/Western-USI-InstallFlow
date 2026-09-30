@@ -45,6 +45,10 @@ export default defineSchema({
     role: v.optional(
       v.union(v.literal("installer"), v.literal("office_staff"), v.literal("admin")),
     ),
+    // True when an account whose `role` is not admin (e.g. an installer) has
+    // also been invited as an admin. The role stays as it was; the admin panel
+    // and admin-only mutations accept either `role: "admin"` or this flag.
+    has_admin_access: v.optional(v.boolean()),
     // The team's name, not its id. Teams are a table now, but the name is what
     // is stored on the rows that reference one — the native app compares and
     // displays these as plain strings, and it keeps renames out of scope.

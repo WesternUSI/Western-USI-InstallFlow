@@ -15,6 +15,7 @@ import { toast } from "sonner";
 
 import { InviteSentDialog } from "@/components/invite-sent-dialog";
 import { useTeamNames } from "@/hooks/use-teams";
+import { toUserMessage } from "@/lib/errors";
 import type { Team } from "@/lib/teams";
 
 const NO_TEAM = "__none__";
@@ -76,7 +77,7 @@ export function InviteUserForm() {
       setEmail("");
       setTeam(NO_TEAM);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not create that account");
+      toast.error(toUserMessage(error, "Could not create that account"));
     } finally {
       setIsSaving(false);
     }

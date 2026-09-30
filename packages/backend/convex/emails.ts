@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx, mutation, query } from "./_generated/server";
-import { requireAdmin } from "./permissions";
+import { isAdminUser, requireAdmin } from "./permissions";
 
 /** Addresses are compared case-insensitively, so one form is stored. */
 function normalise(email: string): string {
@@ -42,7 +42,7 @@ async function resolveRecipients(ctx: QueryCtx): Promise<ResolvedRecipient[]> {
 
   const adminNames = new Map<string, string>();
   for (const user of users) {
-    if (user.role === "admin") adminNames.set(normalise(user.email), user.name ?? user.email);
+    if (isAdminUser(user)) adminNames.set(normalise(user.email), user.name ?? user.email);
   }
 
   const stored = new Set(rows.map((row) => row.email));
@@ -89,7 +89,7 @@ async function materialise(ctx: MutationCtx, email: string): Promise<Id<"email_r
   if (existing !== null) return existing._id;
 
   const users = await ctx.db.query("users").collect();
-  const admin = users.find((user) => user.role === "admin" && normalise(user.email) === email);
+  const admin = users.find((user) => isAdminUser(user) && normalise(user.email) === email);
   if (admin === undefined) {
     throw new Error("That address is not on the list");
   }
@@ -169,7 +169,7 @@ export const addRecipient = mutation({
     // An admin who has never been touched here has no row yet, but is already
     // receiving — adding them again would be a duplicate the list can't show.
     const users = await ctx.db.query("users").collect();
-    if (users.some((user) => user.role === "admin" && normalise(user.email) === email)) {
+    if (users.some((user) => isAdminUser(user) && normalise(user.email) === email)) {
       throw new Error(`${email} is already on the list as an admin`);
     }
 

@@ -52,7 +52,8 @@ function AdminGate() {
     return <Loader />;
   }
 
-  if (user === null || (user.role !== "admin" && user.role !== "office_staff")) {
+  if (user === null ||
+    (user.role !== "admin" && user.role !== "office_staff" && !user.has_admin_access)) {
     return <RestrictedAccess />;
   }
 

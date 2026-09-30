@@ -129,7 +129,7 @@ export function AdminSidebar() {
       </div>
 
       <nav className="flex-1 overflow-y-auto py-4">
-        {NAV_GROUPS.filter((group) => !group.adminOnly || user?.role === "admin").map(
+        {NAV_GROUPS.filter((group) => !group.adminOnly || user?.role === "admin" || user?.has_admin_access === true).map(
           (group, index) => (
           <div key={group.items[0].to} className={cn("flex flex-col gap-2", index > 0 && "mt-6")}>
             {group.label && (
@@ -168,7 +168,7 @@ export function AdminSidebar() {
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <p className="truncate text-sm font-bold text-white">{user?.name ?? " "}</p>
             <p className="truncate text-xs text-[#DDDDDD] capitalize">
-              {user?.role === undefined ? "" : ROLE_LABELS[user.role]}
+              {user?.role === undefined ? "" : ROLE_LABELS[user.has_admin_access ? "admin" : user.role]}
             </p>
           </div>
           <ChevronRight className="size-4 shrink-0 text-[#9CA3AF]" />

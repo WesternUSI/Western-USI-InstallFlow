@@ -2,6 +2,7 @@ import { ConvexError, v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { isAdminUser } from "./permissions";
 import { teamValidator } from "./teams";
 
 export type UserStatus = "active" | "invitation_sent" | "idle";
@@ -82,6 +83,7 @@ export const currentUser = query({
         team: undefined,
         role: undefined,
         must_change_password: undefined,
+        has_admin_access: undefined,
       };
     }
 
@@ -93,6 +95,7 @@ export const currentUser = query({
       team: user.team,
       role: user.role,
       must_change_password: user.must_change_password,
+      has_admin_access: user.has_admin_access,
     };
   },
 });
@@ -168,7 +171,7 @@ export const removeUser = action({
   },
   handler: async (ctx, args) => {
     const caller = await ctx.runQuery(api.users.getCurrentUser, {});
-    if (!caller || caller.role !== "admin") {
+    if (!caller || !isAdminUser(caller)) {
       throw new Error("Not authorized");
     }
 
@@ -272,8 +275,10 @@ export const finishInvite = internalMutation({
     const patch = {
       email: args.email,
       name: args.name,
-      team: args.team,
+      // New admins also use the installer app, so they start on Team 1.
+      team: args.team ?? (args.role === "admin" ? "Team 1" : undefined),
       role: args.role ?? ("installer" as const),
+      has_admin_access: args.role === "admin" ? true : undefined,
       invited_at: Date.now(),
       must_change_password: true,
     };
@@ -285,6 +290,18 @@ export const finishInvite = internalMutation({
     }
   },
 });
+
+/** A user-facing reason from a failed Clerk "create user" response (e.g. the email is taken). */
+async function clerkCreateUserMessage(response: Response): Promise<string> {
+  try {
+    const body = (await response.json()) as { errors?: { long_message?: string; message?: string }[] };
+    const reason = body.errors?.[0]?.long_message ?? body.errors?.[0]?.message;
+    if (reason) return reason;
+  } catch {
+    // Fall through to the generic message.
+  }
+  return "Could not create that account. Please try again.";
+}
 
 /**
  * Creates a Clerk account directly through the Backend API and marks it
@@ -301,8 +318,8 @@ export const inviteInstaller = action({
   },
   handler: async (ctx, args) => {
     const caller = await ctx.runQuery(api.users.getCurrentUser, {});
-    if (!caller || caller.role !== "admin") {
-      throw new Error("Not authorized");
+    if (!caller || !isAdminUser(caller)) {
+      throw new ConvexError("You are not authorized to invite users.");
     }
 
     const clerkSecretKey = process.env.CLERK_SECRET_KEY;
@@ -331,7 +348,7 @@ export const inviteInstaller = action({
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to create Clerk user: ${response.status} ${await response.text()}`);
+      throw new ConvexError(await clerkCreateUserMessage(response));
     }
 
     const created = (await response.json()) as { id: string };
@@ -353,16 +370,72 @@ export const inviteInstaller = action({
   },
 });
 
-/** Same as `inviteInstaller`, but creates an admin account (no team). */
+/** The account for an email, case-insensitively, or null. */
+export const findByEmail = internalQuery({
+  args: { email: v.string() },
+  handler: async (ctx, args) => {
+    const needle = args.email.trim().toLowerCase();
+    const users = await ctx.db.query("users").collect();
+    return users.find((user) => user.email.trim().toLowerCase() === needle) ?? null;
+  },
+});
+
+export const grantAdminAccess = internalMutation({
+  args: { user_id: v.id("users") },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.user_id, { has_admin_access: true });
+  },
+});
+
+/**
+ * Admins also use the installer app. One who opens it with no team yet is
+ * put on Team 1, so they show up like any other installer.
+ */
+export const ensureAdminTeam = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      throw new Error("Not authenticated");
+    }
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_id", (q) => q.eq("clerk_id", identity.subject))
+      .unique();
+    if (user !== null && user.role === "admin" && user.team === undefined) {
+      await ctx.db.patch(user._id, { team: "Team 1" });
+    }
+  },
+});
+
+/** Same as `inviteInstaller`, but for an admin: a new email gets an account (on Team 1), an existing one just gains admin access. */
 export const inviteAdmin = action({
   args: {
     full_name: v.string(),
     work_email: v.string(),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<{ email: string; password: string | undefined }> => {
     const caller = await ctx.runQuery(api.users.getCurrentUser, {});
-    if (!caller || caller.role !== "admin") {
-      throw new Error("Not authorized");
+    if (!caller || !isAdminUser(caller)) {
+      throw new ConvexError("You are not authorized to invite users.");
+    }
+
+    // An email that already has an account is not re-created in Clerk: it
+    // keeps its password and role, and just gains admin access.
+    const existing: Doc<"users"> | null = await ctx.runQuery(internal.users.findByEmail, {
+      email: args.work_email,
+    });
+    if (existing !== null) {
+      if (isAdminUser(existing)) {
+        throw new ConvexError("That email already has admin access.");
+      }
+      await ctx.runMutation(internal.users.grantAdminAccess, { user_id: existing._id });
+      await ctx.scheduler.runAfter(0, internal.email.sendAdminAccessEmail, {
+        to: existing.email,
+        name: existing.name ?? existing.email,
+      });
+      return { email: existing.email, password: undefined };
     }
 
     const clerkSecretKey = process.env.CLERK_SECRET_KEY;
@@ -391,7 +464,7 @@ export const inviteAdmin = action({
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to create Clerk user: ${response.status} ${await response.text()}`);
+      throw new ConvexError(await clerkCreateUserMessage(response));
     }
 
     const created = (await response.json()) as { id: string };
@@ -479,7 +552,7 @@ export const resendCredentials = action({
   args: { user_id: v.id("users") },
   handler: async (ctx, args): Promise<{ email: string; password: string }> => {
     const caller = await ctx.runQuery(api.users.getCurrentUser, {});
-    if (!caller || caller.role !== "admin") {
+    if (!caller || !isAdminUser(caller)) {
       throw new Error("Not authorized");
     }
 
@@ -591,7 +664,7 @@ export const updateAccount = action({
   },
   handler: async (ctx, args): Promise<void> => {
     const caller = await ctx.runQuery(api.users.getCurrentUser, {});
-    if (!caller || caller.role !== "admin") {
+    if (!caller || !isAdminUser(caller)) {
       throw new Error("Not authorized");
     }
 
