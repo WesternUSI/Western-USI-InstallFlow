@@ -70,7 +70,11 @@ export function InviteUserForm() {
         });
         setSent({ name: fullName, email: workEmail, team: team === NO_TEAM ? "Unassigned" : team });
       } else {
-        await inviteAdmin({ full_name: fullName, work_email: workEmail });
+        await inviteAdmin({
+          full_name: fullName,
+          work_email: workEmail,
+          team: team === NO_TEAM ? undefined : (team as Team),
+        });
         toast.success(`Admin invite sent to ${workEmail}`);
       }
       setName("");
@@ -136,26 +140,26 @@ export function InviteUserForm() {
             </Select>
           </div>
 
-          {role === "installer" && (
-            <div className="w-44">
-              <p className="mb-1.5 text-sm font-medium text-slate-700">Primary Team</p>
-              <Select value={team} onValueChange={(value) => setTeam(value as string)}>
-                <SelectTrigger className={SELECT_TRIGGER_CLASS}>
-                  <SelectValue placeholder="Select a team" />
-                </SelectTrigger>
-                <SelectContent alignItemWithTrigger={false} className={SELECT_CONTENT_CLASS}>
-                  <SelectItem value={NO_TEAM} className={SELECT_ITEM_CLASS}>
-                    Unassigned
+          <div className="w-44">
+            <p className="mb-1.5 text-sm font-medium text-slate-700">
+              Primary Team{role === "admin" && " (optional)"}
+            </p>
+            <Select value={team} onValueChange={(value) => setTeam(value as string)}>
+              <SelectTrigger className={SELECT_TRIGGER_CLASS}>
+                <SelectValue placeholder="Select a team" />
+              </SelectTrigger>
+              <SelectContent alignItemWithTrigger={false} className={SELECT_CONTENT_CLASS}>
+                <SelectItem value={NO_TEAM} className={SELECT_ITEM_CLASS}>
+                  Unassigned
+                </SelectItem>
+                {teamNames.map((option) => (
+                  <SelectItem key={option} value={option} className={SELECT_ITEM_CLASS}>
+                    {option}
                   </SelectItem>
-                  {teamNames.map((option) => (
-                    <SelectItem key={option} value={option} className={SELECT_ITEM_CLASS}>
-                      {option}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
           <Button type="submit" className="h-[38px] gap-1.5 rounded-lg" disabled={isSaving}>
             {isSaving ? "Sending…" : "Send Invite"}

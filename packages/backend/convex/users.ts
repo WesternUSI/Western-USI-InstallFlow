@@ -381,9 +381,14 @@ export const findByEmail = internalQuery({
 });
 
 export const grantAdminAccess = internalMutation({
-  args: { user_id: v.id("users") },
+  args: { user_id: v.id("users"), team: v.optional(teamValidator) },
   handler: async (ctx, args) => {
-    await ctx.db.patch(args.user_id, { has_admin_access: true });
+    const user = await ctx.db.get(args.user_id);
+    // An existing account keeps the team it already has.
+    await ctx.db.patch(args.user_id, {
+      has_admin_access: true,
+      ...(user?.team === undefined && args.team !== undefined ? { team: args.team } : {}),
+    });
   },
 });
 
@@ -414,6 +419,7 @@ export const inviteAdmin = action({
   args: {
     full_name: v.string(),
     work_email: v.string(),
+    team: v.optional(teamValidator),
   },
   handler: async (ctx, args): Promise<{ email: string; password: string | undefined }> => {
     const caller = await ctx.runQuery(api.users.getCurrentUser, {});
@@ -430,7 +436,10 @@ export const inviteAdmin = action({
       if (isAdminUser(existing)) {
         throw new ConvexError("That email already has admin access.");
       }
-      await ctx.runMutation(internal.users.grantAdminAccess, { user_id: existing._id });
+      await ctx.runMutation(internal.users.grantAdminAccess, {
+        user_id: existing._id,
+        team: args.team,
+      });
       await ctx.scheduler.runAfter(0, internal.email.sendAdminAccessEmail, {
         to: existing.email,
         name: existing.name ?? existing.email,
@@ -473,6 +482,7 @@ export const inviteAdmin = action({
       clerk_id: created.id,
       email: args.work_email,
       name: fullName,
+      team: args.team,
       role: "admin",
     });
 
