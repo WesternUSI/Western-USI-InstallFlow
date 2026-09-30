@@ -321,6 +321,9 @@ export const inviteInstaller = action({
     if (!caller || !isAdminUser(caller)) {
       throw new ConvexError("You are not authorized to invite users.");
     }
+    if (args.team === undefined) {
+      throw new ConvexError("Select a primary team for the installer.");
+    }
 
     const clerkSecretKey = process.env.CLERK_SECRET_KEY;
     if (!clerkSecretKey) {
@@ -393,10 +396,10 @@ export const grantAdminAccess = internalMutation({
 });
 
 /**
- * Admins also use the installer app. One who opens it with no team yet is
- * put on Team 1, so they show up like any other installer.
+ * A safety net for anyone using the installer app (installers, and admins
+ * who use it too): one who opens it with no team yet is put on Team 1.
  */
-export const ensureAdminTeam = mutation({
+export const ensureDefaultTeam = mutation({
   args: {},
   handler: async (ctx) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -408,7 +411,9 @@ export const ensureAdminTeam = mutation({
       .query("users")
       .withIndex("by_clerk_id", (q) => q.eq("clerk_id", identity.subject))
       .unique();
-    if (user !== null && user.role === "admin" && user.team === undefined) {
+    if (user !== null &&
+      (user.role === "admin" || user.role === "installer") &&
+      user.team === undefined) {
       await ctx.db.patch(user._id, { team: "Team 1" });
     }
   },

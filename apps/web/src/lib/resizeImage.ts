@@ -1,13 +1,13 @@
 /** Long edge, in pixels, that an uploaded photo is scaled down to. */
-const MAX_EDGE = 2048;
-const JPEG_QUALITY = 0.85;
+const MAX_EDGE = 1600;
+const JPEG_QUALITY = 0.7;
 
 /**
  * Site photos arrive straight off phones and cameras at ~4000px and several
- * megabytes, which installers then wait on over mobile data. 2048px still
- * carries more detail than the app ever renders, including the lightbox's 4x
- * zoom, so scaling to that is invisible in use but roughly an order of
- * magnitude smaller.
+ * megabytes, which installers then wait on over mobile data and which fill
+ * storage. 1600px at 0.7 is still sharp on any screen and in the completion
+ * emails, at roughly 200-400KB a photo. Smaller images are re-encoded too, so
+ * a large PNG under 1600px still shrinks.
  *
  * Returns the original file untouched whenever it is already small enough, or
  * whenever decoding or re-encoding fails, so a photo always uploads even if
@@ -25,8 +25,7 @@ export async function resizeImageForUpload(file: File): Promise<File> {
   }
 
   try {
-    const scale = MAX_EDGE / Math.max(bitmap.width, bitmap.height);
-    if (scale >= 1) return file;
+    const scale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height));
 
     const width = Math.round(bitmap.width * scale);
     const height = Math.round(bitmap.height * scale);

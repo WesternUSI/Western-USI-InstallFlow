@@ -24,6 +24,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ImageLightbox } from "@/components/image-lightbox";
+import { compressPhoto } from "@/lib/compress-photo";
 import { toUserMessage } from "@/lib/errors";
 import { useAppToast } from "@/lib/toast";
 
@@ -59,7 +60,8 @@ export default function CompletePhotoScreen() {
 
     const result = await ImagePicker.launchCameraAsync({ quality: 0.8 });
     if (!result.canceled && result.assets.length > 0) {
-      setPhotoUris((current) => [...current, result.assets[0].uri]);
+      const uri = await compressPhoto(result.assets[0]);
+      setPhotoUris((current) => [...current, uri]);
     }
   };
 

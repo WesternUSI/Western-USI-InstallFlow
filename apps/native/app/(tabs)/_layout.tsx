@@ -68,13 +68,13 @@ function TabsNavigator() {
 
 function AuthorizedGate() {
   const { isLoaded, role, convexUser } = useCurrentUser();
-  const ensureAdminTeam = useMutation(api.users.ensureAdminTeam);
+  const ensureDefaultTeam = useMutation(api.users.ensureDefaultTeam);
 
-  // Admins use the installer app too; one with no team yet goes on Team 1.
-  const needsTeam = role === "admin" && convexUser?.team === undefined;
+  // Safety net: anyone using the app with no team yet goes on Team 1.
+  const needsTeam = (role === "installer" || role === "admin") && convexUser?.team === undefined;
   useEffect(() => {
-    if (needsTeam) void ensureAdminTeam();
-  }, [needsTeam, ensureAdminTeam]);
+    if (needsTeam) void ensureDefaultTeam();
+  }, [needsTeam, ensureDefaultTeam]);
 
   if (!isLoaded) {
     return <AuthLoadingView />;

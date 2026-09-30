@@ -15,6 +15,7 @@ import type * as emails from "../emails.js";
 import type * as geo from "../geo.js";
 import type * as healthCheck from "../healthCheck.js";
 import type * as http from "../http.js";
+import type * as imageMigration from "../imageMigration.js";
 import type * as imports from "../imports.js";
 import type * as migrations from "../migrations.js";
 import type * as notifications from "../notifications.js";
@@ -42,6 +43,7 @@ declare const fullApi: ApiFromModules<{
   geo: typeof geo;
   healthCheck: typeof healthCheck;
   http: typeof http;
+  imageMigration: typeof imageMigration;
   imports: typeof imports;
   migrations: typeof migrations;
   notifications: typeof notifications;

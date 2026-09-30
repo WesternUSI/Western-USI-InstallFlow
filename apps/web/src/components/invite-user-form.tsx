@@ -60,6 +60,11 @@ export function InviteUserForm() {
       return;
     }
 
+    if (role === "installer" && team === NO_TEAM) {
+      toast.error("Select a primary team for the installer");
+      return;
+    }
+
     setIsSaving(true);
     try {
       if (role === "installer") {
@@ -144,14 +149,19 @@ export function InviteUserForm() {
             <p className="mb-1.5 text-sm font-medium text-slate-700">
               Primary Team{role === "admin" && " (optional)"}
             </p>
-            <Select value={team} onValueChange={(value) => setTeam(value as string)}>
+            <Select
+                value={role === "installer" && team === NO_TEAM ? null : team}
+                onValueChange={(value) => setTeam(value as string)}
+              >
               <SelectTrigger className={SELECT_TRIGGER_CLASS}>
                 <SelectValue placeholder="Select a team" />
               </SelectTrigger>
               <SelectContent alignItemWithTrigger={false} className={SELECT_CONTENT_CLASS}>
-                <SelectItem value={NO_TEAM} className={SELECT_ITEM_CLASS}>
-                  Unassigned
-                </SelectItem>
+                {role === "admin" && (
+                  <SelectItem value={NO_TEAM} className={SELECT_ITEM_CLASS}>
+                    Unassigned
+                  </SelectItem>
+                )}
                 {teamNames.map((option) => (
                   <SelectItem key={option} value={option} className={SELECT_ITEM_CLASS}>
                     {option}
