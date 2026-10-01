@@ -222,7 +222,13 @@ export default defineSchema({
     .index("by_import_status", ["import_id", "status_key"])
     // Lets the Duration filter run as an index range, on its own or combined
     // with a status tab.
-    .index("by_status_upload", ["status_key", "upload_date"]),
+    .index("by_status_upload", ["status_key", "upload_date"])
+    // The team-scoped queries read only one team's rows instead of the table,
+    // and can leave that team's archived rows unread.
+    .index("by_team_status", ["assigned_team", "current_status"])
+    // Lets the area queries read every status except "archived" without
+    // reading the archived rows, which only grow with each import.
+    .index("by_current_status", ["current_status"]),
 
   /**
    * An installation crew. Office staff create these, so the set is no longer

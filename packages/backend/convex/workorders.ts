@@ -63,6 +63,46 @@ async function sitesById(ctx: QueryCtx): Promise<Map<Id<"sites">, Doc<"sites">>>
   return new Map(all.map((site) => [site._id, site]));
 }
 
+type CurrentStatus = Doc<"workorders">["current_status"];
+
+/** Every `current_status` except "archived", which only grows with each import. */
+const UNARCHIVED: CurrentStatus[] = ["pending", "in_progress", "completed"];
+
+/**
+ * Work orders in the given statuses, optionally only one team's, read by index
+ * so rows in any other status are never read. Returned in insertion order —
+ * the order a plain table or single-team index read gives — so callers that
+ * used to read everything and skip see the same rows in the same order.
+ */
+async function workOrdersInStatuses(
+  ctx: QueryCtx,
+  statuses: CurrentStatus[],
+  team?: string,
+): Promise<Doc<"workorders">[]> {
+  const groups = await Promise.all(
+    statuses.map((current_status) =>
+      team === undefined
+        ? ctx.db
+            .query("workorders")
+            .withIndex("by_current_status", (q) => q.eq("current_status", current_status))
+            .collect()
+        : ctx.db
+            .query("workorders")
+            .withIndex("by_team_status", (q) =>
+              q.eq("assigned_team", team).eq("current_status", current_status),
+            )
+            .collect(),
+    ),
+  );
+  return groups.flat().sort((a, b) => a._creationTime - b._creationTime);
+}
+
+/** The `by_upload_date` descending order: newest upload first, then newest row. */
+function newestUploadFirst(a: Doc<"workorders">, b: Doc<"workorders">): number {
+  if (a.upload_date !== b.upload_date) return a.upload_date < b.upload_date ? 1 : -1;
+  return b._creationTime - a._creationTime;
+}
+
 /**
  * Carries every column read off the Installation Schedule, so the admin
  * table can show the sheet back in full rather than a chosen subset.
@@ -482,17 +522,16 @@ export const byArea = query({
   handler: async (ctx) => {
     await requireIdentity(ctx);
 
-    const all = await ctx.db.query("workorders").collect();
+    // Archived rows are superseded by a later import. Counting these is what
+    // stopped "completed" ever returning to zero on a fresh schedule, so they
+    // are left unread rather than read and skipped.
+    const all = await workOrdersInStatuses(ctx, UNARCHIVED);
     const sites = await sitesById(ctx);
     const byLine = new Map<string, { imported: number; allocated: number; completed: number }>();
 
     // Area comes from the Site Database row the work order's Panel ID matched
     // (see `resolveArea`), not the raw "Line" column, which is blank on most rows.
     for (const workOrder of all) {
-      // Superseded by a later import. Counting these is what stopped
-      // "completed" ever returning to zero on a fresh schedule.
-      if (workOrder.current_status === "archived") continue;
-
       const line = areaLabel(workOrder, workOrder.site_id ? sites.get(workOrder.site_id) : null);
       const entry = byLine.get(line) ?? { imported: 0, allocated: 0, completed: 0 };
 
@@ -531,15 +570,12 @@ export const byAreaForTeam = query({
   handler: async (ctx, args) => {
     await requireIdentity(ctx);
 
-    const all = await ctx.db.query("workorders").collect();
+    // Archived rows (superseded by a later import, see `byArea`) are left unread.
+    const all = await workOrdersInStatuses(ctx, UNARCHIVED, args.team);
     const sites = await sitesById(ctx);
     const byLine = new Map<string, { total: number; completed: number }>();
 
     for (const workOrder of all) {
-      if (workOrder.assigned_team !== args.team) continue;
-      // Superseded by a later import — see `byArea`.
-      if (workOrder.current_status === "archived") continue;
-
       const line = areaLabel(workOrder, workOrder.site_id ? sites.get(workOrder.site_id) : null);
       const entry = byLine.get(line) ?? { total: 0, completed: 0 };
       entry.total++;
@@ -577,14 +613,10 @@ export const listActiveWorkOrders = query({
       throw new ConvexError("Your session has expired. Sign in again and retry.");
     }
 
-    const rows = await ctx.db
-      .query("workorders")
-      .withIndex("by_upload_date")
-      .order("desc")
-      .collect();
-
-    const active = rows.filter(
-      (row) => row.current_status !== "completed" && row.current_status !== "archived",
+    // Only the not-yet-completed statuses are read, then put back in the
+    // newest-upload-first order a descending `by_upload_date` walk gave.
+    const active = (await workOrdersInStatuses(ctx, ["pending", "in_progress"])).sort(
+      newestUploadFirst,
     );
     const sites = await Promise.all(
       active.map((row) => (row.site_id ? ctx.db.get(row.site_id) : null)),
@@ -853,12 +885,12 @@ export const equipmentNeeded = query({
   handler: async (ctx, args) => {
     await requireIdentity(ctx);
 
-    const workOrders = await ctx.db.query("workorders").collect();
+    // Archived rows key as "completed", so they can never match "allocated".
+    const workOrders = await workOrdersInStatuses(ctx, UNARCHIVED, args.team);
     const siteIds = new Set<Id<"sites">>();
 
     for (const workOrder of workOrders) {
       if (
-        workOrder.assigned_team === args.team &&
         workOrder.site_id !== undefined &&
         deriveStatus(workOrder) === "allocated"
       ) {
@@ -897,15 +929,13 @@ export const listAllocatedWorkOrders = query({
       throw new ConvexError("Your session has expired. Sign in again and retry.");
     }
 
-    const rows = await ctx.db
-      .query("workorders")
-      .withIndex("by_upload_date")
-      .order("desc")
-      .collect();
-
-    const allocated = rows.filter(
-      (row) => row.assigned_team === args.team && deriveStatus(row) === "allocated",
+    // Only the team's unarchived rows are read, then put back in the
+    // newest-upload-first order a descending `by_upload_date` walk gave.
+    const rows = (await workOrdersInStatuses(ctx, UNARCHIVED, args.team)).sort(
+      newestUploadFirst,
     );
+
+    const allocated = rows.filter((row) => deriveStatus(row) === "allocated");
 
     const sites = await Promise.all(
       allocated.map((row) => (row.site_id ? ctx.db.get(row.site_id) : null)),
@@ -1050,16 +1080,14 @@ export const listWorkOrdersForArea = query({
   handler: async (ctx, args) => {
     await requireIdentity(ctx);
 
-    const all = await ctx.db.query("workorders").collect();
+    // Archived rows (superseded by a later import) are left unread — this list
+    // sits behind the counts in `byAreaForTeam`, so the two have to agree
+    // about what exists.
+    const all = await workOrdersInStatuses(ctx, UNARCHIVED, args.team);
     const sitesMap = await sitesById(ctx);
     const rows = all.filter((row) => {
-      // Superseded by a later import — this list sits behind the counts in
-      // `byAreaForTeam`, so the two have to agree about what exists.
-      if (row.current_status === "archived") return false;
-
       const site = row.site_id ? sitesMap.get(row.site_id) : null;
       if (areaLabel(row, site) !== args.train_line) return false;
-      if (row.assigned_team !== args.team) return false;
       const status = deriveStatus(row);
       return status === "completed" || status === "allocated";
     });

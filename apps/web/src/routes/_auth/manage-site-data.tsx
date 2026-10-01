@@ -179,18 +179,40 @@ function ManageSiteDataPage() {
       until_ms: untilMs,
     }),
   );
-  const counts = useStickyValue(
-    useQuery(api.sites.counts, {
-      area: scopedArea,
-      search: debouncedSearch,
-      since_ms: sinceMs,
-      until_ms: untilMs,
-    }),
-  );
 
   // No arguments, so Convex computes this once per data change and shares it —
   // filtering as the user types happens in the browser.
-  const searchOptions = useQuery(api.sites.searchOptions);
+  const overview = useQuery(api.sites.overview);
+  const searchOptions = overview?.searchOptions;
+
+  // With no filter at all the tab counts are the overview's totals, so
+  // `sites.counts` is only asked once something narrows the set.
+  const isUnfiltered =
+    debouncedSearch.trim() === "" &&
+    scopedArea === undefined &&
+    sinceMs === undefined &&
+    untilMs === undefined;
+  const filteredCounts = useQuery(
+    api.sites.counts,
+    isUnfiltered
+      ? "skip"
+      : {
+          area: scopedArea,
+          search: debouncedSearch,
+          since_ms: sinceMs,
+          until_ms: untilMs,
+        },
+  );
+  const counts = useStickyValue(
+    isUnfiltered && overview
+      ? {
+          all: overview.stats.total,
+          completed: overview.stats.completed,
+          incomplete: overview.stats.incomplete,
+          missing: overview.stats.missing,
+        }
+      : filteredCounts,
+  );
 
   // Deleting is admin-only. The backend enforces it too — this only decides
   // whether office staff are shown a control they would be refused.

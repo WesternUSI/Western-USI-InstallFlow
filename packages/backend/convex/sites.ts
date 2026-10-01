@@ -172,20 +172,23 @@ function withinCreated(
 }
 
 /** The four headline numbers above the Manage Site Data table. */
+function summarizeSites(all: Doc<"sites">[]) {
+  const counts = { total: 0, completed: 0, incomplete: 0, missing: 0 };
+
+  for (const site of all) {
+    counts.total++;
+    counts[deriveDetailStatus(site)]++;
+  }
+
+  return counts;
+}
+
 export const stats = query({
   args: {},
   handler: async (ctx) => {
     await requireIdentity(ctx);
 
-    const all = await ctx.db.query("sites").collect();
-    const counts = { total: 0, completed: 0, incomplete: 0, missing: 0 };
-
-    for (const site of all) {
-      counts.total++;
-      counts[deriveDetailStatus(site)]++;
-    }
-
-    return counts;
+    return summarizeSites(await ctx.db.query("sites").collect());
   },
 });
 
@@ -195,8 +198,21 @@ export const areas = query({
   handler: async (ctx) => {
     await requireIdentity(ctx);
 
-    const all = await ctx.db.query("sites").collect();
-    return [...new Set(all.map((site) => site.area).filter((area) => area !== ""))].sort();
+    // `by_area` keeps sites sorted by area, so asking for the first row past
+    // the last area found hops over every other site in that area. That reads
+    // one row per distinct area instead of the whole table.
+    const areas: string[] = [];
+    let last: string | undefined;
+    while (true) {
+      const next = await ctx.db
+        .query("sites")
+        .withIndex("by_area", (q) => (last === undefined ? q : q.gt("area", last)))
+        .first();
+      if (next === null) break;
+      if (next.area !== "") areas.push(next.area);
+      last = next.area;
+    }
+    return areas.sort();
   },
 });
 
@@ -287,28 +303,46 @@ export const list = query({
  * browser then filters it as the user types, which costs the backend nothing
  * per keystroke.
  */
+function buildSearchOptions(all: Doc<"sites">[]) {
+  const seen = new Map<string, { value: string; kind: string }>();
+
+  const add = (value: string | undefined, kind: string) => {
+    const trimmed = value?.trim();
+    if (!trimmed) return;
+    const key = `${kind}:${trimmed.toLowerCase()}`;
+    if (!seen.has(key)) seen.set(key, { value: trimmed, kind });
+  };
+
+  for (const site of all) {
+    add(site.area, "Location");
+    add(site.site, "Details");
+    add(site.panel_id, "Panel ID");
+  }
+
+  return [...seen.values()];
+}
+
 export const searchOptions = query({
   args: {},
   handler: async (ctx) => {
     await requireIdentity(ctx);
 
+    return buildSearchOptions(await ctx.db.query("sites").collect());
+  },
+});
+
+/**
+ * `stats` and `searchOptions` in one read. Manage Site Data needs both, and two
+ * separate queries each walked the whole sites table on every change. Takes no
+ * arguments, so one shared result is reused by everyone, like the two it replaces.
+ */
+export const overview = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireIdentity(ctx);
+
     const all = await ctx.db.query("sites").collect();
-    const seen = new Map<string, { value: string; kind: string }>();
-
-    const add = (value: string | undefined, kind: string) => {
-      const trimmed = value?.trim();
-      if (!trimmed) return;
-      const key = `${kind}:${trimmed.toLowerCase()}`;
-      if (!seen.has(key)) seen.set(key, { value: trimmed, kind });
-    };
-
-    for (const site of all) {
-      add(site.area, "Location");
-      add(site.site, "Details");
-      add(site.panel_id, "Panel ID");
-    }
-
-    return [...seen.values()];
+    return { stats: summarizeSites(all), searchOptions: buildSearchOptions(all) };
   },
 });
 
@@ -330,14 +364,21 @@ export const counts = query({
     const { area, since_ms, until_ms } = args;
 
     // Same in-memory match as `list`, so the tab numbers can never disagree
-    // with the rows shown.
-    const all = await ctx.db.query("sites").collect();
-    const rows = all.filter(
-      (site) =>
-        (area === undefined || site.area === area) &&
-        matchesSearch(site, term) &&
-        withinCreated(site, since_ms, until_ms),
-    );
+    // with the rows shown. With only an area chosen, nothing else narrows the
+    // set, so `by_area` returns exactly those rows without reading the rest.
+    const areaOnly = term === "" && since_ms === undefined && until_ms === undefined;
+    const rows =
+      areaOnly && area !== undefined
+        ? await ctx.db
+            .query("sites")
+            .withIndex("by_area", (q) => q.eq("area", area))
+            .collect()
+        : (await ctx.db.query("sites").collect()).filter(
+            (site) =>
+              (area === undefined || site.area === area) &&
+              matchesSearch(site, term) &&
+              withinCreated(site, since_ms, until_ms),
+          );
 
     const counts = { all: 0, completed: 0, incomplete: 0, missing: 0 };
     for (const site of rows) {

@@ -29,7 +29,7 @@ function Tile({ icon: Icon, iconClass, label, value, valueClass, description }: 
 
 /** The four headline numbers above the Manage Site Data table. */
 export function SiteStats() {
-  const stats = useQuery(api.sites.stats);
+  const stats = useQuery(api.sites.overview)?.stats;
 
   return (
     <section className="rounded-xl border border-gray-100 bg-white shadow-sm">
