@@ -29,7 +29,7 @@ export interface MemberOption {
   name: string;
   email: string;
   team?: string;
-  role?: "installer" | "office_staff" | "admin";
+  role?: "installer" | "admin" | "subcontractor" | "management";
 }
 
 interface AddMembersDialogProps {

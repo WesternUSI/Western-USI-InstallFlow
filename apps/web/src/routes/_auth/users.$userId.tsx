@@ -28,11 +28,13 @@ export const Route = createFileRoute("/_auth/users/$userId")({
 });
 
 const NO_TEAM = "__none__";
+const NO_SUBCONTRACTOR = "__none__";
 
 interface FormState {
   name: string;
   workEmail: string;
   team: string;
+  subcontractor: string;
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -51,11 +53,17 @@ function UserDetailPage() {
 
   const user = useQuery(api.users.get, { id });
   const teamNames = useTeamNames();
+  const subcontractors = useQuery(api.subcontractors.list) ?? [];
   const updateAccount = useAction(api.users.updateAccount);
   const resendCredentials = useAction(api.users.resendCredentials);
   const removeUser = useAction(api.users.removeUser);
 
-  const [form, setForm] = useState<FormState>({ name: "", workEmail: "", team: NO_TEAM });
+  const [form, setForm] = useState<FormState>({
+    name: "",
+    workEmail: "",
+    team: NO_TEAM,
+    subcontractor: NO_SUBCONTRACTOR,
+  });
   const [isSaving, setIsSaving] = useState(false);
   const [isSendingCredentials, setIsSendingCredentials] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
@@ -64,8 +72,19 @@ function UserDetailPage() {
 
   useEffect(() => {
     if (user == null) return;
-    setForm({ name: user.name, workEmail: user.email, team: user.team ?? NO_TEAM });
+    setForm({
+      name: user.name,
+      workEmail: user.email,
+      team: user.team ?? NO_TEAM,
+      subcontractor: user.subcontractor_id ?? NO_SUBCONTRACTOR,
+    });
   }, [user]);
+
+  // A subcontractor's login or worker only sees the WHS side, so they never have a team.
+  const isSubcontractorLogin = user?.role === "subcontractor";
+  // Management oversees compliance rather than installing, so they have no team either.
+  const whsOnly =
+    isSubcontractorLogin || user?.role === "management" || form.subcontractor !== NO_SUBCONTRACTOR;
 
   function goBack() {
     void navigate({ to: "/users" });
@@ -87,8 +106,10 @@ function UserDetailPage() {
       await updateAccount({
         user_id: id,
         name: form.name.trim(),
-        team: form.team === NO_TEAM ? undefined : (form.team as Team),
+        team: whsOnly || form.team === NO_TEAM ? undefined : (form.team as Team),
         work_email: workEmail,
+        subcontractor_id:
+          form.subcontractor === NO_SUBCONTRACTOR ? null : (form.subcontractor as Id<"subcontractors">),
       });
       toast.success("Account details saved");
       goBack();
@@ -181,33 +202,73 @@ function UserDetailPage() {
                 </p>
               </Field>
 
-              <Field label="Current Team">
-                <Select
-                  value={form.team}
-                  onValueChange={(value) => setForm({ ...form, team: value as string })}
-                >
-                  <SelectTrigger className="h-[38px] w-full rounded-lg border-slate-300 bg-white px-3 text-sm text-slate-800">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent
-                    alignItemWithTrigger={false}
-                    className="rounded-lg border border-slate-200 bg-white shadow-lg"
+              {!whsOnly && (
+                <Field label="Current Team">
+                  <Select
+                    value={form.team}
+                    onValueChange={(value) => setForm({ ...form, team: value as string })}
                   >
-                    <SelectItem value={NO_TEAM} className="rounded-md px-3 py-2 text-sm text-slate-700">
-                      Unassigned
-                    </SelectItem>
-                    {teamNames.map((team) => (
-                      <SelectItem
-                        key={team}
-                        value={team}
-                        className="rounded-md px-3 py-2 text-sm text-slate-700"
-                      >
-                        {team}
+                    <SelectTrigger className="h-[38px] w-full rounded-lg border-slate-300 bg-white px-3 text-sm text-slate-800">
+                      <SelectValue>{form.team === NO_TEAM ? "Unassigned" : form.team}</SelectValue>
+                    </SelectTrigger>
+                    <SelectContent
+                      alignItemWithTrigger={false}
+                      className="rounded-lg border border-slate-200 bg-white shadow-lg"
+                    >
+                      <SelectItem value={NO_TEAM} className="rounded-md px-3 py-2 text-sm text-slate-700">
+                        Unassigned
                       </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
+                      {teamNames.map((team) => (
+                        <SelectItem
+                          key={team}
+                          value={team}
+                          className="rounded-md px-3 py-2 text-sm text-slate-700"
+                        >
+                          {team}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+              )}
+
+              {(user?.role === "installer" || isSubcontractorLogin) && (
+                <Field label="Subcontractor">
+                  <Select
+                    value={form.subcontractor}
+                    onValueChange={(value) => setForm({ ...form, subcontractor: value as string })}
+                  >
+                    <SelectTrigger className="h-[38px] w-full rounded-lg border-slate-300 bg-white px-3 text-sm text-slate-800">
+                      <SelectValue>
+                        {subcontractors.find((option) => option._id === form.subcontractor)?.name ??
+                          "None (Western USI)"}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent
+                      alignItemWithTrigger={false}
+                      className="rounded-lg border border-slate-200 bg-white shadow-lg"
+                    >
+                      {!isSubcontractorLogin && (
+                        <SelectItem
+                          value={NO_SUBCONTRACTOR}
+                          className="rounded-md px-3 py-2 text-sm text-slate-700"
+                        >
+                          None (Western USI)
+                        </SelectItem>
+                      )}
+                      {subcontractors.map((option) => (
+                        <SelectItem
+                          key={option._id}
+                          value={option._id}
+                          className="rounded-md px-3 py-2 text-sm text-slate-700"
+                        >
+                          {option.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+              )}
 
               <div className="flex justify-end gap-3 border-t border-slate-200 pt-5">
                 <Button

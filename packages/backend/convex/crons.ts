@@ -18,4 +18,10 @@ crons.hourly(
   {},
 );
 
+/**
+ * Accreditation reminders (WHS framework 7). Runs every hour but only acts at
+ * 8am business time — see `sweepAtEight`.
+ */
+crons.hourly("whs reminders", { minuteUTC: 5 }, internal.whsReminders.sweepAtEight, {});
+
 export default crons;

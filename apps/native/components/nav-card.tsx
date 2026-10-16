@@ -1,14 +1,18 @@
 import { Ionicons } from "@expo/vector-icons";
 import type { ComponentProps } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Image, type ImageSourcePropType, Pressable, Text, View } from "react-native";
 
 type NavCardProps = {
   accent: string;
   iconTint: string;
   iconBackground: string;
   icon: ComponentProps<typeof Ionicons>["name"];
+  /** Replaces the Ionicons glyph with a bundled image. */
+  iconImage?: ImageSourcePropType;
   title: string;
   subtitle: string;
+  /** Small pill in the top-right corner, e.g. "4 items need action". */
+  badge?: string;
   onPress?: () => void;
 };
 
@@ -17,8 +21,10 @@ export function NavCard({
   iconTint,
   iconBackground,
   icon,
+  iconImage,
   title,
   subtitle,
+  badge,
   onPress,
 }: NavCardProps) {
   return (
@@ -41,7 +47,11 @@ export function NavCard({
           className="items-center justify-center rounded-2xl"
           style={{ width: 56, height: 56, backgroundColor: iconBackground }}
         >
-          <Ionicons name={icon} size={26} color={iconTint} />
+          {iconImage ? (
+            <Image source={iconImage} style={{ width: 35, height: 35 }} resizeMode="contain" />
+          ) : (
+            <Ionicons name={icon} size={26} color={iconTint} />
+          )}
         </View>
 
         <View className="ml-4 flex-1">
@@ -53,6 +63,12 @@ export function NavCard({
 
         <Ionicons name="chevron-forward" size={22} color={accent} />
       </View>
+
+      {badge ? (
+        <View className="absolute right-4 top-2 rounded-md bg-[#ffecec] px-3 py-1">
+          <Text className="text-[12px] font-medium text-[#dc2626]">{badge}</Text>
+        </View>
+      ) : null}
     </Pressable>
   );
 }

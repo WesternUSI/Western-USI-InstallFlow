@@ -157,7 +157,7 @@ function LoginForm() {
           }}
         >
           <Image
-            source={require("@/assets/images/WESTERN USI-01 1.png")}
+            source={require("@/assets/images/western-usi-logo.png")}
             style={{ width: 270, height: 33 }}
             resizeMode="contain"
           />

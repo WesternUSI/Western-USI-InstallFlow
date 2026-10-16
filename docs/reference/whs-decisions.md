@@ -1,0 +1,184 @@
+# WHS decisions log
+
+Decisions made while building the WHS and Compliance Register where the framework
+(`whs-framework.md`) is silent, open-ended, or differs. Read this together with the
+framework. The framework stays the source of truth; this file records what we chose
+on top of it, so we can revisit it.
+
+## The rule
+
+If a decision the user gives **contradicts or goes beyond** the framework, do not build
+it quietly. Say exactly which section it conflicts with, ask for explicit permission,
+and only then implement and log it here as **Permission given**. Decisions where the
+framework is simply silent can be built once the user confirms, and are logged as
+**Confirmed**.
+
+Statuses: **Confirmed** (user decided, framework silent or consistent) ·
+**Needs permission** (conflicts with / extends the framework, not yet approved) ·
+**Open** (question not yet answered) · **Client** (confirmed by the client, Mitch).
+
+Update this file in the same change that builds the decision.
+
+---
+
+## Access and people
+
+| # | Decision | Framework | Status |
+|---|---|---|---|
+| A1 | Subcontractor workers are app users with their own logins (Option 1), so SWMS acknowledgements and first-aid inspections come from the individual. | §4D, §10 say nothing about worker logins. | Client |
+| A2 | Subcontractor people (workers and logins) get the WHS side only: no work orders, sites or teams. Derived from the subcontractor link in one helper (`isWhsOnly`) until per-person scoping exists. | §3 (show each user only what is relevant). | Client ("at this stage") |
+| A3 | Per-person access scoping (work orders / WHS / both, applicable items) is deferred. | Client asked for it at onboarding. | Confirmed |
+| A4 | The admin adds subcontractors and their workers. Subcontractors do not add workers themselves for now. | §10 lets the contact upload evidence only. | Confirmed |
+| A5 | New `subcontractor` role = a subcontractor business's login, several allowed per subcontractor. It opens the installer app (WHS only) and later a separate subcontractor panel, never the admin dashboard, and vice versa. Admin access cannot be granted to subcontractor accounts. | §10 defines the Subcontractor contact role. | Confirmed |
+| A6 | A subcontractor's workers keep the `installer` role with the subcontractor attached. | — | Confirmed |
+
+## Statuses and dates
+
+| # | Decision | Framework | Status |
+|---|---|---|---|
+| S1 | The first upload of an accreditation shows **Awaiting verification**. Any later upload (a renewal) shows **Renewal in progress**, even if the old document has expired. | §6 lists both statuses but not what triggers each. | Confirmed |
+| S2 | **Due soon** starts at the first reminder (the longest lead, 60 days for accreditations) and is changeable later through the type's reminder days. | §6, §7: reminder days given, due-soon window not defined. | Confirmed |
+| S3 | A **rejected** upload shows the worker **Action required** with the admin's reason, in Needs Attention, until they upload again. | §6 has the status; rejection is not described. | Confirmed |
+| S4 | **Missing** = a required accreditation type with no evidence uploaded. | §6 lists Missing without defining it. | Confirmed |
+| S6 | A blank expiry date on an upload means the accreditation does not expire. The form labels it "Expiry date (if any)". A worker's upload still waits for the admin, who adds or corrects the expiry date while verifying if one is needed. | §4B: "Expiry date or no expiry"; §8 step 5. | Confirmed |
+| S5 | A rejected renewal shows Action required, even if the previous document is still valid. | — | Confirmed |
+
+## Requirements and types
+
+| # | Decision | Framework | Status |
+|---|---|---|---|
+| R1 | Each subcontractor's workers must hold every accreditation type by default (White Card, First Aid, RIW, PTA, Working at Heights, EWP, ASIC, Airport, driver's licence, client-specific inductions). | §4D lists "Required inductions" and "Other client requirements" on the subcontractor profile, which supports a per-subcontractor required set. | Confirmed |
+| R2 | The subcontractor adds or removes required types for its own workers from the subcontractor panel (later). | §10: the contact can only **view** their business requirements. | **Needs permission** (not needed until the panel is built) |
+| R3 | Accreditation types live in an admin-editable table, so "other client-specific inductions" are added as types instead of free text. | §4B lists "Other client-specific inductions" as a category. | Confirmed (built 16 Oct, AD31) |
+| R4 | Western USI is an entity like a subcontractor, with its own required list (stored as requirement rows with no subcontractor). Its installers get the Safety side on mobile; admins check evidence for Western USI and every subcontractor. It starts with every type, like subcontractors ("like other subcontractors"). | §4B covers employees but defines no required set. | Confirmed (full list assumed from "like other subcontractors") |
+| R6 | Subcontractor-role logins that use the app are treated as workers and follow their subcontractor's required list. Scoping a login out waits for per-person scoping. | §10 | Confirmed |
+| R7 | A new subcontractor starts with every active type as required. A type added later is not required of anyone until it is added to a list. | — | Confirmed |
+| R5 | Work Contract (Figma "Subcon01") is not an accreditation; it belongs to the subcontractor profile as the signed agreement. | §4D. | Confirmed (built 15 Oct, AD30) |
+
+## Verification
+
+| # | Decision | Framework | Status |
+|---|---|---|---|
+| V1 | Admins verify all evidence for now (the framework's rule). Management may verify designated items. Workers never verify. The permission check lives in one function so it can change later. | §5 ("whether an administrator has checked the evidence"), §8 step 5, §10. | Confirmed (framework as written) |
+| V2 | Two layers (the subcontractor verifies its own workers). **Not adopted**: the user confirmed approval stays with the admin, as the framework says. A subcontractor-side verification right would still need explicit permission. | §5, §8, §10. | Decided: framework as written |
+| V4 | Evidence an admin uploads is recorded as verified by them straight away; worker and subcontractor uploads wait for review. | §3 (admin steps have no verification step), §10 (admins upload and verify). | Confirmed |
+| V3 | An admin may verify evidence they uploaded themselves. | §10: only the subcontractor contact is barred from verifying their own documents. | Confirmed (framework default) |
+
+## Installer app (accreditations)
+
+| # | Decision | Framework | Status |
+|---|---|---|---|
+| U1 | The upload form has an optional "Card / licence no." field. The Figma omits it. | §4B lists the licence or card number. | Confirmed (framework over Figma) |
+| U2 | The Issued date field stays visible after a file is attached. The Figma hides it on that screen. | §4B lists the issue date. | Confirmed (framework over Figma) |
+| U3 | Dates are picked from a calendar that opens on the field (built in plain React Native, no new native module), shown day first as `dd/mm/yyyy`. Optional dates have a Clear button. Used on the accreditation upload, the on-site change and the kit inspection. | Silent. | Confirmed |
+| U4 | The submit button is always active. Missing or invalid fields get a specific toast and a red field message, rather than a greyed-out button. | Silent. | Confirmed (global form rule) |
+| U5 | Needs Attention and the Home badge count accreditations to act on, documents to acknowledge, and assigned kits that are due soon, overdue or have an open issue. | — | Confirmed |
+| U6 | A worker re-uploading before the office has looked replaces their earlier pending upload (kept as history). | Silent. | Confirmed |
+| U7 | The Safety page's "Upload a Document" button is hidden (kept in the code behind a switch). Workers upload accreditation evidence from My Accreditations only; they do not upload SWMS or other documents. | §10 | Confirmed |
+
+## Management role
+
+| # | Decision | Framework | Status |
+|---|---|---|---|
+| M1 | A `management` role exists: Western USI's own management, who oversee company and subcontractor compliance and receive escalations. It is not a subcontractor's own management (that is the subcontractor login). Never on a team and never attached to a subcontractor. No dashboard or app access yet; it exists to receive escalations. | §10 Management | Confirmed |
+
+## Reminders and notifications
+
+| # | Decision | Framework | Status |
+|---|---|---|---|
+| N1 | Reminders are emailed through Resend by one check that runs at 8am business time (`Australia/Sydney`) each day, working out what is due from the data and logging each one sent, instead of scheduling jobs per accreditation. Emails are paced 0.6s apart, and a rate limit or temporary Resend error is retried up to 4 times before the reminder is left for the next day. | §7 | Confirmed |
+| N2 | Before expiry the worker is reminded at each lead time (60, 30, 14, 7 days by default, per type). A lead time the accreditation was already inside when verified is skipped, so only reminders still ahead are sent. | §7 | Confirmed |
+| N3 | After expiry the worker and the admin recipient list get a notice the day after expiry and then weekly until renewed. | §7 | Confirmed |
+| N4 | Escalation: once, to management, after an accreditation has been overdue `escalate_after_days` (default 14, per type). | §7 ("a configurable period") | Confirmed (14-day default assumed) |
+| N5 | No reminders while a renewal is waiting for the office, since the worker has acted. | §7 | Confirmed |
+| N6 | Worker reminders carry a link to the accreditation. It points at a small public page on the web app that opens the mobile app (mail apps often won't open a custom app link), via the `WEB_APP_URL` setting; without it the email uses the app's own link. The user first chose no link, then asked for one. Admin and management notices carry no link, since they don't use the app. | §7: each reminder has a direct link to the record. | Permission given (the user asked for the link) |
+| N7 | The audit table also records reminders sent and escalations (with a key so none repeats). Still to add: edits and overrides. | §11 | Confirmed |
+| N8 | Mobile push notifications are deferred. | — | Temporary |
+| N9 | The worker is emailed when the office approves an accreditation (with the expiry date) or rejects it (with the reason), each with the same link. An admin's own upload is verified straight away and sends no email. | §3, §8 ("You will be notified once it is approved" is in the app) | Confirmed |
+
+## Documents (SWMS, SDS, safety documents) and medical centres
+
+| # | Decision | Framework | Status |
+|---|---|---|---|
+| D1 | **"Acknowledge and sign"**: each worker signs in their own app with their own saved digital signature, attached to each acknowledgement with the time and the document version. This is also each person's SWMS sign-off; the SWMS's paper "Consultation and Sign-Off" section is not built separately. The signature is drawn once in the app, stored as drawn strokes, and a copy is kept on each acknowledgement so redrawing it never changes a past one. | §4A asks for acknowledgement only, not a signature. | Client (built) |
+| D2 | A **"Raise Concern or Question"** button on every document that needs acknowledging and signing (still shown after signing). The message is stored and the admin recipient list is emailed. | Not in the framework. | Client (built) |
+| D3 | **Dynamic SWMS review**: one standard in-app "On-site change" form for every SWMS (approach A), modelled on section 11 of the client's Airport SWMS: date/time, change or new hazard, risk before, additional control or revised method, risk after (the SWMS's 1A–4D matrix), "approved / briefed by" as free text, plus optional site, what triggered it, photos and notes. Each affected worker signs it in their own app with their saved signature. Saved against that SWMS version; the admin is emailed and validates it (Awaiting review, then validated or sent back with a reason). Work is not held up waiting for the admin. The reporter signs it in the same step as recording it ("Record & Sign"); everyone else affected signs it afterwards from the SWMS. A change sent back emails the reporter with the reason; they record it again (no editing). A validated change sends no email. A change belongs to the SWMS version it was recorded on: once the admin issues a new version, older changes no longer show on the SWMS but are kept intact with their version in the history. | Not in the framework (§4A covers versions and acknowledgements only). | Client (built) |
+| D4 | Medical centres come from a list the company keeps (name, address, phone, GPS co-ordinates, opening hours as free text, optional type and notes), shown nearest first from the phone's location, with the hours as written. Mitch supplies it as an Excel sheet and we load it; the table is shaped from his data. No Google lookup of any kind, and no "Open now" label (Figma only). | §4A ("List of Medical Centres" as a register document), §3 ("with opening hours sorted geographically by closest first"), §10. | Confirmed (framework as written) |
+| D13 | Mitch's sheet ("Medical centres.xlsx", reviewed 8 Oct 2026) is loaded as it came: rows 3–52, one row per listed suburb, columns kept (suburb, practice, address, phone, Mon–Fri, Saturday, Sunday, GPS); his notes in rows 54–59 are left out. Hours are shown exactly as written, including "Not confirmed" and "Not published". Rows for the same practice at the same address (50 rows, 26 practices) are shown once, searchable by any of their suburbs. | §3, §4A | Confirmed |
+| D14 | Nearest first uses the phone's location, as Optimize Route does. The list is sorted by straight-line distance ("geographically", §3); Google's Routes API (the key Optimize Route already uses) adds the drive distance and time for the closest 8 only, to keep the Google cost small. The order never depends on Google, so the list still works if Google fails. | §3 | Confirmed (user asked for the Optimize Route approach) |
+| D15 | Location is required on the Medical Centres screen. Until it's on, a banner at the top says why and has a "Turn On Location" button: it shows the phone's permission prompt, or opens Settings when location is switched off or the prompt was refused for good. The screen checks again on returning from Settings. | §3 is silent on no location. | Confirmed |
+| D5 | Once a worker has acknowledged the current version, the document shows **Current**. No separate "Acknowledged" status. | §6 status list. | Confirmed (framework as written) |
+| D6 | For now every worker sees every document. When the admin dashboard is built, it follows the framework: only the Western USI admin adds documents; each document is marked with who it applies to (Western USI, particular subcontractors, particular workers, clients or work types), and each worker, Western USI or subcontractor, sees and signs only what applies to them. Subcontractors do not post their own documents (§10). | §4A ("applicable workers, clients or work types"), §3, §4D ("SWMS acknowledgements" on the subcontractor profile), §10. | Confirmed (framework as written; filter built with the admin dashboard) |
+| D7 | A worker is emailed when a document version needs their acknowledgement, then weekly until they acknowledge. Anyone who has already acknowledged the current version is not emailed. | §7 is silent on acknowledgements; §4A only says workers "should be asked". | Confirmed (weekly kept by the user) |
+| D8 | The document detail shows a file card (name and Open button) instead of the Figma's page thumbnail. | Silent (Figma only). | Confirmed |
+| D9 | Who is asked to acknowledge: **installers only**, Western USI's and subcontractors' workers alike. Admins, office staff, management and subcontractor logins (the business accounts) can open documents but are not asked. Subcontractor logins still hold accreditations (R6). | §10 (worker/installer acknowledges). | Confirmed (changed 15 Oct: subcontractor logins no longer asked) |
+| D10 | Acknowledgement emails go out at the 8am check after a version is issued, then weekly, as one email per worker listing everything they still have to sign. | §7 silent. | Confirmed (one combined email assumed) |
+| D11 | Review reminders (SWMS and policies 30, 14, 7 days; SDS 60, 30) go to the document's responsible person, or the admin recipient list when none is set. Once overdue: weekly to them and the admin list; escalated to management once after 14 days. As with N2, a lead time the version was already inside when issued is skipped. | §7 | Confirmed (14-day escalation assumed, as N4) |
+| D12 | On-site changes are not in Needs Attention: until people are assigned (D6) the app can't tell who is affected. Each worker sees them on the SWMS and signs there. | — | Temporary |
+
+## First-aid kits
+
+| # | Decision | Framework | Status |
+|---|---|---|---|
+| K1 | No admin review of kit inspections. On submit the next date is set and the kit is **Action required** only while an issue is unresolved, as §8 says. | §8 "First-aid kit inspection". | Decided: framework as written |
+| K2 | Default inspection frequency is every 3 months, changeable per kit (the field §4F lists). Asked Mitch for the real default on 13 Oct. | §4F lists "Inspection frequency" without a value. | Confirmed (temporary until Mitch answers) |
+| K3 | An installer can mark a kit's issue resolved (recording the "corrective action completed date" from §4F). The kit goes back to Current, and the next inspection date stays as scheduled; it is not brought forward or reset. | §8: the kit "remains Action required only if an identified issue has not been resolved". | Confirmed |
+| K4 | A kit is inspected by its responsible person ("assigned" in §10); only they (and admins) see it in the app. A kit's status is worked out: **Action required** while an issue is open, **Overdue** after the next inspection date, **Due soon** from the first reminder (14 days, as S2), otherwise **Current**. | §6, §10 | Confirmed |
+| K5 | On the inspection, the earliest stock expiry date is required (§4F lists it as a key field; only the photo is called optional). When any check is Action, "Corrective action required" must be described. Items replaced, notes and one photo are optional. The submit button is always active; missing answers are marked in red (global form rule). | §4F, §8 | Confirmed |
+| K6 | Kit reminders: 14 and 7 days before, to the responsible person (the admin list if none); weekly once overdue, to them and the admin list; escalated to management once after 14 days, the same pattern as accreditations. No reminder for an open issue (§7 doesn't list one). | §7 | Confirmed (14-day escalation assumed, as N4) |
+
+## Vehicles
+
+| # | Decision | Framework | Status |
+|---|---|---|---|
+| VH1 | Western USI vehicles are added and kept up to date by admin staff, in the admin dashboard. | §4E, §10 (Administrator) | Client (Mitch, 14 Oct) |
+| VH2 | Services are recorded by the office ("Mark service complete", §8) in the admin dashboard. Installers do nothing for vehicles, so the installer app gets no vehicle screen. | §8 ("User"), §3 | Client (Mitch, 14 Oct) |
+| VH3 | Vehicles are shared company vehicles, not assigned to installers. The responsible person (§5) for a vehicle's reminders is admin staff. | §5, §7 | Client (Mitch, 14 Oct); responsible person assumed |
+| VH4 | Subcontractor vehicles are not tracked. | §4E ("where required") | Client (Mitch, 14 Oct) |
+
+## Admin dashboard (Figma "Admin Webapp Flow", WHS section)
+
+The admin Safety screens are built from the Figma as UI first, on sample data
+(`apps/web/src/lib/whs-sample.ts`), to be wired to the backend screen by screen.
+Where the Figma differs from the framework or a decision above, the framework wins:
+
+| # | Decision | Framework | Status |
+|---|---|---|---|
+| AD1 | The Safety Dashboard has every card §9 lists; the Figma's missing "Due within 60 days" and "Renewals in progress" are added, and its extra "Out of service" and "Records in register" are kept. | §9 | Confirmed (framework over Figma) |
+| AD2 | "Add Safety Record" also offers Insurance, which the Figma's chooser left out. | §4C | Confirmed (framework over Figma) |
+| AD3 | Forms gain fields the framework lists and the Figma lacks: vehicle year, insurance expiry and last service date (next service is worked out); insurance policy start date; kit type. | §4C, §4E, §4F | Confirmed (framework over Figma) |
+| AD4 | Vehicles are Western USI only: no entity choice, filter or column. | VH4 | Confirmed |
+| AD5 | An admin's own upload (accreditation, insurance renewal, signed agreement) is saved as verified, so the Figma's "Saved for verification" (SC05) is not used for admin uploads; it applies only to what a subcontractor uploads, verified on SC07. | V4 | Confirmed |
+| AD6 | Kit inspections have no review: "Review Inspection" is "View Inspection", and the corrective action ends when marked Completed (not "completed and reviewed"). | K1, K3 | Confirmed |
+| AD7 | Roles & Permissions follows §10 and D9: Management doesn't upload evidence; admins and management aren't asked to acknowledge; a subcontractor contact never gets verification permission (the Figma's G3 said "Granted"). | §10, D9 | Confirmed (framework over Figma) |
+| AD8 | Subcontractor workers have no team, so the Figma's team filter and team field on the subcontractor screens are left out. | A2 | Confirmed |
+| AD9 | Wording that promises Stage 4 behaviour ("excluded from allocation", "warning for allocation") is softened until allocation warnings are built. | §13 stage 4 | Confirmed |
+| AD10 | The admin's verify screen lets the admin add the expiry date when the worker left it blank. | S6 | Confirmed |
+| AD11 | The Management and Subcontractor portal flows in the same Figma are separate portals and are not part of the admin panel build. | §10 | Confirmed (scope) |
+| AD12 | The Compliance Register has its own sidebar entry and opens with no filters. Every dashboard card opens it pre-filtered (§9 "the filtered list behind it"). Its filters: category (§5's list, plus other safety documents), Western USI or subcontractor, status (§6, "Overdue/Expired" as one, plus "Needs action" for the vehicle and first-aid cards and "Acknowledgements outstanding" for the SWMS card) and the due-date range the "Due within" cards set. The user asked to drop the worker, vehicle, responsible-person and date-range controls for now (15 Oct); revisit if needed. Filters live in the page address. | §5, §6, §9 | Confirmed |
+| AD13 | The register, dashboard cards and "Compliance by entity" read real data (`whsAdmin.register`): accreditations (every required one, Missing included), safety documents (status from the review date; a current one with workers still to sign shows Action required) and kits. Vehicle cards show "—" until vehicles have a backend. Record details are not wired yet. | §6, §9 | Confirmed |
+| AD14 | Reminder emails are switched off on the development deployment (`WHS_REMINDERS_OFF=true`), so test data never emails anyone. Production is unaffected. Dummy accreditations and kits for the real dev accounts come from `whsDemo:seed`. | — | Confirmed (user asked for test data, 15 Oct) |
+| AD15 | Insurance (framework 4C) is a policy with certificates of currency underneath; previous certificates are kept, never overwritten. Its status is worked out like an accreditation's, due soon from 60 days. An admin's own upload or renewal is verified straight away (V4); a subcontractor's upload waits for the admin (SC07). | §4C, §6, §7, V4 | Confirmed |
+| AD16 | A vehicle shows one status, the most urgent: Out of service, Registration expired, Insurance expired, Service overdue, Registration expiring, Service due soon, Insurance expiring, Current. "Insurance expired" is added to §4E's list. The next service is worked out from the last service and the interval. Out-of-service vehicles are not chased by reminders. | §4E, §6, §8 | Confirmed |
+| AD17 | Insurance and vehicle reminders follow §7 (insurance and registration 60, 30, 14, 7; service 30, 14, 7) to the responsible person or the admin list, weekly once overdue, escalated to management after 14 days (as N4). | §7 | Confirmed (14-day escalation assumed) |
+| AD18 | The admin can add evidence for a worker, including for a Missing accreditation, and can set or correct the expiry date while verifying (S6). "Send reminder" on a document emails the outstanding workers at once, except on a deployment with reminders off. | §8, §10, S6 | Confirmed |
+| AD19 | No per-record reminder override for now: each record uses its category's default schedule (framework 5, 7), shown read-only. The Figma's "Override schedule" is left out. If the client asks for it later: an optional per-record schedule, with a required reason, logged in the audit trail (framework 11 "overrides and reasons"). | §5, §7, §11 | Decided (user, 15 Oct) |
+| AD20 | No separate Verification Queue (Figma's sidebar page and dashboard button) and no "Full Register" button. The "Awaiting verification" and "Renewals in progress" cards open the register filtered to them (framework 9), and the register has its own sidebar entry. | §9 | Decided (user, 15 Oct) |
+| AD21 | Less to look at (user, 15 Oct): the Accreditation Matrix is a "List / Matrix" switch on Worker Accreditations, not its own menu entry; the dashboard has exactly framework 9's nine cards ("Records in register" and "Out of service" removed); the register's Status dropdown shows only framework 6's statuses (the cards' two helper filters appear only while applied); each details page shows the reminder schedule as one line instead of a card. Roles & Permissions and the Add Record chooser stay as they are. | §1, §9, §15 | Decided (user, 15 Oct) |
+| AD22 | Western USI has the same entity page as a subcontractor (decision R4): "Open entity" opens it with Overview, Business records (its own insurance), Workers (its installers), WHS requirements and History. The subcontractor-agreement row is left out for Western USI. | R4, §4D | Decided (user, 15 Oct) |
+| AD23 | The register has framework 9's seven filters: Category, Entity and Status always shown; Worker or subcontractor, Vehicle, Responsible person and the due-date range behind a "More filters" link, which stays open while any of them is applied. A kit counts as belonging to a vehicle when its location names it ("Vehicle 1EAB119"). | §9 | Confirmed (replaces AD12's "dropped for now") |
+| AD24 | On-site changes waiting for the admin (D3) show on the Safety Dashboard as an "On-site changes to review" card, only while there is at least one, and open the register filtered to the SWMS that have them ("N on-site changes to review"). | D3, §9 | Decided (user, 15 Oct) |
+| AD25 | Medical centres import works like the site and work order imports: uploading the sheet adds only rows not already in the list; rows already there (same practice name, address and listed suburb, ignoring case and spacing) are left as they are, so nothing is duplicated. Nothing is removed or changed by an upload. | §3, D13 | Decided (user, 15 Oct) |
+| AD26 | An entity's History tab (Western USI or a subcontractor) shows the real audit trail, newest first, 20 per page: every action on the records the register shows under that entity. For a subcontractor: its workers' accreditations, its insurance, kits its workers hold, and its workers' document acknowledgements. For Western USI: its own workers' accreditations and insurance, its kits (and kits held by no one), the safety documents and the vehicles. Each line says when, which record, what happened (same words as the record's activity card) and by whom ("System" for reminders), with Open to the record. | §11, §4D | Decided (user, 15 Oct) |
+| AD27 | Reports & Exports: the admin picks the period and entity once at the top, then clicks PDF or Excel on a report and the file downloads straight away. The Figma's "Configure Export" and "Export Ready" pages are left out. The period is used only by the reports that need it (items expiring, vehicle services, first-aid inspections); the others show things as they are today. The Western USI insurance and vehicle reports always cover Western USI. The audit report has its own record picker. If there is nothing to report, the admin is told instead of getting an empty file. PDF via jsPDF; Excel via xlsx, one sheet per table. | §12 | Decided (user, 15 Oct) |
+| AD28 | The whole Roles & Permissions page is hidden for now: its sidebar entry is removed, and the page is kept at /safety/roles in case it is wanted later (user, 15 Oct). Its "Subcontractor portal access" table and Enable / Disable page were hidden first. Access to the subcontractor portal is the subcontractor login itself, invited and removed on the Users page, so a separate switch would do the same thing twice. The code is kept (`SHOW_PORTAL_ACCESS` in safety.roles.index.tsx) in case it is wanted later. | §10, AD11 | Decided (user, 15 Oct) |
+| AD29 | No separate "client requirement" record. The Figma's "Manage Client Requirement" form (client / work scope, evidence belongs to, linked document) is deleted, because its fields are not in the framework (user, 15 Oct: "if it's not in the doc, delete it"). §4D's "Other client requirements" and "Required inductions" are the accreditation types the subcontractor's workers must hold, which §4B already lists ("Other client-specific inductions"). The WHS requirements tab shows, from real data, the signed agreement, each SWMS its installers must sign (signed X of Y) and each accreditation type (current, missing, expired, awaiting verification). | §4B, §4D, R3 | Decided (user, 15 Oct) |
+| AD30 | The signed subcontractor agreement (R5) is the signed file, the date signed and a review date, plus an optional responsible person and notes (§5's fields). An admin's upload counts as checked (V4), and earlier agreements are kept. Its status: Missing until one is on file, Due soon from 30 days before the review date (as a policy review, §7), then Overdue. Missing or Overdue makes the subcontractor's overall status Action required. No reminder emails, because §7 has no schedule for agreements. It shows on Business records and in History. | §4D, §5, §7 | Decided (user asked for real data, 15 Oct) |
+| AD31 | Accreditation Types page (Worker Accreditations → Manage Types): the admin adds a type, renames it, ticks which entities' workers must hold it (Western USI and each subcontractor, or "Everyone"), or removes it. Reminders always use the §7 default (60, 30, 14, 7), so they aren't asked for on the form. Removing a type archives it: no one is asked for it, its reminders stop, and cards already uploaded are kept (§11). A client's induction is added as a type (§4B, AD29). | §4B, §7, §11, R1, R3, R7 | Decided (user, 16 Oct) |
+| AD32 | Correcting and archiving records (§11): every record page an admin manages has a "Manage" card with Edit Details. That covers documents, insurance, vehicles and kits, and verified worker evidence (waiting evidence is corrected while verifying it, S6). Every edit needs a reason, and the record's activity keeps "field: old → new" for each change, who made it and when. Nothing-changed edits are refused. Documents, insurance policies, vehicles and kits can also be archived with a reason: they leave the register, lists and reminders, and their page stays open read-only with an "archived" note. Nothing is ever deleted. A worker's single accreditation isn't archived: new evidence replaces it, and a type no longer needed is removed on Accreditation Types (AD31). | §11, §5, S6 | Decided (user, 16 Oct) |
+| AD33 | Who must read and sign a document (§4A "applicable workers"): on Add Document and on a document's Edit Details, "Everyone" (the default) or "Only some companies or people": tick companies, and for each one choose all its workers or only some of them (only that company's installers are listed). A line shows how many people will be asked. Workers only see and sign documents meant for them, in the app, the reminders, the register's "to acknowledge" counts, the subcontractor pages and the SWMS report. The office (admins, office staff, management) sees every document. "Clients or work types" stay as text shown to workers ("Client or work type") until documents are linked to jobs. This replaces D6's "everyone sees everything for now". | §4A, §3, §10, D6, D9 | Decided (user, 16 Oct) |
+| AD34 | A worker's accreditation reminders go to the worker only, for now. There's no screen to make someone else responsible (§5 "responsible person"). | §5, §7 | Decided (user, 16 Oct) |
+| AD35 | WHS-only people (subcontractor logins and their workers) have work orders and sites hidden in the app only; the server doesn't block those queries for them. Intended for now. | §10 | Decided (user, 16 Oct) |
+| AD36 | The "Office staff" role is removed from the whole app (user, 16 Oct: "office staff is nothing"). No user or invite had it, on dev or live. The admin panel, including Safety, is for admins (role admin, or an account with admin access) only; Management stays as the framework's second office role. | §10 | Decided (user, 16 Oct) |
+| AD37 | Each entity's page (Western USI or a subcontractor) has an Accreditations tab: the accreditations its workers must hold, how many of them have each, and Add / Remove for that entity only (user, 16 Oct). Removing one stops it being asked for and its reminders; uploaded cards are kept. "Add Accreditation" either picks an existing type or creates a new one, required only of that entity; The "Manage Types" button on Worker Accreditations is removed (user, 16 Oct): accreditations are handled per entity. The Accreditation Types page (AD31) still exists at /safety/accreditation-types but nothing links to it. | §4B, §4D, R1, AD31 | Decided (user, 16 Oct) |
+| AD38 | "Mark service complete" (the doc's words, §8) also ends "Out of service": the vehicle returns to Current, as §8 says, and the activity notes it. The separate "Return to Service" button is removed; "Set Out of Service" stays for taking a vehicle off the road (§6 status). | §6, §8, AD16 | Decided (user, 16 Oct) |

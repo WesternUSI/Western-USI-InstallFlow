@@ -13,7 +13,7 @@ export const Route = createFileRoute("/_auth")({
   component: AuthLayout,
 });
 
-/** Shown to a signed-in Clerk user whose Convex role isn't admin/office_staff
+/** Shown to a signed-in Clerk user whose Convex role isn't admin
  * — installers get the mobile app, not this panel. */
 function RestrictedAccess() {
   const { signOut } = useClerk();
@@ -27,7 +27,7 @@ function RestrictedAccess() {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 bg-[#FAFAFA] px-6 text-center">
       <ShieldAlert className="size-10 text-red-500" />
-      <h1 className="text-lg font-bold text-slate-900">This panel is for office staff only</h1>
+      <h1 className="text-lg font-bold text-slate-900">This panel is for administrators only</h1>
       <p className="max-w-sm text-sm text-slate-500">
         Installer accounts don't have access to the admin dashboard. Use the Western USI
         InstallFlow mobile app instead.
@@ -53,7 +53,7 @@ function AdminGate() {
   }
 
   if (user === null ||
-    (user.role !== "admin" && user.role !== "office_staff" && !user.has_admin_access)) {
+    (user.role !== "admin" && !user.has_admin_access)) {
     return <RestrictedAccess />;
   }
 

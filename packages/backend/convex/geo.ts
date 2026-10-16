@@ -29,7 +29,7 @@ export function parseCoordinates(location: string): { lat: number; lng: number }
 }
 
 /** Great-circle distance between two lat/long points, in kilometres. */
-function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+export function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
   const earthRadiusKm = 6371;
   const toRad = (deg: number) => (deg * Math.PI) / 180;
   const dLat = toRad(b.lat - a.lat);

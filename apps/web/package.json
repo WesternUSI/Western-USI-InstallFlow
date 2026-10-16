@@ -20,6 +20,8 @@
     "@usi-installer/ui": "workspace:*",
     "convex": "catalog:",
     "dotenv": "catalog:",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.9",
     "lucide-react": "catalog:",
     "next-themes": "catalog:",
     "react": "^19.2.8",

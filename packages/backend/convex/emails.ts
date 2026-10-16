@@ -114,7 +114,7 @@ export const list = query({
 /**
  * Accounts that could be added but are not on the list yet.
  *
- * Every role, not just admins: office staff and installers have work emails
+ * Every role, not just admins: installers have work emails
  * too, and the point of the list is that it is no longer tied to a role.
  * A tombstoned address reappears here, which is how a removed admin gets put
  * back without anyone having to retype it.

@@ -2,19 +2,22 @@ import { ConvexError, v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
-import { isAdminUser } from "./permissions";
+import { isAdminUser, isTeamless, isWhsOnly } from "./permissions";
 import { teamValidator } from "./teams";
 
 export type UserStatus = "active" | "invitation_sent" | "idle";
 
 /**
  * No team means idle regardless of sign-in history — this is what the "Idle
- * Users" dashboard tile counts. Otherwise, an account is "Invitation Sent"
- * until the `session.created` webhook records a first real sign-in, and
- * "Active" after that.
+ * Users" dashboard tile counts — except for people who never have a team by
+ * design (WHS-only workers, and management). Otherwise, an account is "Invitation Sent" until the
+ * `session.created` webhook records a first real sign-in, and "Active" after
+ * that.
  */
-export function deriveUserStatus(user: Pick<Doc<"users">, "team" | "last_sign_in_at">): UserStatus {
-  if (user.team === undefined) return "idle";
+export function deriveUserStatus(
+  user: Pick<Doc<"users">, "team" | "last_sign_in_at" | "role" | "subcontractor_id">,
+): UserStatus {
+  if (user.team === undefined && !isTeamless(user)) return "idle";
   if (user.last_sign_in_at === undefined) return "invitation_sent";
   return "active";
 }
@@ -52,6 +55,7 @@ function toDetailRow(user: Doc<"users">) {
     team: user.team,
     role: user.role,
     status: deriveUserStatus(user),
+    subcontractor_id: user.subcontractor_id,
   };
 }
 
@@ -208,8 +212,19 @@ export const list = query({
       throw new Error("Not authenticated");
     }
 
-    const users = await ctx.db.query("users").collect();
-    return users.map(toRow).sort((a, b) => a.name.localeCompare(b.name));
+    const [users, subcontractors] = await Promise.all([
+      ctx.db.query("users").collect(),
+      ctx.db.query("subcontractors").collect(),
+    ]);
+    const subcontractorNames = new Map(subcontractors.map((row) => [row._id, row.name]));
+
+    return users
+      .map((user) => ({
+        ...toRow(user),
+        subcontractor:
+          user.subcontractor_id === undefined ? undefined : subcontractorNames.get(user.subcontractor_id),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
   },
 });
 
@@ -229,7 +244,7 @@ export const overview = query({
     for (const user of users) {
       const status = deriveUserStatus(user);
       if (status === "idle") idle++;
-      if (status === "active" && user.role === "installer") activeInstallers++;
+      if (status === "active" && user.role === "installer" && !isWhsOnly(user)) activeInstallers++;
     }
 
     return { total: users.length, activeInstallers, idle };
@@ -264,9 +279,27 @@ export const finishInvite = internalMutation({
     email: v.string(),
     name: v.string(),
     team: v.optional(teamValidator),
-    role: v.optional(v.union(v.literal("installer"), v.literal("admin"))),
+    role: v.optional(
+      v.union(
+        v.literal("installer"),
+        v.literal("admin"),
+        v.literal("subcontractor"),
+        v.literal("management"),
+      ),
+    ),
+    subcontractor_id: v.optional(v.id("subcontractors")),
   },
   handler: async (ctx, args) => {
+    if (args.role === "subcontractor" && args.subcontractor_id === undefined) {
+      throw new ConvexError("Select the subcontractor this person belongs to.");
+    }
+    if (args.subcontractor_id !== undefined) {
+      const subcontractor = await ctx.db.get(args.subcontractor_id);
+      if (subcontractor === null || subcontractor.archived) {
+        throw new ConvexError("That subcontractor no longer exists.");
+      }
+    }
+
     const existing = await ctx.db
       .query("users")
       .withIndex("by_clerk_id", (q) => q.eq("clerk_id", args.clerk_id))
@@ -279,6 +312,7 @@ export const finishInvite = internalMutation({
       team: args.team ?? (args.role === "admin" ? "Team 1" : undefined),
       role: args.role ?? ("installer" as const),
       has_admin_access: args.role === "admin" ? true : undefined,
+      subcontractor_id: args.subcontractor_id,
       invited_at: Date.now(),
       must_change_password: true,
     };
@@ -314,15 +348,28 @@ export const inviteInstaller = action({
   args: {
     full_name: v.string(),
     work_email: v.string(),
+    // Optional: an installer with no team is put on Team 1 the first time they
+    // open the app (`ensureDefaultTeam`).
     team: v.optional(teamValidator),
+    subcontractor_id: v.optional(v.id("subcontractors")),
+    // Omitted means an installer (a subcontractor's worker when a subcontractor
+    // is attached). "subcontractor" is a subcontractor business's login and
+    // must have one attached. "management" is Western USI's own management: no
+    // team and no subcontractor.
+    role: v.optional(
+      v.union(v.literal("installer"), v.literal("subcontractor"), v.literal("management")),
+    ),
   },
   handler: async (ctx, args) => {
     const caller = await ctx.runQuery(api.users.getCurrentUser, {});
     if (!caller || !isAdminUser(caller)) {
       throw new ConvexError("You are not authorized to invite users.");
     }
-    if (args.team === undefined) {
-      throw new ConvexError("Select a primary team for the installer.");
+    if (args.role === "subcontractor" && args.subcontractor_id === undefined) {
+      throw new ConvexError("Select the subcontractor this person belongs to.");
+    }
+    if (args.role === "management" && args.subcontractor_id !== undefined) {
+      throw new ConvexError("Management belongs to Western USI, not to a subcontractor.");
     }
 
     const clerkSecretKey = process.env.CLERK_SECRET_KEY;
@@ -360,7 +407,10 @@ export const inviteInstaller = action({
       clerk_id: created.id,
       email: args.work_email,
       name: fullName,
-      team: args.team,
+      // A subcontractor's people and management never join a team.
+      team: args.subcontractor_id === undefined && args.role !== "management" ? args.team : undefined,
+      role: args.role,
+      subcontractor_id: args.subcontractor_id,
     });
 
     await ctx.scheduler.runAfter(0, internal.email.sendInviteEmail, {
@@ -411,9 +461,11 @@ export const ensureDefaultTeam = mutation({
       .query("users")
       .withIndex("by_clerk_id", (q) => q.eq("clerk_id", identity.subject))
       .unique();
+    // WHS-only workers (subcontractors') never join a team.
     if (user !== null &&
       (user.role === "admin" || user.role === "installer") &&
-      user.team === undefined) {
+      user.team === undefined &&
+      !isWhsOnly(user)) {
       await ctx.db.patch(user._id, { team: "Team 1" });
     }
   },
@@ -440,6 +492,10 @@ export const inviteAdmin = action({
     if (existing !== null) {
       if (isAdminUser(existing)) {
         throw new ConvexError("That email already has admin access.");
+      }
+      // A subcontractor's people can never open the admin dashboard.
+      if (isWhsOnly(existing)) {
+        throw new ConvexError("That email belongs to a subcontractor, who can't be given admin access.");
       }
       await ctx.runMutation(internal.users.grantAdminAccess, {
         user_id: existing._id,
@@ -648,6 +704,8 @@ export const applyAccountUpdate = internalMutation({
     name: v.string(),
     team: v.optional(teamValidator),
     email: v.optional(v.string()),
+    // Omitted leaves the link as it is; null removes it (back to a Western USI employee).
+    subcontractor_id: v.optional(v.union(v.id("subcontractors"), v.null())),
   },
   handler: async (ctx, args) => {
     const patch: Record<string, unknown> = {
@@ -655,6 +713,31 @@ export const applyAccountUpdate = internalMutation({
       team: args.team,
     };
     if (args.email !== undefined) patch.email = args.email;
+
+    const user = await ctx.db.get(args.user_id);
+    if (user === null) {
+      throw new ConvexError("User not found");
+    }
+
+    if (args.subcontractor_id !== undefined) {
+      if (args.subcontractor_id === null && user.role === "subcontractor") {
+        throw new ConvexError("A subcontractor's login must stay attached to its subcontractor.");
+      }
+      if (args.subcontractor_id !== null) {
+        const subcontractor = await ctx.db.get(args.subcontractor_id);
+        if (subcontractor === null || subcontractor.archived) {
+          throw new ConvexError("That subcontractor no longer exists.");
+        }
+      }
+      patch.subcontractor_id = args.subcontractor_id ?? undefined;
+    }
+
+    // Teamless people (WHS-only workers, management) never join a team, whatever the form sent.
+    const subcontractorAfter =
+      args.subcontractor_id === undefined ? user.subcontractor_id : (args.subcontractor_id ?? undefined);
+    if (isTeamless({ role: user.role, subcontractor_id: subcontractorAfter })) {
+      patch.team = undefined;
+    }
 
     await ctx.db.patch(args.user_id, patch);
   },
@@ -676,6 +759,7 @@ export const updateAccount = action({
     name: v.string(),
     team: v.optional(teamValidator),
     work_email: v.optional(v.string()),
+    subcontractor_id: v.optional(v.union(v.id("subcontractors"), v.null())),
   },
   handler: async (ctx, args): Promise<void> => {
     const caller = await ctx.runQuery(api.users.getCurrentUser, {});
@@ -730,6 +814,7 @@ export const updateAccount = action({
       name: args.name,
       team: args.team,
       email: emailChanged ? (workEmail as string) : undefined,
+      subcontractor_id: args.subcontractor_id,
     });
   },
 });

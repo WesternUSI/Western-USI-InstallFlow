@@ -127,8 +127,8 @@ session is indistinguishable from an admin's, so `AdminGate` reads
 `api.users.currentUser` and checks the Convex-side role:
 
 ```ts
-if (user === null || (user.role !== "admin" && user.role !== "office_staff")) {
-  return <RestrictedAccess />;   // "This panel is for office staff only"
+if (user === null || (user.role !== "admin" && !user.has_admin_access)) {
+  return <RestrictedAccess />;   // "This panel is for administrators only"
 }
 ```
 

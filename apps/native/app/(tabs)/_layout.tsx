@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Redirect, Tabs } from "expo-router";
 import { api } from "@usi-installer/backend/convex/_generated/api";
+import { isWhsOnly } from "@usi-installer/backend/convex/permissions";
 import { Authenticated, AuthLoading, Unauthenticated, useMutation } from "convex/react";
 import { useEffect } from "react";
 
@@ -62,6 +63,12 @@ function TabsNavigator() {
           href: null,
         }}
       />
+      <Tabs.Screen
+        name="safety"
+        options={{
+          href: null,
+        }}
+      />
     </Tabs>
   );
 }
@@ -70,8 +77,13 @@ function AuthorizedGate() {
   const { isLoaded, role, convexUser } = useCurrentUser();
   const ensureDefaultTeam = useMutation(api.users.ensureDefaultTeam);
 
-  // Safety net: anyone using the app with no team yet goes on Team 1.
-  const needsTeam = (role === "installer" || role === "admin") && convexUser?.team === undefined;
+  // Safety net: anyone using the app with no team yet goes on Team 1 — except
+  // subcontractors' workers, who only see the WHS side and never join a team.
+  const needsTeam =
+    (role === "installer" || role === "admin") &&
+    convexUser != null &&
+    convexUser.team === undefined &&
+    !isWhsOnly(convexUser);
   useEffect(() => {
     if (needsTeam) void ensureDefaultTeam();
   }, [needsTeam, ensureDefaultTeam]);
@@ -80,7 +92,7 @@ function AuthorizedGate() {
     return <AuthLoadingView />;
   }
 
-  if (role !== "installer" && role !== "admin") {
+  if (role !== "installer" && role !== "admin" && role !== "subcontractor") {
     return <NoAccessCard />;
   }
 

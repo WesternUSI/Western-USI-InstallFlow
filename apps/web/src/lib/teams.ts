@@ -1,5 +1,5 @@
 /**
- * Teams are rows in the `teams` table, created by office staff — not the fixed
+ * Teams are rows in the `teams` table, created by admins — not the fixed
  * set of five this app started with. A team is referenced by its name, so
  * `Team` is just a string; the live list comes from `useTeams`.
  */

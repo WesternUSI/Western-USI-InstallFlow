@@ -52,6 +52,8 @@ PODS:
     - Yoga
   - ExpoAsset (57.0.8):
     - ExpoModulesCore
+  - ExpoDocumentPicker (57.0.3):
+    - ExpoModulesCore
   - ExpoDomWebView (57.0.1):
     - ExpoModulesCore
   - ExpoFileSystem (57.0.4):
@@ -61,6 +63,8 @@ PODS:
   - ExpoGlassEffect (57.0.1):
     - ExpoModulesCore
   - ExpoHaptics (57.0.1):
+    - ExpoModulesCore
+  - ExpoImageManipulator (57.0.20):
     - ExpoModulesCore
   - ExpoImagePicker (57.0.10):
     - ExpoModulesCore
@@ -2373,11 +2377,13 @@ DEPENDENCIES:
   - "EXConstants (from `../../../node_modules/.pnpm/expo-constants@57.0.9_expo@57.0.10_react-native@0.86.0_@babel+core@7.29.7_@react-native_ca1ccf15e823f8e47c18f9011045a798/node_modules/expo-constants/ios`)"
   - "Expo (from `../../../node_modules/.pnpm/expo@57.0.10_@babel+core@7.29.7_@expo+dom-webview@57.0.1_@expo+metro-runtime@57.0.8_buf_cec56fcbe4fccb909d5b53ba048c8808/node_modules/expo`)"
   - "ExpoAsset (from `../../../node_modules/.pnpm/expo-asset@57.0.8_expo@57.0.10_react-native@0.86.0_@babel+core@7.29.7_@react-native+met_3b4efc22866fc5d8f8174ff48cb36306/node_modules/expo-asset/ios`)"
+  - "ExpoDocumentPicker (from `../../../node_modules/.pnpm/expo-document-picker@57.0.3_expo@57.0.10/node_modules/expo-document-picker/ios`)"
   - "ExpoDomWebView (from `../../../node_modules/.pnpm/@expo+dom-webview@57.0.1_expo@57.0.10_react-native@0.86.0_@babel+core@7.29.7_@react-nat_2ea8b157b1a8adb952ae54af44357b56/node_modules/@expo/dom-webview/ios`)"
   - "ExpoFileSystem (from `../../../node_modules/.pnpm/expo-file-system@57.0.4_expo@57.0.10_react-native@0.86.0_@babel+core@7.29.7_@react-nati_6eb6b02edddfb2ebfbe7b8bc37e8d17c/node_modules/expo-file-system/ios/ExpoFileSystem.podspec`)"
   - "ExpoFont (from `../../../node_modules/.pnpm/expo-font@57.0.1_expo@57.0.10_react-native@0.86.0_@babel+core@7.29.7_@react-native+metr_b602161a27407ebfc974366ef9576b2b/node_modules/expo-font/ios/ExpoFont.podspec`)"
   - "ExpoGlassEffect (from `../../../node_modules/.pnpm/expo-glass-effect@57.0.1_expo@57.0.10_react-native@0.86.0_@babel+core@7.29.7_@react-nat_066229d3fee32468fa89a70c35661356/node_modules/expo-glass-effect/ios`)"
   - "ExpoHaptics (from `../../../node_modules/.pnpm/expo-haptics@57.0.1_expo@57.0.10/node_modules/expo-haptics/ios`)"
+  - "ExpoImageManipulator (from `../../../node_modules/.pnpm/expo-image-manipulator@57.0.20_expo@57.0.10/node_modules/expo-image-manipulator/ios/ExpoImageManipulator.podspec`)"
   - "ExpoImagePicker (from `../../../node_modules/.pnpm/expo-image-picker@57.0.10_expo@57.0.10/node_modules/expo-image-picker/ios`)"
   - "ExpoKeepAwake (from `../../../node_modules/.pnpm/expo-keep-awake@57.0.1_expo@57.0.10_react@19.2.3/node_modules/expo-keep-awake/ios`)"
   - "ExpoLinking (from `../../../node_modules/.pnpm/expo-linking@57.0.5_expo@57.0.10_react-native@0.86.0_@babel+core@7.29.7_@react-native+m_47b41899ce1c65c82f97c06755dd975a/node_modules/expo-linking/ios`)"
@@ -2487,6 +2493,8 @@ EXTERNAL SOURCES:
     :path: "../../../node_modules/.pnpm/expo@57.0.10_@babel+core@7.29.7_@expo+dom-webview@57.0.1_@expo+metro-runtime@57.0.8_buf_cec56fcbe4fccb909d5b53ba048c8808/node_modules/expo"
   ExpoAsset:
     :path: "../../../node_modules/.pnpm/expo-asset@57.0.8_expo@57.0.10_react-native@0.86.0_@babel+core@7.29.7_@react-native+met_3b4efc22866fc5d8f8174ff48cb36306/node_modules/expo-asset/ios"
+  ExpoDocumentPicker:
+    :path: "../../../node_modules/.pnpm/expo-document-picker@57.0.3_expo@57.0.10/node_modules/expo-document-picker/ios"
   ExpoDomWebView:
     :path: "../../../node_modules/.pnpm/@expo+dom-webview@57.0.1_expo@57.0.10_react-native@0.86.0_@babel+core@7.29.7_@react-nat_2ea8b157b1a8adb952ae54af44357b56/node_modules/@expo/dom-webview/ios"
   ExpoFileSystem:
@@ -2497,6 +2505,8 @@ EXTERNAL SOURCES:
     :path: "../../../node_modules/.pnpm/expo-glass-effect@57.0.1_expo@57.0.10_react-native@0.86.0_@babel+core@7.29.7_@react-nat_066229d3fee32468fa89a70c35661356/node_modules/expo-glass-effect/ios"
   ExpoHaptics:
     :path: "../../../node_modules/.pnpm/expo-haptics@57.0.1_expo@57.0.10/node_modules/expo-haptics/ios"
+  ExpoImageManipulator:
+    :podspec: "../../../node_modules/.pnpm/expo-image-manipulator@57.0.20_expo@57.0.10/node_modules/expo-image-manipulator/ios/ExpoImageManipulator.podspec"
   ExpoImagePicker:
     :path: "../../../node_modules/.pnpm/expo-image-picker@57.0.10_expo@57.0.10/node_modules/expo-image-picker/ios"
   ExpoKeepAwake:
@@ -2700,11 +2710,13 @@ SPEC CHECKSUMS:
   EXConstants: 05451cfe61c84dd2d840831d05bb0c115f96ec6a
   Expo: df0ee7c76ff52b8f559e4ac50e70c81d5d61d806
   ExpoAsset: a76534cf7b762978861dd31708308496c676166f
+  ExpoDocumentPicker: 3cb0c283969538c03ced2b405e519c91abf39f8e
   ExpoDomWebView: beaec034e51bd028428b98bb1f2633ab79c6d095
   ExpoFileSystem: b3fb2457e75eddc87dcadcd4cd0e237d12f79de7
   ExpoFont: 59e1faf66ba9bcd232ae1e2ce58d202a48b6f65e
   ExpoGlassEffect: 4b62afb489e6b84357701737ce002137c9d5fdbc
   ExpoHaptics: 4503d2da51ff7109712ccdfe0e4939f66818183e
+  ExpoImageManipulator: e795a8d623905815a335edda5c967a88e25b5539
   ExpoImagePicker: 945c7f41749d99266d220a67118ae769b4d2af19
   ExpoKeepAwake: c26f14275017370cc8a4b7b43a0e23361f2053a5
   ExpoLinking: a516e12e2cb5af6eaeea32809c6a6ede1a7da8bb

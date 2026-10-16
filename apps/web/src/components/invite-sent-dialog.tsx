@@ -47,7 +47,7 @@ export function InviteSentDialog({ open, name, workEmail, team, onOpenChange }: 
           <CheckBadge className="size-16 text-blue-600" />
           <DialogTitle className="mt-2 text-lg font-bold text-slate-900">Invite Sent</DialogTitle>
           <DialogDescription className="text-sm text-slate-500">
-            The installer invitation has been sent successfully.
+            The invitation has been sent successfully.
           </DialogDescription>
         </DialogHeader>
 

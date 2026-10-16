@@ -1,4 +1,5 @@
 import { Menu } from "lucide-react";
+import type { ReactNode } from "react";
 
 import { NotificationBell } from "@/components/notification-bell";
 import { useSidebar } from "@/lib/sidebar-context";
@@ -6,10 +7,12 @@ import { useSidebar } from "@/lib/sidebar-context";
 interface PageHeaderProps {
   title: string;
   description: string;
+  /** Optional main action shown before the bell, e.g. "+ Add Record". */
+  action?: ReactNode;
 }
 
 /** Title block shared by every admin screen, with the notification bell. */
-export function PageHeader({ title, description }: PageHeaderProps) {
+export function PageHeader({ title, description, action }: PageHeaderProps) {
   const { toggle } = useSidebar();
 
   return (
@@ -29,7 +32,10 @@ export function PageHeader({ title, description }: PageHeaderProps) {
         </div>
       </div>
 
-      <NotificationBell />
+      <div className="flex shrink-0 items-center gap-3">
+        {action}
+        <NotificationBell />
+      </div>
     </div>
   );
 }

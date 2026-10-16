@@ -13,6 +13,7 @@ import { UserCheck, UserX, Users } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { FilterSelect } from "@/components/filter-select";
+import { AddSubcontractorForm } from "@/components/add-subcontractor-form";
 import { InviteUserForm } from "@/components/invite-user-form";
 import { PageHeader } from "@/components/page-header";
 import { SearchInput } from "@/components/search-input";
@@ -105,6 +106,8 @@ function UsersPage() {
         />
 
         <InviteUserForm />
+
+        <AddSubcontractorForm />
 
         <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="flex flex-wrap items-center gap-3 px-6 py-4">

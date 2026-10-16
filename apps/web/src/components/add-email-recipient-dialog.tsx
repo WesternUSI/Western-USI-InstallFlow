@@ -17,7 +17,7 @@ export interface AddableUser {
   _id: string;
   name: string;
   email: string;
-  role?: "installer" | "office_staff" | "admin";
+  role?: "installer" | "admin" | "subcontractor" | "management";
 }
 
 interface AddEmailRecipientDialogProps {
@@ -31,8 +31,9 @@ interface AddEmailRecipientDialogProps {
 
 const ROLE_LABELS: Record<string, string> = {
   admin: "Administrator",
-  office_staff: "Office Staff",
   installer: "Installer",
+  subcontractor: "Subcontractor",
+  management: "Management",
 };
 
 /**

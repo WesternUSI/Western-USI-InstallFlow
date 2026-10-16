@@ -260,3 +260,83 @@ export const sendAdminAccessEmail = internalAction({
     }
   },
 });
+
+const WHS_EMAIL_MAX_ATTEMPTS = 4;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * A plain branded notice for the WHS register (reminders, escalations,
+ * approvals). Unlike the emails above it throws when Resend refuses, because
+ * the caller logs a reminder as sent only once this has succeeded. A rate
+ * limit (429), a Resend outage (5xx) or a network blip is retried a few times
+ * with a growing pause first, since a scheduled function is not retried by
+ * Convex itself.
+ */
+export const sendWhsEmail = internalAction({
+  args: {
+    to: v.array(v.string()),
+    subject: v.string(),
+    lines: v.array(v.string()),
+    /** A button under the text, e.g. to the accreditation in the app. */
+    link: v.optional(v.object({ label: v.string(), url: v.string() })),
+  },
+  handler: async (_ctx, args): Promise<void> => {
+    const apiKey = process.env.RESEND_API_KEY;
+    if (!apiKey) {
+      throw new Error("RESEND_API_KEY is not set");
+    }
+
+    const button =
+      args.link === undefined
+        ? ""
+        : `<p style="margin:8px 0 16px;"><a href="${escapeHtml(args.link.url)}" style="display:inline-block;background-color:#2563EB;color:#ffffff;text-decoration:none;font-weight:600;padding:10px 18px;border-radius:8px;">${escapeHtml(args.link.label)}</a></p>`;
+    const html = brandedEmail(
+      args.lines.map((line) => `<p style="margin:0 0 16px;">${escapeHtml(line)}</p>`).join("") + button,
+    );
+    const text =
+      args.link === undefined
+        ? args.lines.join("\n\n")
+        : `${args.lines.join("\n\n")}\n\n${args.link.label}: ${args.link.url}`;
+
+    const body = JSON.stringify({
+      from: process.env.RESEND_FROM_EMAIL ?? "onboarding@resend.dev",
+      to: args.to,
+      subject: args.subject,
+      text,
+      html,
+    });
+
+    for (let attempt = 1; ; attempt++) {
+      let response: Response;
+      try {
+        response = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+          body,
+        });
+      } catch (error) {
+        if (attempt >= WHS_EMAIL_MAX_ATTEMPTS) throw error;
+        await sleep(1000 * 2 ** (attempt - 1));
+        continue;
+      }
+
+      if (response.ok) return;
+
+      const retryable = response.status === 429 || response.status >= 500;
+      if (!retryable || attempt >= WHS_EMAIL_MAX_ATTEMPTS) {
+        throw new Error(`Resend rejected the email (${response.status}): ${await response.text()}`);
+      }
+
+      // Honour the pause Resend asks for, within reason.
+      const retryAfter = Number(response.headers.get("retry-after"));
+      await sleep(
+        Number.isFinite(retryAfter) && retryAfter > 0
+          ? Math.min(retryAfter * 1000, 10_000)
+          : 1000 * 2 ** (attempt - 1),
+      );
+    }
+  },
+});

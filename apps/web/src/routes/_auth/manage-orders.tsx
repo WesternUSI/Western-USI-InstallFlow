@@ -105,7 +105,7 @@ function ManageOrdersPage() {
     })) ?? [];
 
   // Deleting is admin-only. The backend enforces it too — this only decides
-  // whether office staff are shown a control they would be refused.
+  // whether non-admins are shown a control they would be refused.
   const currentUser = useQuery(api.users.currentUser);
   const canDelete = currentUser?.role === "admin";
 

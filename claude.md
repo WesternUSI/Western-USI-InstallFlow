@@ -16,3 +16,10 @@ Specifically:
 
 Do the literal task. Smallest possible change. Then stop and tell me
 what you did.
+
+WHS work: follow docs/reference/whs-framework.md. Decisions made where it is
+silent are logged in docs/reference/whs-decisions.md. If a decision I give
+contradicts or goes beyond the framework, name the section and ask my
+explicit permission before building it, then log it there. What is still
+left is in docs/reference/whs-backlog.md: remove an item in the same change
+that finishes it.

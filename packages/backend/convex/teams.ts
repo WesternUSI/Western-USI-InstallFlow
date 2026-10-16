@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { type QueryCtx, mutation, query } from "./_generated/server";
 import { matchesTerm } from "./derive";
+import { isTeamless } from "./permissions";
 import { deriveStatus, workOrderStatusValidator } from "./workorders";
 
 /**
@@ -218,6 +219,8 @@ export const allMembers = query({
 
     const users = await ctx.db.query("users").collect();
     return users
+      // Subcontractors' people and management never join teams, so they are not offered here.
+      .filter((user) => !isTeamless(user))
       .map(toMember)
       .sort((a, b) => a.name.localeCompare(b.name));
   },
@@ -278,6 +281,9 @@ export const setMemberTeam = mutation({
     const user = await ctx.db.get(args.user_id);
     if (user === null) {
       throw new Error("User not found");
+    }
+    if (isTeamless(user)) {
+      throw new Error("Subcontractors' people and management can't be added to a team.");
     }
 
     await ctx.db.patch(args.user_id, { team: args.team });
