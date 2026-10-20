@@ -144,6 +144,7 @@ function EntityCompliance() {
       <SectionTitle>Business requirements</SectionTitle>
       <Panel>
         <PagedTable
+          noun="requirements"
           rows={requirements}
           rowKey={(row) => row.key}
           empty={register === undefined ? "Loading…" : "No business requirements recorded."}
@@ -159,6 +160,7 @@ function EntityCompliance() {
       <SectionTitle>Workers and accreditations</SectionTitle>
       <Panel>
         <PagedTable
+          noun="workers"
           rows={workers}
           rowKey={(row) => row.workerId}
           empty={register === undefined ? "Loading…" : "No workers yet."}

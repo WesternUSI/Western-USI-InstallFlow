@@ -132,7 +132,7 @@ export function RowAction({
   children: ReactNode;
 }) {
   const classes =
-    "inline-flex h-8 items-center rounded-[4px] border border-[#bfdbfe] px-[13px] text-xs font-semibold text-[#2563eb] hover:bg-[#eff6ff]";
+    "inline-flex h-8 shrink-0 items-center whitespace-nowrap rounded-[4px] border border-[#bfdbfe] px-[13px] text-xs font-semibold text-[#2563eb] hover:bg-[#eff6ff]";
   if (to) {
     return (
       <Link to={to} params={params as never} className={classes}>
