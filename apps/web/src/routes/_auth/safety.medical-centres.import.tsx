@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { ExcelDropzone } from "@/components/excel-dropzone";
 import { ExcelIcon } from "@/components/excel-icon";
 import { UploadErrorDialog, type UploadError } from "@/components/upload-error-dialog";
-import { DataTable, Notice, Panel, SafetyButton, SafetyPage, SearchBox } from "@/components/whs/safety-ui";
+import { Notice, PagedTable, Panel, SafetyButton, SafetyPage, SearchBox } from "@/components/whs/safety-ui";
 import { UPLOAD_BATCH_SIZE, chunk } from "@/lib/chunk";
 import { toUserMessage } from "@/lib/errors";
 import { parseMedicalCentres, type MedicalCentreRow } from "@/lib/parseMedicalCentres";
@@ -94,7 +94,7 @@ function ImportMedicalCentres() {
               <h2 className="text-lg font-semibold text-[#111827]">Medical Centre Details</h2>
               <SearchBox value={query} onChange={setQuery} placeholder="Search by name, suburb, address" />
             </div>
-            <DataTable
+            <PagedTable
               rows={shown}
               rowKey={(row) => `${row.listed_suburb}-${row.name}`}
               columns={[

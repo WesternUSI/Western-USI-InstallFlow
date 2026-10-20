@@ -4,7 +4,7 @@ import { query, type QueryCtx } from "./_generated/server";
 import { certificatesOf, entityName, INSURANCE_TYPE_LABELS, policyStatus } from "./insurance";
 import { deriveKitStatus } from "./kits";
 import { deriveVehicleStatus, VEHICLE_STATUS_LABELS, type VehicleStatus } from "./vehicles";
-import { documentIsFor, isAdminUser, mustAcknowledgeDocuments } from "./permissions";
+import { canViewCompliance, documentIsFor, isAdminUser, mustAcknowledgeDocuments } from "./permissions";
 import { businessToday, addDays } from "./whsDates";
 import { deriveAccreditationStatus, dueSoonWindowDays } from "./whsStatus";
 
@@ -39,6 +39,8 @@ export interface RegisterRow {
   due?: string;
   /** Documents: workers who still have to acknowledge the current version. */
   outstanding?: number;
+  /** Accreditations: whose it is, for the management matrix and worker pages (decision AD43). */
+  worker_id?: string;
   /** SWMS: on-site changes to the current version waiting for the admin (decision D3). */
   changes_to_review?: number;
   /** A more specific status to show, e.g. "Registration expiring" for a vehicle. */
@@ -69,10 +71,26 @@ const ADMIN_LIST = "Admin list";
 
 const DOCUMENT_REVIEW_DAYS: Record<Doc<"whs_documents">["kind"], number> = { swms: 30, document: 30, sds: 60 };
 
+/** The register and an entity's history are open to admins and management (decision AD43); reports stay admin-only. */
+async function requireComplianceViewer(ctx: QueryCtx) {
+  const identity = await ctx.auth.getUserIdentity();
+  const user =
+    identity === null
+      ? null
+      : await ctx.db
+          .query("users")
+          .withIndex("by_clerk_id", (q) => q.eq("clerk_id", identity.subject))
+          .unique();
+  if (user === null || !canViewCompliance(user)) {
+    throw new Error("Not authorized");
+  }
+  return user;
+}
+
 export const register = query({
   args: {},
   handler: async (ctx): Promise<{ rows: RegisterRow[]; entities: string[]; today: string }> => {
-    await requirePanelUser(ctx);
+    await requireComplianceViewer(ctx);
     const today = businessToday();
 
     // Every read is indexed to skip what the register doesn't show: other
@@ -138,6 +156,7 @@ export const register = query({
           id: record?._id ?? `${worker._id}:${typeId}`,
           name: type.name,
           category: "accreditation",
+          worker_id: worker._id,
           entity: entityOf(worker),
           person: worker.name ?? worker.email,
           status,
@@ -358,7 +377,7 @@ export const HISTORY_TEXT = {
 export const entityHistory = query({
   args: { subcontractor_id: v.optional(v.id("subcontractors")) },
   handler: async (ctx, args): Promise<HistoryEvent[]> => {
-    await requirePanelUser(ctx);
+    await requireComplianceViewer(ctx);
     const isWesternUsi = args.subcontractor_id === undefined;
 
     const names = new Map<Id<"users">, string>();

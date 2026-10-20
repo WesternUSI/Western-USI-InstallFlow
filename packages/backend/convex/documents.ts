@@ -12,7 +12,7 @@ import {
 } from "./_generated/server";
 import { adminByEmail, isValidIsoDate, requireCaller, requireVerifier } from "./accreditations";
 import { enabledRecipientEmails } from "./emails";
-import { canSeeDocument, documentIsFor, isAdminUser, mustAcknowledgeDocuments } from "./permissions";
+import { canSeeDocument, canViewCompliance, documentIsFor, isAdminUser, mustAcknowledgeDocuments } from "./permissions";
 import { checkReason, describeEdit } from "./whsEdits";
 import { formatLongDate } from "./whsDates";
 import { documentLink } from "./whsLinks";
@@ -935,7 +935,7 @@ async function requireDocumentAdmin(ctx: QueryCtx) {
 
 async function requirePanel(ctx: QueryCtx) {
   const user = await requireCaller(ctx);
-  if (!isAdminUser(user)) throw new ConvexError("Only an administrator can open this.");
+  if (!canViewCompliance(user)) throw new ConvexError("Only admins and management can open this.");
   return user;
 }
 
@@ -1149,6 +1149,10 @@ export const adminCreate = mutation({
     const title = args.title.trim();
     if (title === "") throw new ConvexError("Enter the document name.");
     checkText(title, "The document name");
+    // A safety document that isn't a SWMS or SDS says what kind it is, from the list or typed under "Other" (decision AD40).
+    if (args.kind === "document" && !args.category?.trim()) {
+      throw new ConvexError("Select the document type, or choose Other and type its name.");
+    }
     const existing = await ctx.db.query("whs_documents").withIndex("by_archived", (q) => q.eq("archived", false)).collect();
     if (existing.some((document) => document.title.toLowerCase() === title.toLowerCase())) {
       throw new ConvexError(`A document called "${title}" already exists. Open it and upload a new version instead.`);
@@ -1359,5 +1363,140 @@ export const adminArchive = mutation({
     const reason = checkReason(args.reason, "archive");
     await ctx.db.patch(document._id, { archived: true });
     await ctx.db.insert("whs_document_audit", { document_id: document._id, action: "archived", actor_id: admin._id, details: reason });
+  },
+});
+
+// ---------------------------------------------------------------------------
+// An entity's Documents tab (decision AD41)
+// ---------------------------------------------------------------------------
+
+/** Where a worker belongs: "western-usi" or their subcontractor's id. */
+const entityOfUser = (user: Pick<Doc<"users">, "subcontractor_id">): string => user.subcontractor_id ?? "western-usi";
+
+/** Checks an entity id from the entity pages: "western-usi", or a subcontractor that still exists. */
+async function checkEntity(ctx: QueryCtx, entity: string): Promise<"western-usi" | Id<"subcontractors">> {
+  if (entity === "western-usi") return "western-usi";
+  const id = ctx.db.normalizeId("subcontractors", entity);
+  const subcontractor = id === null ? null : await ctx.db.get(id);
+  if (subcontractor === null || subcontractor.archived) throw new ConvexError("That company no longer exists.");
+  return subcontractor._id;
+}
+
+/**
+ * The safety documents one entity's workers are asked to read and sign
+ * (`assigned`, with how many have signed), and the ones that aren't for them
+ * (`available`, to add). A document that is for everyone counts as assigned.
+ */
+export const forEntity = query({
+  args: { entity: v.string() },
+  handler: async (ctx, args) => {
+    await requirePanel(ctx);
+    const entity = await checkEntity(ctx, args.entity);
+    const [documents, installers] = await Promise.all([
+      ctx.db.query("whs_documents").withIndex("by_archived", (q) => q.eq("archived", false)).collect(),
+      ctx.db.query("users").withIndex("by_role", (q) => q.eq("role", "installer")).collect(),
+    ]);
+    const team = installers.filter((user) => entityOfUser(user) === entity);
+
+    const assigned = [];
+    const available = [];
+    for (const document of documents) {
+      const forWorkers = new Set(document.for_workers ?? []);
+      const everyone = (document.for_entities ?? []).length === 0 && forWorkers.size === 0;
+      const wholeEntity = (document.for_entities ?? []).includes(entity);
+      const somePeople = team.some((user) => forWorkers.has(user._id));
+      const summary = { id: document._id, title: document.title, kind: document.kind, category: document.category };
+      if (!everyone && !wholeEntity && !somePeople) {
+        available.push(summary);
+        continue;
+      }
+      const askedWorkers = team.filter((user) => documentIsFor(document, user));
+      const current = currentOf(await versionsOf(ctx, document._id));
+      const signed =
+        current === undefined || !document.acknowledgement_required
+          ? 0
+          : (
+              await Promise.all(askedWorkers.map((user) => myAcknowledgement(ctx, current._id, user._id)))
+            ).filter((ack) => ack !== null).length;
+      assigned.push({
+        ...summary,
+        for: everyone ? ("everyone" as const) : wholeEntity ? ("all" as const) : ("some" as const),
+        asked: askedWorkers.length,
+        signed,
+        acknowledgement_required: document.acknowledgement_required,
+        version: current?.version,
+      });
+    }
+    const byTitle = (a: { title: string }, b: { title: string }) => a.title.localeCompare(b.title);
+    return { assigned: assigned.sort(byTitle), available: available.sort(byTitle) };
+  },
+});
+
+/**
+ * The admin adds a document to an entity's list, or removes it, from the
+ * entity's Documents tab, with a reason (decisions AD32, AD41). Adding makes
+ * the entity's workers ask for it. Removing takes the entity out of who it is
+ * for; a document that was for everyone becomes "everyone else".
+ */
+export const adminSetEntity = mutation({
+  args: { document_id: v.id("whs_documents"), entity: v.string(), assigned: v.boolean(), reason: v.string() },
+  handler: async (ctx, args) => {
+    const admin = await requireDocumentAdmin(ctx);
+    const document = await ctx.db.get(args.document_id);
+    if (document === null || document.archived) throw new ConvexError("That document no longer exists.");
+    const entity = await checkEntity(ctx, args.entity);
+    const reason = checkReason(args.reason);
+
+    const entities = document.for_entities ?? [];
+    const workers = document.for_workers ?? [];
+    const everyone = entities.length === 0 && workers.length === 0;
+
+    let nextEntities: (Id<"subcontractors"> | "western-usi")[];
+    let nextWorkers: Id<"users">[];
+    if (args.assigned) {
+      if (everyone || entities.includes(entity)) throw new ConvexError("That document is already for this company.");
+      nextEntities = [...entities, entity];
+      // Anyone picked one by one at this company is now covered by the whole company.
+      const theirs = new Set<Id<"users">>();
+      for (const worker of workers) {
+        const user = await ctx.db.get(worker);
+        if (user !== null && entityOfUser(user) === entity) theirs.add(worker);
+      }
+      nextWorkers = workers.filter((worker) => !theirs.has(worker));
+    } else {
+      if (everyone) {
+        // "Everyone" becomes every other company, so this one drops out.
+        const subcontractors = (await ctx.db.query("subcontractors").collect()).filter((row) => !row.archived);
+        const all: (Id<"subcontractors"> | "western-usi")[] = ["western-usi", ...subcontractors.map((row) => row._id)];
+        nextEntities = all.filter((id) => id !== entity);
+        nextWorkers = [];
+      } else {
+        nextEntities = entities.filter((id) => id !== entity);
+        nextWorkers = [];
+        for (const worker of workers) {
+          const user = await ctx.db.get(worker);
+          if (user === null || entityOfUser(user) !== entity) nextWorkers.push(worker);
+        }
+      }
+      if (nextEntities.length === 0 && nextWorkers.length === 0) {
+        throw new ConvexError(
+          "This is the only company this document is for. Add another company first, or archive the document if it is no longer needed.",
+        );
+      }
+    }
+
+    const next = { for_entities: nextEntities, for_workers: nextWorkers };
+    const details = describeEdit(
+      [{ label: "Who must read and sign", before: await audienceText(ctx, document), after: await audienceText(ctx, next) }],
+      reason,
+    );
+    await ctx.db.patch(document._id, next);
+    await ctx.db.insert("whs_document_audit", {
+      document_id: document._id,
+      version_id: currentOf(await versionsOf(ctx, document._id))?._id,
+      action: "edited",
+      actor_id: admin._id,
+      details,
+    });
   },
 });

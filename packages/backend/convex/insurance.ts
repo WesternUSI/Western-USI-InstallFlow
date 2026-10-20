@@ -1,8 +1,8 @@
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
-import { isValidIsoDate, requireCaller } from "./accreditations";
-import { isAdminUser } from "./permissions";
+import { isValidIsoDate, requireCaller, requireVerifier } from "./accreditations";
+import { canViewCompliance, isAdminUser } from "./permissions";
 import { businessToday } from "./whsDates";
 import { deriveAccreditationStatus } from "./whsStatus";
 import { checkReason, describeEdit } from "./whsEdits";
@@ -33,7 +33,7 @@ export const INSURANCE_TYPE_LABELS: Record<Doc<"insurance_policies">["insurance_
 
 async function requirePanel(ctx: QueryCtx) {
   const user = await requireCaller(ctx);
-  if (!isAdminUser(user)) throw new ConvexError("Only an administrator can open this.");
+  if (!canViewCompliance(user)) throw new ConvexError("Only admins and management can open this.");
   return user;
 }
 
@@ -320,7 +320,7 @@ export const adminRenew = mutation({
 export const adminVerify = mutation({
   args: { certificate_id: v.id("insurance_certificates"), expires: v.string() },
   handler: async (ctx, args) => {
-    const admin = await requireAdmin(ctx);
+    const admin = await requireVerifier(ctx);
     const certificate = await ctx.db.get(args.certificate_id);
     if (certificate === null) throw new ConvexError("That certificate no longer exists.");
     if (certificate.state !== "pending") throw new ConvexError("That certificate has already been checked.");
@@ -341,7 +341,7 @@ export const adminVerify = mutation({
 export const adminReject = mutation({
   args: { certificate_id: v.id("insurance_certificates"), reason: v.string() },
   handler: async (ctx, args) => {
-    const admin = await requireAdmin(ctx);
+    const admin = await requireVerifier(ctx);
     const reason = args.reason.trim();
     if (reason === "") throw new ConvexError("Enter a reason, so the subcontractor knows what to fix.");
     const certificate = await ctx.db.get(args.certificate_id);

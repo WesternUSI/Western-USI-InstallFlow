@@ -3,20 +3,11 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { Field, SelectInput, TextInput } from "@/components/whs/safety-form";
+import { ReasonDialog } from "@/components/whs/reason-dialog";
+import { Field, SelectInput, TextArea, TextInput } from "@/components/whs/safety-form";
 import { toUserMessage } from "@/lib/errors";
 
-import {
-  DataTable,
-  DetailGrid,
-  Notice,
-  PagedTable,
-  Panel,
-  RowAction,
-  SafetyButton,
-  SafetyPage,
-  StatusBadge,
-} from "@/components/whs/safety-ui";
+import { DetailGrid, Notice, PagedTable, Panel, RowAction, SafetyButton, SafetyPage, StatusBadge } from "@/components/whs/safety-ui";
 import {
   SubcontractorHeader,
   SubcontractorTabs,
@@ -32,11 +23,12 @@ import { useMutation, useQuery } from "convex/react";
 
 import { useEntityRows } from "@/components/whs/subcontractor-header";
 import { useListState } from "@/lib/use-list-state";
+import { documentTypeLabel } from "@/lib/document-kinds";
 import { formatIsoDate, formatTime } from "@/lib/upload-file";
 import type { RegisterRow } from "@/lib/use-register";
 
 const TEXT_LINK = "text-[13px] font-semibold text-[#2563eb] hover:underline";
-const TAB_IDS: SubcontractorTab[] = ["overview", "business", "workers", "accreditations", "requirements", "history"];
+const TAB_IDS: SubcontractorTab[] = ["overview", "business", "workers", "accreditations", "documents", "requirements", "history"];
 
 export const Route = createFileRoute("/_auth/safety/subcontractors/$subcontractorId/")({
   validateSearch: (search: Record<string, unknown>): { tab?: SubcontractorTab; page?: string } => ({
@@ -59,7 +51,7 @@ function SubcontractorProfile() {
 
   return (
     <SafetyPage
-      title={tab === "overview" ? name : `${name} · ${{ business: "Business Records", workers: "Workers", accreditations: "Accreditations", requirements: "WHS Requirements", history: "History", overview: "" }[tab]}`}
+      title={tab === "overview" ? name : `${name} · ${{ business: "Business Records", workers: "Workers", accreditations: "Accreditations", documents: "Documents", requirements: "WHS Requirements", history: "History", overview: "" }[tab]}`}
       description={isWesternUsi ? "Safety · Western USI" : "Safety / Subcontractors · Administrator"}
       back={isWesternUsi ? { to: "/safety", label: "Safety Dashboard" } : { to: "/safety/subcontractors", label: "Subcontractors" }}
     >
@@ -69,6 +61,7 @@ function SubcontractorProfile() {
       {tab === "business" && <BusinessTab subcontractorId={subcontractorId} isWesternUsi={isWesternUsi} />}
       {tab === "workers" && <WorkersTab name={name} isWesternUsi={isWesternUsi} />}
       {tab === "accreditations" && <AccreditationsTab subcontractorId={subcontractorId} name={name} />}
+      {tab === "documents" && <DocumentsTab subcontractorId={subcontractorId} name={name} />}
       {tab === "requirements" && <RequirementsTab subcontractorId={subcontractorId} name={name} isWesternUsi={isWesternUsi} />}
       {tab === "history" && <HistoryTab subcontractorId={subcontractorId} isWesternUsi={isWesternUsi} />}
     </SafetyPage>
@@ -141,7 +134,7 @@ function OverviewTab({ subcontractorId, name, isWesternUsi }: { subcontractorId:
     <>
       {problems.length > 0 ? <Notice tone="warning">Action required · {problems.join(", ")}.</Notice> : <Notice tone="success">Everything recorded for {name} is current.</Notice>}
       <Panel>
-        <DataTable
+        <PagedTable
           rows={areas}
           rowKey={(row) => row.area}
           columns={[
@@ -182,7 +175,7 @@ function BusinessTab({ subcontractorId, isWesternUsi }: { subcontractorId: strin
         <SafetyButton to="/safety/records/new/insurance">Add Policy</SafetyButton>
       </Panel>
       <Panel>
-        <DataTable
+        <PagedTable
           rows={policies}
           rowKey={(row) => row.id}
           empty="No policies recorded for this subcontractor yet."
@@ -296,7 +289,7 @@ function WorkersTab({ name, isWesternUsi }: { name: string; isWesternUsi: boolea
         <SafetyButton to="/users">Invite on Users</SafetyButton>
       </Panel>
       <Panel>
-        <DataTable
+        <PagedTable
           rows={people}
           rowKey={(row) => row._id}
           empty={users === undefined ? "Loading…" : "No workers yet."}
@@ -343,15 +336,14 @@ interface RequirementRow {
 
 /**
  * SC11 WHS requirements, real (framework 4D): everything this entity must
- * have beyond insurance, in one list. The signed agreement; each SWMS its
- * installers must sign; and each accreditation its workers must hold, which
- * includes inductions a client asks for (framework 4B "other client-specific
- * inductions", decision AD29).
+ * have beyond insurance, in one list: the signed agreement, and each
+ * accreditation its workers must hold, which includes inductions a client
+ * asks for (framework 4B, decision AD29). The documents it signs are on the
+ * Documents tab (decision AD41).
  */
 function RequirementsTab({ subcontractorId, name, isWesternUsi }: { subcontractorId: string; name: string; isWesternUsi: boolean }) {
   const navigate = useNavigate();
   const agreement = useAgreement(subcontractorId);
-  const swms = useSwmsSignoffs(name);
   const accreditations = (useEntityRows(name) ?? []).filter((row) => row.category === "accreditation");
 
   const rows: RequirementRow[] = [];
@@ -365,20 +357,6 @@ function RequirementsTab({ subcontractorId, name, isWesternUsi }: { subcontracto
       statusLabel: agreement.status === "missing" ? "Not on file" : undefined,
       link: { to: "/safety/subcontractors/$subcontractorId", params: { subcontractorId }, search: { tab: "business" } },
       action: "View agreement",
-    });
-  }
-  for (const documentId of [...new Set(swms.map((row) => row.document_id))]) {
-    const list = swms.filter((row) => row.document_id === documentId);
-    const signed = list.filter((row) => row.signed_at !== undefined).length;
-    rows.push({
-      key: documentId,
-      requirement: `SWMS: ${list[0].document} · ${list[0].version}`,
-      appliesTo: `${list.length} ${list.length === 1 ? "installer" : "installers"}`,
-      progress: `${signed} of ${list.length} signed`,
-      status: signed === list.length ? "current" : "action-required",
-      statusLabel: signed === list.length ? "All signed" : "Signatures outstanding",
-      link: { to: "/safety/subcontractors/$subcontractorId/swms", params: { subcontractorId }, search: { document: documentId } },
-      action: "View installers",
     });
   }
   const byType = new Map<string, RegisterRow[]>();
@@ -411,7 +389,7 @@ function RequirementsTab({ subcontractorId, name, isWesternUsi }: { subcontracto
   return (
     <>
       <Panel>
-        <DataTable
+        <PagedTable
           rows={rows}
           rowKey={(row) => row.key}
           empty="Nothing required yet."
@@ -559,7 +537,7 @@ function AccreditationsTab({ subcontractorId, name }: { subcontractorId: string;
         </SafetyButton>
       </Panel>
       <Panel>
-        <DataTable
+        <PagedTable
           rows={required}
           rowKey={(row) => row.id}
           empty={types === undefined ? "Loading…" : `No accreditations required of ${name} yet.`}
@@ -766,6 +744,257 @@ function AddAccreditationDialog({
           </SafetyButton>
           <SafetyButton onClick={submit} disabled={busy}>
             {busy ? "Saving…" : mode === "new" ? "Create" : "Add"}
+          </SafetyButton>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * The safety documents this entity's workers are asked to read and sign
+ * (decision AD41), with how many have signed, and Add / Remove for this entity
+ * only. A document's full "who must sign" is on its own page.
+ */
+function DocumentsTab({ subcontractorId, name }: { subcontractorId: string; name: string }) {
+  const navigate = useNavigate();
+  const entity = subcontractorId === WESTERN_USI_ID ? "western-usi" : subcontractorId;
+  const data = useQuery(api.documents.forEntity, { entity });
+  const setEntity = useMutation(api.documents.adminSetEntity);
+  const [adding, setAdding] = useState(false);
+  const [removing, setRemoving] = useState<{ id: string; title: string } | null>(null);
+
+  const kindLabel = (row: { kind: string; category?: string }) => documentTypeLabel(row.kind, row.category);
+  const forText = (row: { for: "everyone" | "all" | "some"; asked: number }) =>
+    row.for === "some" ? `${row.asked} ${row.asked === 1 ? "worker" : "workers"} (picked one by one)` : `All ${row.asked} ${row.asked === 1 ? "installer" : "installers"}`;
+
+  const change = async (id: string, assigned: boolean, reason: string) => {
+    try {
+      await setEntity({ document_id: id as Id<"whs_documents">, entity, assigned, reason });
+      return true;
+    } catch (error) {
+      toast.error(toUserMessage(error, "Could not change that document."));
+      return false;
+    }
+  };
+
+  return (
+    <>
+      <Panel className="flex flex-wrap items-center justify-between gap-4 rounded-[12px] p-6">
+        <div>
+          <h3 className="text-sm font-bold text-[#111827]">Documents for {name}</h3>
+          <p className="text-xs text-[#64748b]">The safety documents {name}'s installers are asked to read and sign.</p>
+        </div>
+        <SafetyButton onClick={() => setAdding(true)} disabled={data === undefined}>
+          + Add Document
+        </SafetyButton>
+      </Panel>
+      <Panel>
+        <PagedTable
+          rows={data?.assigned ?? []}
+          rowKey={(row) => row.id}
+          empty={data === undefined ? "Loading…" : `No documents for ${name} yet.`}
+          columns={[
+            {
+              key: "document",
+              header: "Document",
+              render: (row) => (
+                <div className="flex flex-col">
+                  <span className="text-[#111827]">{row.title}</span>
+                  <span className="text-[11px] font-normal text-[#64748b]">
+                    {kindLabel(row)}
+                    {row.version ? ` · ${row.version}` : ""}
+                  </span>
+                </div>
+              ),
+            },
+            { key: "for", header: "Asked of", render: (row) => <span className="text-[13px]">{forText(row)}</span> },
+            {
+              key: "signed",
+              header: "Signed",
+              render: (row) =>
+                !row.acknowledgement_required ? (
+                  <span className="text-[13px] text-[#64748b]">No signature needed</span>
+                ) : row.asked === 0 ? (
+                  <span className="text-[13px] text-[#64748b]">No installers yet</span>
+                ) : (
+                  <StatusBadge
+                    status={row.signed === row.asked ? "current" : "action-required"}
+                    label={`${row.signed} of ${row.asked} signed`}
+                  />
+                ),
+            },
+            {
+              key: "actions",
+              header: "Actions",
+              align: "right",
+              render: (row) => (
+                <div className="flex justify-end gap-2">
+                  {row.kind === "swms" && row.acknowledgement_required ? (
+                    <RowAction
+                      onClick={() =>
+                        void navigate({
+                          to: "/safety/subcontractors/$subcontractorId/swms",
+                          params: { subcontractorId },
+                          search: { document: row.id },
+                        })
+                      }
+                    >
+                      View installers
+                    </RowAction>
+                  ) : (
+                    <RowAction to="/safety/documents/$documentId" params={{ documentId: row.id }}>
+                      Open
+                    </RowAction>
+                  )}
+                  <RowAction onClick={() => setRemoving({ id: row.id, title: row.title })}>Remove</RowAction>
+                </div>
+              ),
+            },
+          ]}
+        />
+      </Panel>
+      <AddDocumentDialog
+        open={adding}
+        name={name}
+        options={(data?.available ?? []).map((row) => ({ value: row.id, label: `${row.title} (${kindLabel(row)})` }))}
+        onClose={() => setAdding(false)}
+        onAdd={async (id, reason) => {
+          const done = await change(id, true, reason);
+          if (done) toast.success(`Document added for ${name}`);
+          return done;
+        }}
+        onCreate={() => void navigate({ to: "/safety/records/new/document", search: { for: subcontractorId } })}
+      />
+      <ReasonDialog
+        open={removing !== null}
+        title={`Remove ${removing?.title ?? "this document"} for ${name}?`}
+        description={`${name}'s workers won't be asked to read and sign it any more, and its reminders for them stop. Other companies are not affected.`}
+        placeholder="e.g. This company doesn't do this kind of work"
+        confirmLabel="Remove"
+        missingMessage="Enter the reason for removing it"
+        onClose={() => setRemoving(null)}
+        onConfirm={async (reason) => {
+          if (removing === null) return;
+          if (await change(removing.id, false, reason)) toast.success(`${removing.title} removed for ${name}`);
+          else throw new Error("not changed");
+        }}
+      />
+    </>
+  );
+}
+
+/** "+ Add Document" on an entity's Documents tab: pick an existing document (with a reason), or create a new one for this company (decision AD42). */
+function AddDocumentDialog({
+  open,
+  name,
+  options,
+  onClose,
+  onAdd,
+  onCreate,
+}: {
+  open: boolean;
+  name: string;
+  options: { value: string; label: string }[];
+  onClose: () => void;
+  /** Resolves true when added (the dialog closes). */
+  onAdd: (documentId: string, reason: string) => Promise<boolean>;
+  onCreate: () => void;
+}) {
+  const [mode, setMode] = useState<"existing" | "new">("existing");
+  const [documentId, setDocumentId] = useState("");
+  const [reason, setReason] = useState("");
+  const [errors, setErrors] = useState<{ document?: string; reason?: string }>({});
+  const [busy, setBusy] = useState(false);
+  const [wasOpen, setWasOpen] = useState(false);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setMode(options.length === 0 ? "new" : "existing");
+      setDocumentId("");
+      setReason("");
+      setErrors({});
+    }
+  }
+  const choice = (value: "existing" | "new", label: string) => (
+    <label className="flex w-fit cursor-pointer items-center gap-2.5 text-[13px] text-[#111827]">
+      <input type="radio" checked={mode === value} onChange={() => setMode(value)} className="size-4 accent-[#2563eb]" />
+      {label}
+    </label>
+  );
+
+  const submit = async () => {
+    if (mode === "new") {
+      onCreate();
+      return;
+    }
+    const found: typeof errors = {};
+    if (documentId === "") found.document = "Select the document to add";
+    if (reason.trim() === "") found.reason = "Enter the reason for the change";
+    setErrors(found);
+    const first = Object.values(found)[0];
+    if (first) {
+      toast.error(first);
+      return;
+    }
+    setBusy(true);
+    try {
+      if (await onAdd(documentId, reason.trim())) onClose();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => !next && !busy && onClose()}>
+      <DialogContent className="rounded-xl border-slate-200 bg-white sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="text-lg font-bold text-slate-900">Add a document for {name}</DialogTitle>
+          <DialogDescription className="text-sm leading-relaxed text-slate-500">
+            {name}'s installers will be asked to read and sign it, if it needs signing.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-2">
+          {options.length > 0 ? choice("existing", "Choose an existing one") : null}
+          {choice("new", "Create a new one")}
+        </div>
+        {mode === "existing" ? (
+          <>
+            <Field label="Document" required error={errors.document}>
+              <SelectInput
+                value={documentId}
+                onChange={(value) => {
+                  setDocumentId(value);
+                  setErrors((current) => ({ ...current, document: undefined }));
+                }}
+                options={options}
+                placeholder="Select a document…"
+                invalid={!!errors.document}
+              />
+            </Field>
+            <Field label="Reason for the change" required error={errors.reason}>
+              <TextArea
+                value={reason}
+                onChange={(value) => {
+                  setReason(value);
+                  setErrors((current) => ({ ...current, reason: undefined }));
+                }}
+                placeholder="e.g. This company now works on airport sites"
+                invalid={!!errors.reason}
+              />
+            </Field>
+          </>
+        ) : (
+          <p className="text-[13px] text-[#64748b]">
+            This opens the Add Safety Document form with {name} already chosen as who must read and sign. When you save, you come back here.
+          </p>
+        )}
+        <DialogFooter>
+          <SafetyButton variant="secondary" onClick={onClose} disabled={busy}>
+            Cancel
+          </SafetyButton>
+          <SafetyButton onClick={() => void submit()} disabled={busy}>
+            {busy ? "Adding…" : mode === "new" ? "Continue" : "Add"}
           </SafetyButton>
         </DialogFooter>
       </DialogContent>

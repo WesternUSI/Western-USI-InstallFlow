@@ -2,7 +2,7 @@ import { api } from "@usi-installer/backend/convex/_generated/api";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
 
-import { DataTable, DetailGrid, Notice, Panel, RowAction, SafetyPage, StatusBadge } from "@/components/whs/safety-ui";
+import { DetailGrid, Notice, PagedTable, Panel, RowAction, SafetyPage, StatusBadge } from "@/components/whs/safety-ui";
 import { useSubcontractor } from "@/components/whs/subcontractor-header";
 import { formatIsoDate, formatTime } from "@/lib/upload-file";
 
@@ -25,7 +25,7 @@ function SwmsAcknowledgements() {
   const rows = (all ?? []).filter((row) => row.document_id === documentId && row.entity === subcontractor?.name);
   const first = rows[0];
   const signed = rows.filter((row) => row.signed_at !== undefined).length;
-  const back = { to: "/safety/subcontractors/$subcontractorId" as const, label: "WHS requirements", params: { subcontractorId } };
+  const back = { to: "/safety/subcontractors/$subcontractorId" as const, label: "Documents", params: { subcontractorId }, search: { tab: "documents" as const } };
 
   if (all === undefined || subcontractor === undefined) {
     return (
@@ -57,7 +57,7 @@ function SwmsAcknowledgements() {
           </Panel>
           <Notice tone="info">Each installer signs the current version in the app. Reminders go out automatically until they do.</Notice>
           <Panel>
-            <DataTable
+            <PagedTable
               rows={rows}
               rowKey={(row) => row.worker}
               columns={[

@@ -261,6 +261,46 @@ export const sendAdminAccessEmail = internalAction({
   },
 });
 
+export const sendManagementAccessEmail = internalAction({
+  args: {
+    to: v.string(),
+    name: v.string(),
+  },
+  handler: async (_ctx, args) => {
+    const apiKey = process.env.RESEND_API_KEY;
+    if (!apiKey) {
+      console.error("RESEND_API_KEY is not set — skipping management access email.");
+      return;
+    }
+
+    const html = brandedEmail(`
+      <p style="margin:0 0 16px;">Hi ${escapeHtml(args.name)},</p>
+      <p style="margin:0 0 20px;">You now have management access on Western USI InstallFlow.</p>
+      <p style="margin:0;color:#6B7280;">Sign in to the web panel with your existing email and password. Use the switch in the menu to move between the admin and management dashboards.</p>
+    `);
+
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: process.env.RESEND_FROM_EMAIL ?? "onboarding@resend.dev",
+        to: [args.to],
+        subject: "You now have management access on Western USI InstallFlow",
+        text: `Hi ${args.name},\n\nYou now have management access on Western USI InstallFlow. Sign in to the web panel with your existing email and password and use the switch in the menu to open the management dashboard.`,
+        html,
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      console.error(`Resend management access email failed (${response.status}): ${body}`);
+    }
+  },
+});
+
 const WHS_EMAIL_MAX_ATTEMPTS = 4;
 
 function sleep(ms: number): Promise<void> {
@@ -283,10 +323,25 @@ export const sendWhsEmail = internalAction({
     /** A button under the text, e.g. to the accreditation in the app. */
     link: v.optional(v.object({ label: v.string(), url: v.string() })),
   },
-  handler: async (_ctx, args): Promise<void> => {
+  /** Who was actually emailed: the addresses left after WHS_EMAIL_SKIP (none when every one was skipped). */
+  handler: async (_ctx, args): Promise<string[]> => {
     const apiKey = process.env.RESEND_API_KEY;
     if (!apiKey) {
       throw new Error("RESEND_API_KEY is not set");
+    }
+
+    // Addresses a deployment must never email (decision AD46), e.g. the client on the dev
+    // deployment, whose test data would otherwise reach him. Comma-separated, any case.
+    const skip = new Set(
+      (process.env.WHS_EMAIL_SKIP ?? "")
+        .split(",")
+        .map((address) => address.trim().toLowerCase())
+        .filter(Boolean),
+    );
+    const to = args.to.filter((address) => !skip.has(address.trim().toLowerCase()));
+    if (to.length === 0) {
+      console.log(`WHS email skipped (every recipient is on WHS_EMAIL_SKIP): ${args.subject}`);
+      return [];
     }
 
     const button =
@@ -303,7 +358,7 @@ export const sendWhsEmail = internalAction({
 
     const body = JSON.stringify({
       from: process.env.RESEND_FROM_EMAIL ?? "onboarding@resend.dev",
-      to: args.to,
+      to,
       subject: args.subject,
       text,
       html,
@@ -323,7 +378,7 @@ export const sendWhsEmail = internalAction({
         continue;
       }
 
-      if (response.ok) return;
+      if (response.ok) return to;
 
       const retryable = response.status === 429 || response.status >= 500;
       if (!retryable || attempt >= WHS_EMAIL_MAX_ATTEMPTS) {

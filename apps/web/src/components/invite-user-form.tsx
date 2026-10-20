@@ -83,7 +83,7 @@ export function InviteUserForm() {
     setIsSaving(true);
     try {
       if (role === "installer" || role === "subcontractor" || role === "management") {
-        await inviteInstaller({
+        const result = await inviteInstaller({
           full_name: fullName,
           work_email: workEmail,
           team: noTeam || team === NO_TEAM ? undefined : (team as Team),
@@ -92,7 +92,10 @@ export function InviteUserForm() {
             role !== "management" && hasSubcontractor ? (subcontractor as Id<"subcontractors">) : undefined,
           role: role === "installer" ? undefined : role,
         });
-        setSent({
+        if (result.password === undefined) {
+          // An existing admin was given management access: no new login to send (decision AD43).
+          toast.success(`${workEmail} now has management access as well as admin`);
+        } else setSent({
           name: fullName,
           email: workEmail,
           team: role === "management" ? "None (Management)" : whsOnly ? "None (Safety only)" : team === NO_TEAM ? "Unassigned" : team,
@@ -123,7 +126,8 @@ export function InviteUserForm() {
         <div className="flex flex-col gap-1 px-6 pt-5">
           <h2 className="text-base font-bold text-slate-900">Invite New User</h2>
           <p className="text-sm text-slate-500">
-            Create an installer, subcontractor or administrator account and share exclusive credentials.
+            Create an installer, subcontractor, management or administrator account and share exclusive credentials. An existing admin
+            invited as Management gets both dashboards.
           </p>
         </div>
 

@@ -2,7 +2,7 @@ import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query, type QueryCtx } from "./_generated/server";
 import { isValidIsoDate, requireCaller } from "./accreditations";
-import { isAdminUser } from "./permissions";
+import { canViewCompliance, isAdminUser } from "./permissions";
 import { addDays, businessToday } from "./whsDates";
 
 /**
@@ -34,7 +34,7 @@ export async function agreementsOf(ctx: QueryCtx, subcontractorId: Id<"subcontra
 
 async function requirePanel(ctx: QueryCtx) {
   const user = await requireCaller(ctx);
-  if (!isAdminUser(user)) throw new ConvexError("Only an administrator can open this.");
+  if (!canViewCompliance(user)) throw new ConvexError("Only admins and management can open this.");
   return user;
 }
 
@@ -121,5 +121,21 @@ export const adminSave = mutation({
       notes,
       uploaded_by: admin._id,
     });
+  },
+});
+
+/** Every subcontractor's agreement status at once, for the management overview and entity list (decision AD43). */
+export const statuses = query({
+  args: {},
+  handler: async (ctx) => {
+    await requirePanel(ctx);
+    const today = businessToday();
+    const subcontractors = (await ctx.db.query("subcontractors").collect()).filter((row) => !row.archived);
+    return await Promise.all(
+      subcontractors.map(async (subcontractor) => {
+        const all = await agreementsOf(ctx, subcontractor._id);
+        return { subcontractor_id: subcontractor._id as string, status: agreementStatus(all[all.length - 1] ?? null, today) };
+      }),
+    );
   },
 });

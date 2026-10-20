@@ -6,6 +6,8 @@ import { enabledRecipientEmails } from "./emails";
 import { KIT_REMINDER_DAYS } from "./kits";
 import { addDays, businessToday, formatLongDate } from "./whsDates";
 import { planReminders } from "./whsStatus";
+import { isManagementUser } from "./permissions";
+import { managementLink } from "./whsLinks";
 
 /**
  * First-aid inspection reminders (framework 7), run by the same 8am check as
@@ -33,6 +35,7 @@ interface KitReminder {
   to: string[];
   subject: string;
   lines: string[];
+  link?: { label: string; url: string };
 }
 
 /** Every kit reminder due today and not yet sent. Read-only, so it doubles as a dry run. */
@@ -49,7 +52,7 @@ export const due = internalQuery({
 
     const adminEmails = await enabledRecipientEmails(ctx);
     const managementEmails = (await ctx.db.query("users").collect())
-      .filter((user) => user.role === "management")
+      .filter(isManagementUser)
       .map((user) => user.email);
 
     const reminders: KitReminder[] = [];
@@ -115,6 +118,7 @@ export const due = internalQuery({
             action: "escalated",
             to: managementEmails,
             subject: `Escalation: first-aid kit ${kit.code} inspection is ${days(candidate.overdueDays ?? 0)} overdue`,
+            link: managementLink(`/management/kits/${kit._id}`),
             lines: [
               `${name} was due for its inspection on ${dueDate} and is now ${days(candidate.overdueDays ?? 0)} overdue${responsible === null ? "" : ` (responsible: ${responsible.name ?? responsible.email})`}.`,
               "Reminders have gone out each week. Please follow up.",
@@ -150,16 +154,17 @@ export const sweep = internalAction({
     for (const [index, reminder] of reminders.entries()) {
       if (index > 0) await sleep(PAUSE_BETWEEN_EMAILS_MS);
       try {
-        await ctx.runAction(internal.email.sendWhsEmail, {
+        const emailed: string[] = await ctx.runAction(internal.email.sendWhsEmail, {
           to: reminder.to,
           subject: reminder.subject,
           lines: reminder.lines,
+          link: reminder.link,
         });
         await ctx.runMutation(internal.whsKitReminders.logSent, {
           kit_id: reminder.kit_id,
           key: reminder.key,
           action: reminder.action,
-          details: `Emailed ${reminder.to.join(", ")}: ${reminder.subject}`,
+          details: emailed.length > 0 ? `Emailed ${emailed.join(", ")}: ${reminder.subject}` : `Not emailed (recipients on the skip list): ${reminder.subject}`,
         });
         sent++;
       } catch (error) {

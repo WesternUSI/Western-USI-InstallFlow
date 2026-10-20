@@ -2,7 +2,7 @@ import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { isValidIsoDate, requireCaller } from "./accreditations";
-import { isAdminUser } from "./permissions";
+import { canViewCompliance, isAdminUser } from "./permissions";
 import { addMonths, businessToday } from "./whsDates";
 import { daysBetween } from "./whsStatus";
 import { checkReason, describeEdit } from "./whsEdits";
@@ -56,7 +56,7 @@ export function deriveVehicleStatus(vehicle: Doc<"vehicles">, today: string): Ve
 
 async function requirePanel(ctx: QueryCtx) {
   const user = await requireCaller(ctx);
-  if (!isAdminUser(user)) throw new ConvexError("Only an administrator can open this.");
+  if (!canViewCompliance(user)) throw new ConvexError("Only admins and management can open this.");
   return user;
 }
 

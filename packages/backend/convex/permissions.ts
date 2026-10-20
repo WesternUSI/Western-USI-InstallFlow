@@ -15,14 +15,25 @@ export function isTeamless(user: Pick<Doc<"users">, "role" | "subcontractor_id">
   return isWhsOnly(user) || user.role === "management";
 }
 
+/** Western USI's management by role, or an admin who was also given management access (decision AD43). */
+export function isManagementUser(user: Pick<Doc<"users">, "role" | "has_management_access">): boolean {
+  return user.role === "management" || user.has_management_access === true;
+}
+
+/** Who can open the compliance registers and records: admins and management (framework 3, 10). */
+export function canViewCompliance(user: Pick<Doc<"users">, "role" | "has_admin_access" | "has_management_access">): boolean {
+  return isAdminUser(user) || isManagementUser(user);
+}
+
 /**
- * Who may check WHS evidence (framework 5, 8 and 10: an administrator checks it;
- * management may verify designated items, which is not built yet). One function
- * so the rule can change in one place. See decision V1 in
+ * Who may check WHS evidence and approve what waits in the register: admins,
+ * and management, who verify everything that comes in (framework 10
+ * "designated items"; the user designated all of them, decision AD43). One
+ * function so the rule can change in one place. See V1 and AD43 in
  * docs/reference/whs-decisions.md.
  */
-export function canVerifyEvidence(user: Pick<Doc<"users">, "role" | "has_admin_access">): boolean {
-  return isAdminUser(user);
+export function canVerifyEvidence(user: Pick<Doc<"users">, "role" | "has_admin_access" | "has_management_access">): boolean {
+  return isAdminUser(user) || isManagementUser(user);
 }
 
 /**
@@ -90,8 +101,8 @@ export function documentIsFor(
 /** The office (admins and management) sees every document; everyone else only the ones meant for them. */
 export function canSeeDocument(
   document: Pick<Doc<"whs_documents">, "for_entities" | "for_workers">,
-  user: Pick<Doc<"users">, "_id" | "subcontractor_id" | "role" | "has_admin_access">,
+  user: Pick<Doc<"users">, "_id" | "subcontractor_id" | "role" | "has_admin_access" | "has_management_access">,
 ): boolean {
-  if (isAdminUser(user) || user.role === "management") return true;
+  if (canViewCompliance(user)) return true;
   return documentIsFor(document, user);
 }

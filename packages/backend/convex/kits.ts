@@ -2,7 +2,7 @@ import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, mutation, query, type QueryCtx } from "./_generated/server";
 import { isValidIsoDate, requireCaller } from "./accreditations";
-import { isAdminUser } from "./permissions";
+import { canViewCompliance, isAdminUser } from "./permissions";
 import { addMonths, businessToday } from "./whsDates";
 import { checkReason, describeEdit } from "./whsEdits";
 import { daysBetween } from "./whsStatus";
@@ -341,7 +341,7 @@ export const adminDetail = query({
   args: { kit_id: v.string() },
   handler: async (ctx, args) => {
     const viewer = await requireCaller(ctx);
-    if (!isAdminUser(viewer)) throw new ConvexError("Only an administrator can open this.");
+    if (!canViewCompliance(viewer)) throw new ConvexError("Only admins and management can open this.");
     const kitId = ctx.db.normalizeId("first_aid_kits", args.kit_id);
     const kit = kitId === null ? null : await ctx.db.get(kitId);
     // An archived kit still opens, read-only, so its history stays reachable (framework 11).

@@ -9,10 +9,12 @@ interface PageHeaderProps {
   description: string;
   /** Optional main action shown before the bell, e.g. "+ Add Record". */
   action?: ReactNode;
+  /** The management dashboard has no bell: it shows the admin's work-order activity (decision AD43). */
+  hideBell?: boolean;
 }
 
 /** Title block shared by every admin screen, with the notification bell. */
-export function PageHeader({ title, description, action }: PageHeaderProps) {
+export function PageHeader({ title, description, action, hideBell }: PageHeaderProps) {
   const { toggle } = useSidebar();
 
   return (
@@ -34,7 +36,7 @@ export function PageHeader({ title, description, action }: PageHeaderProps) {
 
       <div className="flex shrink-0 items-center gap-3">
         {action}
-        <NotificationBell />
+        {hideBell ? null : <NotificationBell />}
       </div>
     </div>
   );

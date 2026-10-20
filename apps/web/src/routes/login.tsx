@@ -9,10 +9,15 @@ import { Eye, EyeOff } from "lucide-react";
 import * as React from "react";
 
 import westernUsiLogo from "@/assets/western-usi-logo.png";
+import { markLanding } from "@/lib/dashboard-mode";
 
 const REMEMBERED_EMAIL_KEY = "usi.remembered-email";
 
 export const Route = createFileRoute("/login")({
+  // `redirect`: a management page to open after signing in, e.g. from an escalation email (decision AD45).
+  validateSearch: (search: Record<string, unknown>): { redirect?: string } => ({
+    redirect: typeof search.redirect === "string" && search.redirect.startsWith("/management") ? search.redirect : undefined,
+  }),
   component: RouteComponent,
 });
 
@@ -39,6 +44,7 @@ function HeaderGlow() {
 }
 
 function LoginForm() {
+  const { redirect } = Route.useSearch();
   const { signIn, errors, fetchStatus } = useSignIn();
   const navigate = useNavigate();
 
@@ -82,6 +88,11 @@ function LoginForm() {
           return;
         }
 
+        if (redirect) {
+          navigate({ href: redirect });
+          return;
+        }
+        markLanding();
         navigate({ to: "/dashboard" });
       },
     });
@@ -313,7 +324,7 @@ function RouteComponent() {
   return (
     <>
       <Authenticated>
-        <Navigate to="/dashboard" />
+        <SignedInRedirect />
       </Authenticated>
       <Unauthenticated>
         <LoginForm />
@@ -323,4 +334,16 @@ function RouteComponent() {
       </AuthLoading>
     </>
   );
+}
+
+/** Already signed in: go to the page asked for, or in, opening the dashboard used last (decisions AD43, AD45). */
+function SignedInRedirect() {
+  const { redirect } = Route.useSearch();
+  const navigate = useNavigate();
+  React.useEffect(() => {
+    if (redirect) void navigate({ href: redirect, replace: true });
+  }, [navigate, redirect]);
+  if (redirect) return null;
+  markLanding();
+  return <Navigate to="/dashboard" />;
 }

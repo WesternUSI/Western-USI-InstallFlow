@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { cn } from "@usi-installer/ui/lib/utils";
 
 import { FilterSelect } from "@/components/filter-select";
-import { AccreditationViewSwitch, Notice, Panel, SafetyPage, SearchBox, statusLabel, type SafetyStatus } from "@/components/whs/safety-ui";
+import { AccreditationViewSwitch, Notice, Panel, SafetyPage, SearchBox, TableFooter, statusLabel, type SafetyStatus } from "@/components/whs/safety-ui";
 import { type RegisterRow, useRegister } from "@/lib/use-register";
 import { useListState } from "@/lib/use-list-state";
 
@@ -11,6 +11,7 @@ export const Route = createFileRoute("/_auth/safety/accreditation-matrix")({
 });
 
 const ALL = "all";
+const PAGE_SIZE = 20;
 const CELL: Partial<Record<SafetyStatus, string>> = {
   current: "bg-[#f0fdf4] text-[#15803d]",
   "due-soon": "bg-[#fffbeb] text-[#c2410c]",
@@ -55,6 +56,10 @@ function AccreditationMatrix() {
         (status === ALL || [...row.cells.values()].some((cell) => cell.status === status)),
     )
     .sort((a, b) => a.worker.localeCompare(b.worker));
+  // 20 workers a page, like the other lists; the page is kept in the address.
+  const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const page = Math.min(list.page, pageCount);
+  const shown = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
     <SafetyPage title="Worker Accreditations" description="Compare worker readiness across required cards, licences and inductions.">
@@ -92,7 +97,7 @@ function AccreditationMatrix() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
+              {shown.map((row) => (
                 <tr key={`${row.worker}|${row.entity}`} className="border-t border-[#e5e7eb]">
                   <td className="sticky left-0 bg-white px-4 py-4">
                     <p className="text-sm font-medium whitespace-nowrap text-[#111827]">{row.worker}</p>
@@ -128,6 +133,7 @@ function AccreditationMatrix() {
             </tbody>
           </table>
         </div>
+        <TableFooter page={page} pageSize={PAGE_SIZE} total={rows.length} noun="workers" onPage={list.setPage} />
       </Panel>
     </SafetyPage>
   );

@@ -20,3 +20,7 @@ export function documentTypeLabel(kind: string, category?: string): string {
 export function reviewReminderDays(kind: string): number[] {
   return kind === "sds" ? [60, 30] : [30, 14, 7];
 }
+
+/** The Type list's last choice: a kind of document that isn't listed, typed in (decision AD40). It is saved as a safety document with that name. */
+export const OTHER_DOCUMENT_TYPE = "other";
+export const DOCUMENT_TYPE_CHOICES = [...DOCUMENT_TYPES, { value: OTHER_DOCUMENT_TYPE, label: "Other (type the name)", kind: "document" as const }];

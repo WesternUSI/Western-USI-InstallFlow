@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link, type LinkProps, useCanGoBack, useRouter } from "@tanstack/react-router";
 import { cn } from "@usi-installer/ui/lib/utils";
 import { ArrowRight, ChevronLeft, ChevronRight, Search } from "lucide-react";
@@ -23,13 +24,16 @@ export function SafetyPage({
   description,
   back,
   action,
+  hideBell,
   children,
 }: {
   title: string;
   description: string;
-  back?: { to: To; label: string; params?: Record<string, string> };
+  back?: { to: To; label: string; params?: Record<string, string>; search?: Record<string, string> };
   /** The page's main action, shown in the header. */
   action?: ReactNode;
+  /** Leaves out the notification bell (the management dashboard). */
+  hideBell?: boolean;
   children: ReactNode;
 }) {
   const canGoBack = useCanGoBack();
@@ -38,7 +42,7 @@ export function SafetyPage({
 
   return (
     <>
-      <PageHeader title={title} description={description} action={action} />
+      <PageHeader title={title} description={description} action={action} hideBell={hideBell} />
       <div className="flex flex-col gap-[22px] p-4 sm:p-6 lg:p-8">
         {back &&
           (canGoBack ? (
@@ -46,7 +50,7 @@ export function SafetyPage({
               ‹&nbsp;&nbsp;Back
             </button>
           ) : (
-            <Link to={back.to} params={back.params as never} className={linkClass}>
+            <Link to={back.to} params={back.params as never} search={back.search as never} className={linkClass}>
               ‹&nbsp;&nbsp;{back.label}
             </Link>
           ))}
@@ -384,8 +388,9 @@ export function TableFooter({
 
 /**
  * A Safety table with paging in the browser, 20 rows a page. The rows are
- * already loaded, so this only slices them. The page comes from the list's
- * address (`useListState`), so going back returns to the same page.
+ * already loaded, so this only slices them. A list page passes the page from
+ * its address (`useListState`), so going back returns to the same page; a
+ * table without `page` keeps its own (pages with several tables).
  */
 export function PagedTable<Row>({
   rows,
@@ -393,8 +398,8 @@ export function PagedTable<Row>({
   rowKey,
   empty,
   noun,
-  page,
-  onPage,
+  page: pageProp,
+  onPage: onPageProp,
   pageSize = 20,
 }: {
   rows: Row[];
@@ -402,10 +407,13 @@ export function PagedTable<Row>({
   rowKey: (row: Row) => string;
   empty?: ReactNode;
   noun?: string;
-  page: number;
-  onPage: (page: number) => void;
+  page?: number;
+  onPage?: (page: number) => void;
   pageSize?: number;
 }) {
+  const [ownPage, setOwnPage] = useState(1);
+  const page = pageProp ?? ownPage;
+  const onPage = onPageProp ?? setOwnPage;
   const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
   const current = Math.min(page, pageCount);
   const shown = rows.slice((current - 1) * pageSize, current * pageSize);
@@ -475,14 +483,17 @@ export function Notice({ tone, children }: { tone: "info" | "success" | "warning
 }
 
 /** "List | Matrix" switch between the two views of worker accreditations. */
-export function AccreditationViewSwitch({ active }: { active: "list" | "matrix" }) {
+export function AccreditationViewSwitch({ active, management }: { active: "list" | "matrix"; management?: boolean }) {
   const base = "rounded-[6px] px-4 py-2 text-[13px] font-semibold";
+  // The management dashboard has the same two views (decision AD44).
+  const listTo = management ? "/management/accreditations" : "/safety/accreditations";
+  const matrixTo = management ? "/management/matrix" : "/safety/accreditation-matrix";
   return (
     <div className="flex w-fit gap-1 rounded-[8px] border border-[#e5e7eb] bg-white p-1">
-      <Link to="/safety/accreditations" className={cn(base, active === "list" ? "bg-[#eff6ff] text-[#2563eb]" : "text-[#64748b] hover:text-[#111827]")}>
+      <Link to={listTo} className={cn(base, active === "list" ? "bg-[#eff6ff] text-[#2563eb]" : "text-[#64748b] hover:text-[#111827]")}>
         List
       </Link>
-      <Link to="/safety/accreditation-matrix" className={cn(base, active === "matrix" ? "bg-[#eff6ff] text-[#2563eb]" : "text-[#64748b] hover:text-[#111827]")}>
+      <Link to={matrixTo} className={cn(base, active === "matrix" ? "bg-[#eff6ff] text-[#2563eb]" : "text-[#64748b] hover:text-[#111827]")}>
         Matrix
       </Link>
     </div>

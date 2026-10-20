@@ -19,6 +19,8 @@ import siteDatabaseIcon from "@/assets/nav/site-database.svg";
 import teamsUsersIcon from "@/assets/nav/teams-users.svg";
 import workOrdersIcon from "@/assets/nav/work-orders.png";
 import logo from "@/assets/western-usi-logo.png";
+import { DashboardSwitch } from "@/components/dashboard-switch";
+import { hasBothDashboards } from "@/lib/dashboard-mode";
 import { useSidebar } from "@/lib/sidebar-context";
 
 interface NavLink {
@@ -162,6 +164,8 @@ export function AdminSidebar() {
         </button>
       </div>
 
+      <DashboardSwitch current="admin" onSwitch={close} />
+
       <nav className="flex-1 overflow-y-auto px-5 pt-6 pb-4">
         <ul className="flex flex-col gap-1">
           {NAV.map((entry) =>
@@ -218,7 +222,11 @@ export function AdminSidebar() {
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <p className="truncate text-sm font-bold text-white">{user?.name ?? " "}</p>
             <p className="truncate text-xs text-[#DDDDDD] capitalize">
-              {user?.role === undefined ? "" : ROLE_LABELS[user.has_admin_access ? "admin" : user.role]}
+              {user?.role === undefined
+                ? ""
+                : hasBothDashboards(user)
+                  ? "Administrator · Management"
+                  : ROLE_LABELS[user.has_admin_access ? "admin" : user.role]}
             </p>
           </div>
           <ChevronRight className="size-4 shrink-0 text-[#9CA3AF]" />

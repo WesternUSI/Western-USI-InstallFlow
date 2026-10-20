@@ -7,7 +7,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { CheckboxRow, Field, TextInput } from "@/components/whs/safety-form";
-import { DataTable, Notice, Panel, RowAction, SafetyButton, SafetyPage } from "@/components/whs/safety-ui";
+import { Notice, PagedTable, Panel, RowAction, SafetyButton, SafetyPage } from "@/components/whs/safety-ui";
 import { WESTERN_USI_ID } from "@/components/whs/subcontractor-header";
 import { toUserMessage } from "@/lib/errors";
 
@@ -50,7 +50,7 @@ function AccreditationTypes() {
       action={<SafetyButton onClick={() => setEditing({ name: "", requiredFor: [] })}>+ Add Type</SafetyButton>}
     >
       <Panel>
-        <DataTable
+        <PagedTable
           rows={types ?? []}
           rowKey={(row) => row.id}
           empty={types === undefined ? "Loading…" : "No accreditation types yet."}

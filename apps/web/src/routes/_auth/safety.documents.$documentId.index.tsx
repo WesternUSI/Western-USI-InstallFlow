@@ -13,8 +13,8 @@ import { DetailsLayout, EvidencePreview, SideButton, SideCard } from "@/componen
 import { ArchivedNotice, EditRecordDialog, ManageRecordCard } from "@/components/whs/record-admin";
 import { ReasonDialog } from "@/components/whs/reason-dialog";
 import { CheckboxRow, Field, FieldRow, SelectInput, TextArea, TextInput } from "@/components/whs/safety-form";
-import { DetailGrid, Panel, SafetyButton, SafetyPage, StatusBadge, reminderText } from "@/components/whs/safety-ui";
-import { DOCUMENT_TYPES, documentTypeLabel, reviewReminderDays } from "@/lib/document-kinds";
+import { DetailGrid, Panel, SafetyButton, SafetyPage, StatusBadge, TableFooter, reminderText } from "@/components/whs/safety-ui";
+import { DOCUMENT_TYPES, OTHER_DOCUMENT_TYPE, documentTypeLabel, reviewReminderDays } from "@/lib/document-kinds";
 import { toUserMessage } from "@/lib/errors";
 import { formatIsoDate, formatTime } from "@/lib/upload-file";
 import { useResponsiblePeople } from "@/lib/use-people";
@@ -23,6 +23,8 @@ import { useRegister } from "@/lib/use-register";
 export const Route = createFileRoute("/_auth/safety/documents/$documentId/")({
   component: DocumentDetails,
 });
+
+const ACK_PAGE_SIZE = 20;
 
 const CHANGE_STATE: Record<string, { label: string; className: string }> = {
   "awaiting-review": { label: "Awaiting review", className: "bg-[#fcfcdc] text-[#bb7e23]" },
@@ -38,6 +40,8 @@ function DocumentDetails() {
   const row = register?.rows.find((entry) => entry.id === documentId);
   const archive = useMutation(api.documents.adminArchive);
   const [editing, setEditing] = useState(false);
+  // The acknowledgements table shows 20 workers a page.
+  const [ackPage, setAckPage] = useState(1);
 
   if (doc === undefined || doc === null) {
     return (
@@ -48,6 +52,7 @@ function DocumentDetails() {
   }
 
   const acknowledged = doc.acknowledgements.filter((ack) => ack.acknowledged_at !== undefined).length;
+  const ackPages = Math.max(1, Math.ceil(doc.acknowledgements.length / ACK_PAGE_SIZE));
   const type = documentTypeLabel(doc.kind, doc.category);
 
   return (
@@ -99,7 +104,7 @@ function DocumentDetails() {
                       </tr>
                     </thead>
                     <tbody>
-                      {doc.acknowledgements.map((ack) => (
+                      {doc.acknowledgements.slice((Math.min(ackPage, ackPages) - 1) * ACK_PAGE_SIZE, Math.min(ackPage, ackPages) * ACK_PAGE_SIZE).map((ack) => (
                         <tr key={`${ack.worker}-${ack.entity}`} className="border-t border-[#f1f5f9] first:border-t-0">
                           <td className="py-3 pr-3 pl-6 text-xs font-semibold text-[#1e293b]">{ack.worker}</td>
                           <td className="px-3 py-3 text-xs text-[#475569]">{ack.entity}</td>
@@ -118,6 +123,7 @@ function DocumentDetails() {
                     </tbody>
                   </table>
                 </div>
+                <TableFooter page={Math.min(ackPage, ackPages)} pageSize={ACK_PAGE_SIZE} total={doc.acknowledgements.length} noun="workers" onPage={setAckPage} />
                 {acknowledged < doc.acknowledgements.length && doc.can_manage ? (
                   <div className="px-6 pt-1">
                     <SafetyButton
@@ -283,7 +289,10 @@ function EditDocumentDialog({ doc, open, onClose }: { doc: DocumentDetail; open:
   const edit = useMutation(api.documents.adminEdit);
   const people = useResponsiblePeople();
   const [title, setTitle] = useState(doc.title);
-  const [category, setCategory] = useState(doc.category ?? "");
+  // A type from the list, or "other" with its typed name (decision AD40).
+  const listed = (value: string | undefined) => DOCUMENT_TYPES.some((entry) => entry.kind === "document" && entry.value === value);
+  const [category, setCategory] = useState(listed(doc.category) || !doc.category ? (doc.category ?? "") : OTHER_DOCUMENT_TYPE);
+  const [otherCategory, setOtherCategory] = useState(listed(doc.category) ? "" : (doc.category ?? ""));
   const [appliesTo, setAppliesTo] = useState(doc.applies_to ?? "");
   const [audience, setAudience] = useState<Audience>(savedAudience(doc.for_entities, doc.for_workers));
   const { companyName } = useAudienceOptions();
@@ -291,14 +300,15 @@ function EditDocumentDialog({ doc, open, onClose }: { doc: DocumentDetail; open:
   const [responsible, setResponsible] = useState<string>(doc.responsible_id ?? "");
   const [review, setReview] = useState(doc.current?.review_date ?? "");
   const [notes, setNotes] = useState(doc.notes ?? "");
-  const [errors, setErrors] = useState<{ title?: string; review?: string; audience?: string }>({});
+  const [errors, setErrors] = useState<{ title?: string; review?: string; audience?: string; category?: string }>({});
   const [openedAt, setOpenedAt] = useState(false);
 
   // Start from the saved values each time it opens.
   if (open && !openedAt) {
     setOpenedAt(true);
     setTitle(doc.title);
-    setCategory(doc.category ?? "");
+    setCategory(listed(doc.category) || !doc.category ? (doc.category ?? "") : OTHER_DOCUMENT_TYPE);
+    setOtherCategory(listed(doc.category) ? "" : (doc.category ?? ""));
     setAppliesTo(doc.applies_to ?? "");
     setAudience(savedAudience(doc.for_entities, doc.for_workers));
     setRequireAck(doc.acknowledgement_required);
@@ -313,6 +323,7 @@ function EditDocumentDialog({ doc, open, onClose }: { doc: DocumentDetail; open:
   const save = async (reason: string) => {
     const found: typeof errors = {};
     if (title.trim() === "") found.title = "Enter the document name";
+    if (doc.kind === "document" && category === OTHER_DOCUMENT_TYPE && otherCategory.trim() === "") found.category = "Enter the name of the document type";
     if (doc.current && review !== "" && review <= doc.current.issued) found.review = "The review date must be after the issue date";
     const audienceProblem = audienceError(audience, companyName);
     if (audienceProblem) found.audience = audienceProblem;
@@ -326,7 +337,7 @@ function EditDocumentDialog({ doc, open, onClose }: { doc: DocumentDetail; open:
       await edit({
         document_id: doc.id,
         title: title.trim(),
-        category: doc.kind === "document" ? category || undefined : doc.category,
+        category: doc.kind === "document" ? (category === OTHER_DOCUMENT_TYPE ? otherCategory.trim() : category || undefined) : doc.category,
         applies_to: appliesTo.trim() || undefined,
         for_entities: audience.entities as ("western-usi" | Id<"subcontractors">)[],
         for_workers: audience.workers as Id<"users">[],
@@ -355,7 +366,10 @@ function EditDocumentDialog({ doc, open, onClose }: { doc: DocumentDetail; open:
             <SelectInput
               value={category}
               onChange={setCategory}
-              options={DOCUMENT_TYPES.filter((entry) => entry.kind === "document")}
+              options={[
+                ...DOCUMENT_TYPES.filter((entry) => entry.kind === "document"),
+                { value: OTHER_DOCUMENT_TYPE, label: "Other (type the name)" },
+              ]}
               placeholder="Safety document"
             />
           </Field>
@@ -368,6 +382,19 @@ function EditDocumentDialog({ doc, open, onClose }: { doc: DocumentDetail; open:
       {doc.kind === "document" ? (
         <Field label="Client or work type">
           <TextInput value={appliesTo} onChange={setAppliesTo} placeholder="e.g. JCDecaux sites" />
+        </Field>
+      ) : null}
+      {doc.kind === "document" && category === OTHER_DOCUMENT_TYPE ? (
+        <Field label="Name of the document type" required error={errors.category}>
+          <TextInput
+            value={otherCategory}
+            onChange={(value) => {
+              setOtherCategory(value);
+              setErrors((current) => ({ ...current, category: undefined }));
+            }}
+            placeholder="e.g. Hot Work Permit"
+            invalid={!!errors.category}
+          />
         </Field>
       ) : null}
       <AudiencePicker

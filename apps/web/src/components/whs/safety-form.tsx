@@ -161,7 +161,7 @@ export function FilePicker({
   file,
   onChange,
   error,
-  accept = ".pdf,.jpg,.jpeg,.png",
+  accept = ".pdf,.xls,.xlsx,.jpg,.jpeg,.png",
 }: {
   file: File | null;
   onChange: (file: File | null) => void;
@@ -179,7 +179,7 @@ export function FilePicker({
         <p className={cn("text-sm font-semibold", file ? "text-[#2563eb]" : "text-[#111827]")}>
           {file ? `${file.name} · ready to upload` : "No file chosen"}
         </p>
-        <p className="text-xs text-[#64748b]">PDF, JPG or PNG · Maximum 20 MB</p>
+        <p className="text-xs text-[#64748b]">PDF, Excel, JPG or PNG · Maximum 20 MB</p>
         <label className="inline-flex h-[42px] cursor-pointer items-center rounded-[6px] border border-[#e5e7eb] bg-white px-4 text-[13px] font-semibold text-[#2563eb] hover:bg-[#f8fafc]">
           Choose File
           <input

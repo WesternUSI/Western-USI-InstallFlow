@@ -3,9 +3,9 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { enabledRecipientEmails } from "./emails";
-import { documentIsFor, mustAcknowledgeDocuments } from "./permissions";
+import { documentIsFor, isManagementUser, mustAcknowledgeDocuments } from "./permissions";
 import { businessToday, formatLongDate } from "./whsDates";
-import { documentLink } from "./whsLinks";
+import { documentLink, managementLink } from "./whsLinks";
 import { daysBetween, planReminders } from "./whsStatus";
 
 /**
@@ -68,7 +68,7 @@ export const due = internalQuery({
 
     const users = await ctx.db.query("users").collect();
     const adminEmails = await enabledRecipientEmails(ctx);
-    const managementEmails = users.filter((user) => user.role === "management").map((user) => user.email);
+    const managementEmails = users.filter(isManagementUser).map((user) => user.email);
 
     const reminders: DocReminder[] = [];
 
@@ -137,6 +137,7 @@ export const due = internalQuery({
             action: "escalated",
             to: managementEmails,
             subject: `Escalation: ${document.title} is ${days(candidate.overdueDays ?? 0)} overdue for review`,
+            link: managementLink(`/management/documents/${document._id}`),
             lines: [
               `${name} was due for review on ${reviewDate} and is now ${days(candidate.overdueDays ?? 0)} overdue.`,
               "Reminders have gone out each week. Please follow up.",
@@ -228,7 +229,7 @@ export const sweep = internalAction({
     for (const [index, reminder] of reminders.entries()) {
       if (index > 0) await sleep(PAUSE_BETWEEN_EMAILS_MS);
       try {
-        await ctx.runAction(internal.email.sendWhsEmail, {
+        const emailed: string[] = await ctx.runAction(internal.email.sendWhsEmail, {
           to: reminder.to,
           subject: reminder.subject,
           lines: reminder.lines,
@@ -237,7 +238,7 @@ export const sweep = internalAction({
         await ctx.runMutation(internal.whsDocReminders.logSent, {
           log: reminder.log,
           action: reminder.action,
-          details: `Emailed ${reminder.to.join(", ")}: ${reminder.subject}`,
+          details: emailed.length > 0 ? `Emailed ${emailed.join(", ")}: ${reminder.subject}` : `Not emailed (recipients on the skip list): ${reminder.subject}`,
         });
         sent++;
       } catch (error) {

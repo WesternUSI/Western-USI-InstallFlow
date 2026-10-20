@@ -7,6 +7,8 @@ import { entityName, INSURANCE_REMINDER_DAYS, INSURANCE_TYPE_LABELS } from "./in
 import { REGISTRATION_REMINDER_DAYS, SERVICE_REMINDER_DAYS, INSURANCE_REMINDER_DAYS as VEHICLE_INSURANCE_DAYS } from "./vehicles";
 import { businessToday, formatLongDate } from "./whsDates";
 import { planReminders } from "./whsStatus";
+import { isManagementUser } from "./permissions";
+import { managementLink } from "./whsLinks";
 
 /**
  * Insurance and vehicle reminders (framework 7), run by the 8am check
@@ -28,6 +30,7 @@ interface AssetReminder {
   to: string[];
   subject: string;
   lines: string[];
+  link?: { label: string; url: string };
 }
 
 function days(count: number) {
@@ -92,6 +95,7 @@ function plan(input: {
         action: "escalated",
         to: input.management,
         subject: `Escalation: ${input.name} ${input.what} is ${days(candidate.overdueDays ?? 0)} overdue`,
+        link: managementLink(`/management/${input.kind === "insurance" ? "insurance" : "vehicles"}/${input.targetId}`),
         lines: [`${input.name}: ${input.what} was due on ${due} and is now ${days(candidate.overdueDays ?? 0)} overdue.`, "Reminders have gone out each week. Please follow up."],
       });
     }
@@ -104,7 +108,8 @@ export const due = internalQuery({
   args: { today: v.string() },
   handler: async (ctx, args): Promise<AssetReminder[]> => {
     const admins = await enabledRecipientEmails(ctx);
-    const management = (await ctx.db.query("users").withIndex("by_role", (q) => q.eq("role", "management")).collect()).map((user) => user.email);
+    // Anyone with management access: the management role, or an admin given it (decision AD43).
+    const management = (await ctx.db.query("users").collect()).filter(isManagementUser).map((user) => user.email);
     const reminders: AssetReminder[] = [];
 
     const policies = await ctx.db.query("insurance_policies").withIndex("by_archived", (q) => q.eq("archived", false)).collect();
@@ -185,13 +190,13 @@ export const sweep = internalAction({
     for (const [index, reminder] of reminders.entries()) {
       if (index > 0) await new Promise((resolve) => setTimeout(resolve, PAUSE_BETWEEN_EMAILS_MS));
       try {
-        await ctx.runAction(internal.email.sendWhsEmail, { to: reminder.to, subject: reminder.subject, lines: reminder.lines });
+        const emailed: string[] = await ctx.runAction(internal.email.sendWhsEmail, { to: reminder.to, subject: reminder.subject, lines: reminder.lines, link: reminder.link });
         await ctx.runMutation(internal.whsAssetReminders.logSent, {
           kind: reminder.kind,
           target_id: reminder.target_id,
           key: reminder.key,
           action: reminder.action,
-          details: `Emailed ${reminder.to.join(", ")}: ${reminder.subject}`,
+          details: emailed.length > 0 ? `Emailed ${emailed.join(", ")}: ${reminder.subject}` : `Not emailed (recipients on the skip list): ${reminder.subject}`,
         });
         sent++;
       } catch (error) {

@@ -2,32 +2,39 @@ import { api } from "@usi-installer/backend/convex/_generated/api";
 import type { Id } from "@usi-installer/backend/convex/_generated/dataModel";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation } from "convex/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { type Audience, AudiencePicker, EVERYONE, audienceError, useAudienceOptions } from "@/components/whs/audience-picker";
 import { CheckboxRow, Field, FieldRow, FilePicker, FormCard, SelectInput, TextInput } from "@/components/whs/safety-form";
 import { Notice, SafetyButton, SafetyPage } from "@/components/whs/safety-ui";
-import { DOCUMENT_TYPES } from "@/lib/document-kinds";
+import { DOCUMENT_TYPE_CHOICES, OTHER_DOCUMENT_TYPE } from "@/lib/document-kinds";
 import { toUserMessage } from "@/lib/errors";
 import { uploadFile } from "@/lib/upload-file";
 import { useResponsiblePeople } from "@/lib/use-people";
 
 export const Route = createFileRoute("/_auth/safety/records/new/document")({
+  // `for`: an entity's page this was started from ("western-usi" or a subcontractor id). It starts
+  // with that company as who must sign, and returns to the company's Documents tab (decision AD42).
+  validateSearch: (search: Record<string, unknown>): { for?: string } => ({
+    for: typeof search.for === "string" && search.for !== "" ? search.for : undefined,
+  }),
   component: AddSafetyDocument,
 });
 
-type Errors = Partial<Record<"name" | "type" | "version" | "issued" | "review" | "file" | "audience", string>>;
+type Errors = Partial<Record<"name" | "type" | "otherType" | "version" | "issued" | "review" | "file" | "audience", string>>;
 
 /** F2 Add Safety Document, real (framework 4A fields), with who must read and sign it (decision AD33). */
 function AddSafetyDocument() {
   const navigate = useNavigate();
+  const { for: forEntity } = Route.useSearch();
   const generateUploadUrl = useMutation(api.documents.generateUploadUrl);
   const create = useMutation(api.documents.adminCreate);
   const people = useResponsiblePeople();
 
   const [name, setName] = useState("");
   const [type, setType] = useState("");
+  const [otherType, setOtherType] = useState("");
   const [code, setCode] = useState("");
   const [appliesTo, setAppliesTo] = useState("");
   const [version, setVersion] = useState("v1.0");
@@ -38,14 +45,23 @@ function AddSafetyDocument() {
   const [file, setFile] = useState<File | null>(null);
   const [requireAck, setRequireAck] = useState(true);
   const [audience, setAudience] = useState<Audience>(EVERYONE);
-  const { companyName } = useAudienceOptions();
+  const { companies, companyName } = useAudienceOptions();
+  const startedFor = companies.find((company) => company.id === forEntity);
+  // Start with the company this was opened from ticked, once the company list has loaded.
+  const [preset, setPreset] = useState(false);
+  useEffect(() => {
+    if (preset || startedFor === undefined) return;
+    setPreset(true);
+    setAudience({ mode: "some", entities: [startedFor.id], workers: [], partial: [] });
+  }, [preset, startedFor]);
   const [errors, setErrors] = useState<Errors>({});
   const [saving, setSaving] = useState(false);
 
   const save = async () => {
     const found: Errors = {};
     if (name.trim() === "") found.name = "Enter the document name.";
-    if (type === "") found.type = "Select the document type.";
+    if (type === "") found.type = "Select the document type, or choose Other.";
+    if (type === OTHER_DOCUMENT_TYPE && otherType.trim() === "") found.otherType = "Enter the name of the document type.";
     if (version.trim() === "") found.version = "Enter the version, e.g. v1.0.";
     if (issued === "") found.issued = "Select the issue date.";
     if (review === "") found.review = "Select the review date.";
@@ -59,7 +75,7 @@ function AddSafetyDocument() {
       toast.error(first ?? "Check the details and try again.");
       return;
     }
-    const chosen = DOCUMENT_TYPES.find((entry) => entry.value === type);
+    const chosen = DOCUMENT_TYPE_CHOICES.find((entry) => entry.value === type);
     if (!chosen) return;
     setSaving(true);
     try {
@@ -68,7 +84,7 @@ function AddSafetyDocument() {
         kind: chosen.kind,
         title: name.trim(),
         code: code.trim() || undefined,
-        category: chosen.kind === "document" ? chosen.value : undefined,
+        category: chosen.kind === "document" ? (type === OTHER_DOCUMENT_TYPE ? otherType.trim() : chosen.value) : undefined,
         applies_to: appliesTo.trim() || undefined,
         for_entities: audience.entities as ("western-usi" | Id<"subcontractors">)[],
         for_workers: audience.workers as Id<"users">[],
@@ -83,7 +99,11 @@ function AddSafetyDocument() {
         content_type: file.type || undefined,
       });
       toast.success(`${name.trim()} saved`);
-      void navigate({ replace: true, to: "/safety/documents/$documentId", params: { documentId } });
+      if (startedFor) {
+        void navigate({ replace: true, to: "/safety/subcontractors/$subcontractorId", params: { subcontractorId: startedFor.id }, search: { tab: "documents" } });
+      } else {
+        void navigate({ replace: true, to: "/safety/documents/$documentId", params: { documentId } });
+      }
     } catch (error) {
       toast.error(toUserMessage(error, "Could not save that document."));
     } finally {
@@ -94,16 +114,41 @@ function AddSafetyDocument() {
   const reminder = type === "SDS" ? "60 and 30" : "30, 14 and 7";
 
   return (
-    <SafetyPage title="Add Safety Document" description="Create a new document record with its first evidence version." back={{ to: "/safety/documents", label: "Safety Documents" }}>
+    <SafetyPage title="Add Safety Document" description="Create a new document record with its first evidence version." back={
+        startedFor
+          ? { to: "/safety/subcontractors/$subcontractorId", label: `${startedFor.name} · Documents`, params: { subcontractorId: startedFor.id }, search: { tab: "documents" } }
+          : { to: "/safety/documents", label: "Safety Documents" }
+      }>
       <FormCard title="Record details">
         <FieldRow>
           <Field label="Document name" required error={errors.name}>
             <TextInput value={name} onChange={setName} placeholder="e.g. Confined Space Entry" invalid={!!errors.name} />
           </Field>
           <Field label="Type" required error={errors.type}>
-            <SelectInput value={type} onChange={setType} options={DOCUMENT_TYPES} invalid={!!errors.type} />
+            <SelectInput
+              value={type}
+              onChange={(value) => {
+                setType(value);
+                setErrors((current) => ({ ...current, type: undefined, otherType: undefined }));
+              }}
+              options={DOCUMENT_TYPE_CHOICES}
+              invalid={!!errors.type}
+            />
           </Field>
         </FieldRow>
+        {type === OTHER_DOCUMENT_TYPE ? (
+          <Field label="Name of the document type" required error={errors.otherType} hint="Shown with the document, which appears in the app's Safety Documents.">
+            <TextInput
+              value={otherType}
+              onChange={(value) => {
+                setOtherType(value);
+                setErrors((current) => ({ ...current, otherType: undefined }));
+              }}
+              placeholder="e.g. Hot Work Permit"
+              invalid={!!errors.otherType}
+            />
+          </Field>
+        ) : null}
         <FieldRow>
           <Field label="Document code">
             <TextInput value={code} onChange={setCode} placeholder="e.g. SWMS-08" />

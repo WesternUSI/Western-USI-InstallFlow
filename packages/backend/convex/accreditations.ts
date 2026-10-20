@@ -8,7 +8,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
-import { canVerifyEvidence } from "./permissions";
+import { canVerifyEvidence, canViewCompliance, isAdminUser } from "./permissions";
 import { internal } from "./_generated/api";
 import { businessToday, formatLongDate } from "./whsDates";
 import { accreditationLink } from "./whsLinks";
@@ -320,7 +320,7 @@ export const submit = mutation({
       await supersede(ctx, version, user._id, "Replaced by a newer upload before it was checked.");
     }
 
-    const autoVerified = canVerifyEvidence(user);
+    const autoVerified = isAdminUser(user);
     const versionId = await ctx.db.insert("whs_record_versions", {
       record_id: recordId,
       file_id: args.file_id,
@@ -482,8 +482,15 @@ async function applyRejection(
 export async function requireVerifier(ctx: MutationCtx) {
   const user = await requireCaller(ctx);
   if (!canVerifyEvidence(user)) {
-    throw new ConvexError("Only an administrator can check evidence.");
+    throw new ConvexError("Only admins and management can check evidence.");
   }
+  return user;
+}
+
+/** Adding or correcting evidence is the admin's alone; management verifies but never uploads (decision AD43). */
+async function requireEvidenceAdmin(ctx: MutationCtx) {
+  const user = await requireCaller(ctx);
+  if (!isAdminUser(user)) throw new ConvexError("Only an administrator can add or change evidence.");
   return user;
 }
 
@@ -603,11 +610,11 @@ export const seedDefaults = internalMutation({
 // Admin dashboard: one accreditation, and adding evidence for a worker
 // ---------------------------------------------------------------------------
 
-/** Admins open the admin panel and verify (decision V1). */
+/** Admins and management open the records (decisions V1, AD43). */
 async function requirePanelUser(ctx: QueryCtx) {
   const user = await requireCaller(ctx);
-  if (!canVerifyEvidence(user)) {
-    throw new ConvexError("Only an administrator can open this.");
+  if (!canViewCompliance(user)) {
+    throw new ConvexError("Only admins and management can open this.");
   }
   return user;
 }
@@ -720,7 +727,9 @@ export const adminDetail = query({
 export const adminAddEvidence = mutation({
   args: {
     worker_id: v.id("users"),
-    type_id: v.id("accreditation_types"),
+    /** An existing type, or `new_type_name` for one that isn't in the list (decision AD40). */
+    type_id: v.optional(v.id("accreditation_types")),
+    new_type_name: v.optional(v.string()),
     file_id: v.id("_storage"),
     file_name: v.string(),
     content_type: v.optional(v.string()),
@@ -730,10 +739,18 @@ export const adminAddEvidence = mutation({
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const admin = await requireVerifier(ctx);
-    const [worker, type] = await Promise.all([ctx.db.get(args.worker_id), ctx.db.get(args.type_id)]);
+    const admin = await requireEvidenceAdmin(ctx);
+    const worker = await ctx.db.get(args.worker_id);
     if (worker === null) throw new ConvexError("That worker no longer exists.");
-    if (type === null || type.archived) throw new ConvexError("That accreditation type no longer exists.");
+    const newTypeName = args.new_type_name?.trim().replace(/\s+/g, " ");
+    if (args.type_id === undefined && !newTypeName) throw new ConvexError("Select the accreditation type, or choose Other and type its name.");
+    if (args.type_id !== undefined && newTypeName) throw new ConvexError("Choose either an accreditation type from the list, or Other.");
+    let type: Doc<"accreditation_types"> | null = null;
+    if (args.type_id !== undefined) {
+      type = await ctx.db.get(args.type_id);
+      if (type === null || type.archived) throw new ConvexError("That accreditation type no longer exists.");
+    }
+    if (newTypeName !== undefined && newTypeName.length > 80) throw new ConvexError("The accreditation name can be up to 80 characters.");
     if ((await ctx.db.system.get(args.file_id)) === null) {
       throw new ConvexError("The file didn't finish uploading. Please try again.");
     }
@@ -754,16 +771,33 @@ export const adminAddEvidence = mutation({
       throw new ConvexError("The expiry date can't be before the issued date.");
     }
 
+    // A type typed in under "Other" is created now and required of no one: only this worker holds it (decision AD40).
+    if (type === null && newTypeName) {
+      const all = await ctx.db.query("accreditation_types").collect();
+      if (all.some((entry) => !entry.archived && entry.name.toLowerCase() === newTypeName.toLowerCase())) {
+        throw new ConvexError(`There is already an accreditation called "${newTypeName}". Choose it from the list instead.`);
+      }
+      const typeId = await ctx.db.insert("accreditation_types", {
+        name: newTypeName,
+        reminder_days: DEFAULT_REMINDER_DAYS,
+        sort_order: all.reduce((max, entry) => Math.max(max, entry.sort_order), 0) + 1,
+        archived: false,
+      });
+      type = await ctx.db.get(typeId);
+    }
+    if (type === null) throw new ConvexError("Select the accreditation type.");
+    const heldType = type;
+
     const existing = await ctx.db
       .query("whs_records")
-      .withIndex("by_worker_and_type", (q) => q.eq("worker_id", worker._id).eq("type_id", type._id))
+      .withIndex("by_worker_and_type", (q) => q.eq("worker_id", worker._id).eq("type_id", heldType._id))
       .unique();
     const recordId =
       existing?._id ??
       (await ctx.db.insert("whs_records", {
         category: "accreditation",
         worker_id: worker._id,
-        type_id: type._id,
+        type_id: heldType._id,
         responsible_user_id: worker._id,
       }));
 
@@ -824,7 +858,7 @@ export const adminEdit = mutation({
     reason: v.string(),
   },
   handler: async (ctx, args) => {
-    const admin = await requireVerifier(ctx);
+    const admin = await requireEvidenceAdmin(ctx);
     const record = await ctx.db.get(args.record_id);
     if (record === null) throw new ConvexError("That accreditation no longer exists.");
     const versions = await versionsOf(ctx, record._id);
@@ -855,5 +889,49 @@ export const adminEdit = mutation({
     );
     await ctx.db.patch(verified._id, { number, issued, expires, no_expiry: args.no_expiry, notes });
     await audit(ctx, { record_id: record._id, version_id: verified._id, action: "edited", actor_id: admin._id, details });
+  },
+});
+
+/**
+ * One worker's accreditations for the management worker page (Figma M6,
+ * decision AD43): every one they must hold or have uploaded, most urgent
+ * first, each with its register key so it opens its record. Read-only.
+ */
+export const forWorker = query({
+  args: { worker_id: v.string() },
+  handler: async (ctx, args) => {
+    await requirePanelUser(ctx);
+    const workerId = ctx.db.normalizeId("users", args.worker_id);
+    const worker = workerId === null ? null : await ctx.db.get(workerId);
+    if (worker === null) return null;
+    const today = businessToday();
+    const [types, required, records] = await Promise.all([
+      ctx.db.query("accreditation_types").collect(),
+      requiredTypeIds(ctx, worker),
+      ctx.db
+        .query("whs_records")
+        .withIndex("by_worker", (q) => q.eq("worker_id", worker._id))
+        .collect(),
+    ]);
+    const recordByType = new Map(records.map((record) => [record.type_id, record]));
+    const versionsByType = new Map<Id<"accreditation_types">, Version[]>();
+    for (const record of records) versionsByType.set(record.type_id, await versionsOf(ctx, record._id));
+    const subcontractor = worker.subcontractor_id === undefined ? null : await ctx.db.get(worker.subcontractor_id);
+
+    const items = types
+      .filter((type) => required.has(type._id) || versionsByType.has(type._id))
+      .filter((type) => !type.archived || versionsByType.has(type._id))
+      .map((type) => ({
+        ...summarise(type, versionsByType.get(type._id) ?? [], today),
+        key: recordByType.get(type._id)?._id ?? `${worker._id}:${type._id}`,
+        required: required.has(type._id),
+      }))
+      .sort((a, b) => a.rank - b.rank || a.sort_order - b.sort_order);
+
+    return {
+      worker: worker.name ?? worker.email,
+      entity: subcontractor?.name ?? "Western USI",
+      items: items.map(({ verified_by: _verifiedBy, ...item }) => item),
+    };
   },
 });

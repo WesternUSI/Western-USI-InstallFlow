@@ -2,7 +2,7 @@ import { api } from "@usi-installer/backend/convex/_generated/api";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
 
-import { Panel, RowAction, SafetyButton, SafetyPage, SectionTitle, StatCard, DataTable } from "@/components/whs/safety-ui";
+import { PagedTable, Panel, RowAction, SafetyButton, SafetyPage, SectionTitle, StatCard } from "@/components/whs/safety-ui";
 import { WESTERN_USI_ID } from "@/components/whs/subcontractor-header";
 import { dueWithin, isOverdue, toVerify, useRegister } from "@/lib/use-register";
 
@@ -71,7 +71,7 @@ function SafetyDashboard() {
 
       <SectionTitle>Compliance by entity</SectionTitle>
       <Panel>
-        <DataTable
+        <PagedTable
           rows={entities}
           rowKey={(row) => row.key}
           empty={subcontractors === undefined ? "Loading…" : "No entities yet."}

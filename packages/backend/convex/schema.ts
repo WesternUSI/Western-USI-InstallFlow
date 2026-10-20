@@ -61,6 +61,10 @@ export default defineSchema({
     // also been invited as an admin. The role stays as it was; the admin panel
     // and admin-only mutations accept either `role: "admin"` or this flag.
     has_admin_access: v.optional(v.boolean()),
+    // True when an admin has also been given management access (decision AD43):
+    // they can open both dashboards and switch between them. A "management"
+    // role account given admin access uses `has_admin_access` the same way.
+    has_management_access: v.optional(v.boolean()),
     // The team's name, not its id. Teams are a table now, but the name is what
     // is stored on the rows that reference one — the native app compares and
     // displays these as plain strings, and it keeps renames out of scope.

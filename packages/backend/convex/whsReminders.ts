@@ -4,8 +4,9 @@ import type { Id } from "./_generated/dataModel";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { enabledRecipientEmails } from "./emails";
 import { addDays, businessHour, businessToday, formatLongDate } from "./whsDates";
-import { accreditationLink } from "./whsLinks";
+import { accreditationLink, managementLink } from "./whsLinks";
 import { planReminders } from "./whsStatus";
+import { isManagementUser } from "./permissions";
 
 /**
  * Accreditation reminders (WHS framework 7), by email. Decisions are in
@@ -66,7 +67,7 @@ export const due = internalQuery({
 
     const adminEmails = await enabledRecipientEmails(ctx);
     const managementEmails = (await ctx.db.query("users").collect())
-      .filter((user) => user.role === "management")
+      .filter(isManagementUser)
       .map((user) => user.email);
 
     const reminders: Reminder[] = [];
@@ -165,6 +166,7 @@ export const due = internalQuery({
             action: "escalated",
             to: managementEmails,
             subject: `Escalation: ${workerName}'s ${type.name} is ${days(overdue)} overdue`,
+            link: managementLink(`/management/accreditations/${record._id}`),
             lines: [
               `${workerName}${subcontractor === null ? "" : ` (${subcontractor.name})`} has not renewed their ${type.name}, which expired on ${expiryDate} and is now ${days(overdue)} overdue.`,
               "They have been reminded each week. Please follow up with them.",
@@ -208,7 +210,7 @@ export const sweep = internalAction({
     for (const [index, reminder] of reminders.entries()) {
       if (index > 0) await sleep(PAUSE_BETWEEN_EMAILS_MS);
       try {
-        await ctx.runAction(internal.email.sendWhsEmail, {
+        const emailed: string[] = await ctx.runAction(internal.email.sendWhsEmail, {
           to: reminder.to,
           subject: reminder.subject,
           lines: reminder.lines,
@@ -219,7 +221,7 @@ export const sweep = internalAction({
           version_id: reminder.version_id,
           key: reminder.key,
           action: reminder.action,
-          details: `Emailed ${reminder.to.join(", ")}: ${reminder.subject}`,
+          details: emailed.length > 0 ? `Emailed ${emailed.join(", ")}: ${reminder.subject}` : `Not emailed (recipients on the skip list): ${reminder.subject}`,
         });
         sent++;
       } catch (error) {

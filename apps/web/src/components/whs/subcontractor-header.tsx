@@ -7,13 +7,14 @@ import { useQuery } from "convex/react";
 import { Panel, StatusBadge } from "@/components/whs/safety-ui";
 import { useRegister } from "@/lib/use-register";
 
-export type SubcontractorTab = "overview" | "business" | "workers" | "accreditations" | "requirements" | "history";
+export type SubcontractorTab = "overview" | "business" | "workers" | "accreditations" | "documents" | "requirements" | "history";
 
 const TABS: { id: SubcontractorTab; label: string }[] = [
   { id: "overview", label: "Overview" },
   { id: "business", label: "Business records" },
   { id: "workers", label: "Workers" },
   { id: "accreditations", label: "Accreditations" },
+  { id: "documents", label: "Documents" },
   { id: "requirements", label: "WHS requirements" },
   { id: "history", label: "History" },
 ];

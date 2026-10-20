@@ -2,7 +2,7 @@ import { ConvexError, v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
-import { isAdminUser, isTeamless, isWhsOnly } from "./permissions";
+import { isAdminUser, isManagementUser, isTeamless, isWhsOnly } from "./permissions";
 import { teamValidator } from "./teams";
 
 export type UserStatus = "active" | "invitation_sent" | "idle";
@@ -42,6 +42,8 @@ function toRow(user: Doc<"users">) {
     email: user.email,
     team: user.team,
     role: user.role,
+    has_admin_access: user.has_admin_access,
+    has_management_access: user.has_management_access,
     status: deriveUserStatus(user),
   };
 }
@@ -88,6 +90,7 @@ export const currentUser = query({
         role: undefined,
         must_change_password: undefined,
         has_admin_access: undefined,
+        has_management_access: undefined,
       };
     }
 
@@ -100,6 +103,7 @@ export const currentUser = query({
       role: user.role,
       must_change_password: user.must_change_password,
       has_admin_access: user.has_admin_access,
+      has_management_access: user.has_management_access,
     };
   },
 });
@@ -360,7 +364,7 @@ export const inviteInstaller = action({
       v.union(v.literal("installer"), v.literal("subcontractor"), v.literal("management")),
     ),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<{ email: string; password: string | undefined }> => {
     const caller = await ctx.runQuery(api.users.getCurrentUser, {});
     if (!caller || !isAdminUser(caller)) {
       throw new ConvexError("You are not authorized to invite users.");
@@ -370,6 +374,30 @@ export const inviteInstaller = action({
     }
     if (args.role === "management" && args.subcontractor_id !== undefined) {
       throw new ConvexError("Management belongs to Western USI, not to a subcontractor.");
+    }
+
+    // Management for an email that already has an account (decision AD43): an
+    // existing admin keeps their password and gains management access; nobody
+    // else can be given it this way.
+    if (args.role === "management") {
+      const existing: Doc<"users"> | null = await ctx.runQuery(internal.users.findByEmail, { email: args.work_email });
+      if (existing !== null) {
+        if (isManagementUser(existing)) {
+          throw new ConvexError("That email already has management access.");
+        }
+        if (isWhsOnly(existing)) {
+          throw new ConvexError("That email belongs to a subcontractor, who can't be given management access.");
+        }
+        if (!isAdminUser(existing)) {
+          throw new ConvexError("That email belongs to an installer. Only new people or existing admins can be given management access.");
+        }
+        await ctx.runMutation(internal.users.grantManagementAccess, { user_id: existing._id });
+        await ctx.scheduler.runAfter(0, internal.email.sendManagementAccessEmail, {
+          to: existing.email,
+          name: existing.name ?? existing.email,
+        });
+        return { email: existing.email, password: undefined };
+      }
     }
 
     const clerkSecretKey = process.env.CLERK_SECRET_KEY;
@@ -442,6 +470,14 @@ export const grantAdminAccess = internalMutation({
       has_admin_access: true,
       ...(user?.team === undefined && args.team !== undefined ? { team: args.team } : {}),
     });
+  },
+});
+
+/** An existing admin also becomes management (decision AD43); their role and team stay as they are. */
+export const grantManagementAccess = internalMutation({
+  args: { user_id: v.id("users") },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.user_id, { has_management_access: true });
   },
 });
 
