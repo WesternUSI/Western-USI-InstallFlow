@@ -8,7 +8,15 @@ import { useEffect } from "react";
 import { AdminSidebar } from "@/components/admin-sidebar";
 import { ChangePasswordScreen } from "@/components/change-password-screen";
 import Loader from "@/components/loader";
-import { clearLanding, hasAdminDashboard, hasManagementDashboard, isLanding, lastDashboard, rememberDashboard } from "@/lib/dashboard-mode";
+import {
+  clearLanding,
+  hasAdminDashboard,
+  hasManagementDashboard,
+  isLanding,
+  lastDashboard,
+  pendingPage,
+  rememberDashboard,
+} from "@/lib/dashboard-mode";
 import { SidebarProvider } from "@/lib/sidebar-context";
 
 export const Route = createFileRoute("/_auth")({
@@ -45,6 +53,15 @@ function RestrictedAccess() {
   );
 }
 
+/** Opens a full in-site address (a page waiting from before sign-in). */
+function OpenPage({ href }: { href: string }) {
+  const navigate = useNavigate();
+  useEffect(() => {
+    void navigate({ href, replace: true });
+  }, [navigate, href]);
+  return <Loader />;
+}
+
 /** Gates the admin panel on role, not just sign-in — an installer's Clerk
  * session is otherwise indistinguishable from an admin's. */
 function AdminGate() {
@@ -63,6 +80,11 @@ function AdminGate() {
     return <Loader />;
   }
 
+  // A management page opened from an email before signing in (decision AD45).
+  const waiting = user !== null && hasManagementDashboard(user) ? pendingPage() : undefined;
+  if (waiting) {
+    return <OpenPage href={waiting} />;
+  }
   // Management without admin access has its own dashboard (decision AD43).
   if (user !== null && !isAdmin && hasManagementDashboard(user)) {
     return <Navigate to="/management" />;

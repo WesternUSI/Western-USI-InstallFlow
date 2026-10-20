@@ -9,7 +9,7 @@ import { Eye, EyeOff } from "lucide-react";
 import * as React from "react";
 
 import westernUsiLogo from "@/assets/western-usi-logo.png";
-import { markLanding } from "@/lib/dashboard-mode";
+import { markLanding, pendingPage } from "@/lib/dashboard-mode";
 
 const REMEMBERED_EMAIL_KEY = "usi.remembered-email";
 
@@ -88,8 +88,9 @@ function LoginForm() {
           return;
         }
 
-        if (redirect) {
-          navigate({ href: redirect });
+        const target = redirect ?? pendingPage();
+        if (target) {
+          navigate({ href: target });
           return;
         }
         markLanding();
@@ -339,11 +340,12 @@ function RouteComponent() {
 /** Already signed in: go to the page asked for, or in, opening the dashboard used last (decisions AD43, AD45). */
 function SignedInRedirect() {
   const { redirect } = Route.useSearch();
+  const target = redirect ?? pendingPage();
   const navigate = useNavigate();
   React.useEffect(() => {
-    if (redirect) void navigate({ href: redirect, replace: true });
-  }, [navigate, redirect]);
-  if (redirect) return null;
+    if (target) void navigate({ href: target, replace: true });
+  }, [navigate, target]);
+  if (target) return null;
   markLanding();
   return <Navigate to="/dashboard" />;
 }

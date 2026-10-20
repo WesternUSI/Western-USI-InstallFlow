@@ -45,3 +45,27 @@ export function isLanding(): boolean {
 export function clearLanding() {
   safely(() => sessionStorage.removeItem(LANDING_KEY), undefined);
 }
+
+const PENDING_KEY = "usi.pendingPage";
+
+/**
+ * A management page someone opened while signed out, e.g. from an escalation
+ * email (decision AD45). Kept for the browser tab, so it survives the sign-in
+ * flow even if the login's address loses it; opened once they are signed in.
+ */
+export function setPendingPage(path: string) {
+  if (!path.startsWith("/management")) return;
+  safely(() => sessionStorage.setItem(PENDING_KEY, path), undefined);
+}
+
+/** The page to open after signing in, if one is waiting. Read-only (safe on double renders). */
+export function pendingPage(): string | undefined {
+  return safely(() => {
+    const path = sessionStorage.getItem(PENDING_KEY) ?? undefined;
+    return path?.startsWith("/management") ? path : undefined;
+  }, undefined);
+}
+
+export function clearPendingPage() {
+  safely(() => sessionStorage.removeItem(PENDING_KEY), undefined);
+}

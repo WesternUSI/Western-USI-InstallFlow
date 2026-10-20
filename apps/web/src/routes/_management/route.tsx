@@ -6,7 +6,7 @@ import { useEffect } from "react";
 import { ChangePasswordScreen } from "@/components/change-password-screen";
 import Loader from "@/components/loader";
 import { ManagementSidebar } from "@/components/management-sidebar";
-import { clearLanding, hasManagementDashboard, rememberDashboard } from "@/lib/dashboard-mode";
+import { clearLanding, clearPendingPage, hasManagementDashboard, rememberDashboard, setPendingPage } from "@/lib/dashboard-mode";
 import { SidebarProvider } from "@/lib/sidebar-context";
 
 export const Route = createFileRoute("/_management")({
@@ -26,13 +26,19 @@ function ManagementLayout() {
         <ManagementGate />
       </Authenticated>
       <Unauthenticated>
-        <Navigate to="/login" search={{ redirect: here }} />
+        <ToLogin here={here} />
       </Unauthenticated>
       <AuthLoading>
         <Loader />
       </AuthLoading>
     </>
   );
+}
+
+/** Signed out: remember this page for after sign-in, then go to login (decision AD45). */
+function ToLogin({ here }: { here: string }) {
+  setPendingPage(here);
+  return <Navigate to="/login" search={{ redirect: here }} />;
 }
 
 function ManagementGate() {
@@ -42,10 +48,12 @@ function ManagementGate() {
   useEffect(() => {
     if (!allowed) return;
     clearLanding();
+    clearPendingPage();
     rememberDashboard("management");
   }, [allowed]);
 
-  if (user === undefined) return <Loader />;
+  // Just after signing in the account can read as "nobody" for a moment: wait rather than send them away.
+  if (user === undefined || user === null) return <Loader />;
   // Anyone else goes to the admin panel, which lets admins in and turns everyone else away.
   if (!allowed) return <Navigate to="/dashboard" />;
   if (user?.must_change_password) return <ChangePasswordScreen />;
