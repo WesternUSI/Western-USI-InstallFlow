@@ -46,6 +46,7 @@ import type * as whsKitReminders from "../whsKitReminders.js";
 import type * as whsLinks from "../whsLinks.js";
 import type * as whsReminders from "../whsReminders.js";
 import type * as whsReports from "../whsReports.js";
+import type * as whsSettings from "../whsSettings.js";
 import type * as whsStatus from "../whsStatus.js";
 import type * as workorders from "../workorders.js";
 
@@ -94,6 +95,7 @@ declare const fullApi: ApiFromModules<{
   whsLinks: typeof whsLinks;
   whsReminders: typeof whsReminders;
   whsReports: typeof whsReports;
+  whsSettings: typeof whsSettings;
   whsStatus: typeof whsStatus;
   workorders: typeof workorders;
 }>;

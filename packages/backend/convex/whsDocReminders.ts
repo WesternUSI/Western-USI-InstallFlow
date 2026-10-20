@@ -7,6 +7,7 @@ import { documentIsFor, isManagementUser, mustAcknowledgeDocuments } from "./per
 import { businessToday, formatLongDate } from "./whsDates";
 import { documentLink, managementLink } from "./whsLinks";
 import { daysBetween, planReminders } from "./whsStatus";
+import { escalateAfterDays } from "./whsSettings";
 
 /**
  * Document reminders, by email, run by the same 8am check as accreditations
@@ -14,7 +15,7 @@ import { daysBetween, planReminders } from "./whsStatus";
  *   - review reminders (framework 7): SWMS and policies 30, 14 and 7 days
  *     before review, SDS 60 and 30, to the responsible person (the admin list
  *     when none is set); weekly once overdue, to them and the admin list;
- *     escalated to management once after 14 days.
+ *     escalated to management once after the escalation setting (14 days by default, AD47).
  *   - acknowledgement reminders (decision D7): each worker who hasn't
  *     acknowledged a current version is emailed, then weekly, in one email
  *     listing everything they still have to sign.
@@ -27,7 +28,6 @@ const REVIEW_DAYS: Record<Doc<"whs_documents">["kind"], number[]> = {
   sds: [60, 30],
 };
 
-const ESCALATE_AFTER_DAYS = 14;
 
 const PAUSE_BETWEEN_EMAILS_MS = 600;
 
@@ -59,6 +59,7 @@ interface DocReminder {
 export const due = internalQuery({
   args: { today: v.string() },
   handler: async (ctx, args): Promise<DocReminder[]> => {
+    const escalationDays = await escalateAfterDays(ctx); // decision AD47
     const documents = (await ctx.db.query("whs_documents").collect()).filter((document) => !document.archived);
     const current = await ctx.db
       .query("whs_document_versions")
@@ -90,7 +91,7 @@ export const due = internalQuery({
         expires: version.review_date,
         verifiedDate: businessToday(version._creationTime),
         reminderDays: REVIEW_DAYS[document.kind],
-        escalateAfterDays: ESCALATE_AFTER_DAYS,
+        escalateAfterDays: escalationDays,
       });
       if (planned.length === 0) continue;
 

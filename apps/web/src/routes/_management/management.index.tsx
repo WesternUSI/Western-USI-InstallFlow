@@ -27,6 +27,7 @@ function ComplianceOverview() {
   const register = useRegister();
   const subcontractors = useQuery(api.subcontractors.list);
   const agreements = useQuery(api.agreements.statuses);
+  const settings = useQuery(api.whsSettings.get);
   const rows = register?.rows ?? [];
   const todayIso = register?.today ?? "";
   const count = (predicate: (row: (typeof rows)[number]) => boolean) => (register === undefined ? "—" : rows.filter(predicate).length);
@@ -40,7 +41,10 @@ function ComplianceOverview() {
 
   return (
     <MgmtPage title="Compliance Overview">
-      <Notice tone="info">Review exceptions across all entities. You can verify evidence and approve on-site SWMS changes that are waiting.</Notice>
+      <Notice tone="info">
+        Review exceptions across all entities. You can verify evidence and approve on-site SWMS changes that are waiting. You're emailed once when
+        something is {settings?.escalate_after_days ?? 14} days overdue.
+      </Notice>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <StatCard label="Overdue or expired" value={count(isOverdue)} hint="Across Western USI and subcontractors" tone="red" to="/management/exceptions" search={{ status: "overdue" }} />
         <StatCard
@@ -82,6 +86,7 @@ function ComplianceOverview() {
       <SectionTitle>Compliance by entity</SectionTitle>
       <Panel>
         <PagedTable
+          noun="entities"
           rows={entities}
           rowKey={(row) => row.key}
           empty={subcontractors === undefined ? "Loading…" : "No entities yet."}

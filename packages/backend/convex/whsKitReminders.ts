@@ -8,16 +8,16 @@ import { addDays, businessToday, formatLongDate } from "./whsDates";
 import { planReminders } from "./whsStatus";
 import { isManagementUser } from "./permissions";
 import { managementLink } from "./whsLinks";
+import { escalateAfterDays } from "./whsSettings";
 
 /**
  * First-aid inspection reminders (framework 7), run by the same 8am check as
  * accreditations (`whsReminders.sweepAtEight`): 14 and 7 days before, to the
  * kit's responsible person (the admin list when none is set); once overdue,
- * weekly to them and the admin list; escalated to management once after 14
- * days. Keys include the due date, so each inspection cycle starts afresh.
+ * weekly to them and the admin list; escalated to management once after the
+ * escalation setting (14 days by default, AD47). Keys include the due date, so each inspection cycle starts afresh.
  */
 
-const ESCALATE_AFTER_DAYS = 14;
 const PAUSE_BETWEEN_EMAILS_MS = 600;
 
 function sleep(ms: number): Promise<void> {
@@ -42,6 +42,7 @@ interface KitReminder {
 export const due = internalQuery({
   args: { today: v.string() },
   handler: async (ctx, args): Promise<KitReminder[]> => {
+    const escalationDays = await escalateAfterDays(ctx); // decision AD47
     const horizon = addDays(args.today, Math.max(...KIT_REMINDER_DAYS));
     const kits = (
       await ctx.db
@@ -62,7 +63,7 @@ export const due = internalQuery({
         expires: kit.next_inspection,
         verifiedDate: kit.last_inspection ?? businessToday(kit._creationTime),
         reminderDays: KIT_REMINDER_DAYS,
-        escalateAfterDays: ESCALATE_AFTER_DAYS,
+        escalateAfterDays: escalationDays,
       });
       if (planned.length === 0) continue;
 

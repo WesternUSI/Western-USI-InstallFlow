@@ -113,7 +113,9 @@ function EntityCompliance() {
   const businessProblems = requirements.filter((row) => NEEDS_ACTION.includes(row.status)).length;
   const toCheck = rows.filter(toVerify).length;
   const problems = [
-    ...requirements.filter((row) => NEEDS_ACTION.includes(row.status)).map((row) => `${row.requirement === "SWMS acknowledgements" ? row.details : row.requirement} ${row.statusLabel ?? row.status.replace("-", " ")}`),
+    ...requirements
+      .filter((row) => NEEDS_ACTION.includes(row.status))
+      .map((row) => `${row.requirement === "SWMS acknowledgements" ? row.details : row.requirement}: ${(row.statusLabel ?? row.status.replace("-", " ")).toLowerCase()}`),
     ...workers.flatMap((worker) => worker.problems.map((problem) => `${worker.name}: ${problem}`)),
   ];
 

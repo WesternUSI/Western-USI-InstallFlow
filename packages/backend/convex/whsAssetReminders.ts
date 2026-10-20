@@ -9,17 +9,17 @@ import { businessToday, formatLongDate } from "./whsDates";
 import { planReminders } from "./whsStatus";
 import { isManagementUser } from "./permissions";
 import { managementLink } from "./whsLinks";
+import { escalateAfterDays } from "./whsSettings";
 
 /**
  * Insurance and vehicle reminders (framework 7), run by the 8am check
  * (`whsReminders.sweepAtEight`). Before the date: the responsible person (the
  * admin list when none is set). Once overdue: weekly to them and the admin
- * list. Escalated to management once after 14 days. Keys include the date,
+ * list. Escalated to management once after the admin's escalation setting (14 days by default, AD47). Keys include the date,
  * so a renewal or a new service starts afresh. Out-of-service vehicles are
  * not chased.
  */
 
-const ESCALATE_AFTER_DAYS = 14;
 const PAUSE_BETWEEN_EMAILS_MS = 600;
 
 interface AssetReminder {
@@ -56,6 +56,8 @@ function plan(input: {
   responsible: string[];
   admins: string[];
   management: string[];
+  /** Days overdue before management is emailed (decision AD47). */
+  escalateAfterDays: number;
   sent: Set<string>;
 }): AssetReminder[] {
   const out: AssetReminder[] = [];
@@ -65,7 +67,7 @@ function plan(input: {
     expires: input.date,
     verifiedDate: input.since,
     reminderDays: input.leadDays,
-    escalateAfterDays: ESCALATE_AFTER_DAYS,
+    escalateAfterDays: input.escalateAfterDays,
   })) {
     const key = `${input.prefix}:${input.date}:${candidate.key}`;
     if (input.sent.has(key)) continue;
@@ -107,6 +109,7 @@ function plan(input: {
 export const due = internalQuery({
   args: { today: v.string() },
   handler: async (ctx, args): Promise<AssetReminder[]> => {
+    const escalationDays = await escalateAfterDays(ctx); // decision AD47
     const admins = await enabledRecipientEmails(ctx);
     // Anyone with management access: the management role, or an admin given it (decision AD43).
     const management = (await ctx.db.query("users").collect()).filter(isManagementUser).map((user) => user.email);
@@ -140,6 +143,7 @@ export const due = internalQuery({
           responsible: await responsibleEmails(ctx, policy.responsible_user_id, admins),
           admins,
           management,
+          escalateAfterDays: escalationDays,
           sent,
         }),
       );
@@ -156,7 +160,7 @@ export const due = internalQuery({
       const responsible = await responsibleEmails(ctx, vehicle.responsible_user_id, admins);
       const name = `Vehicle ${vehicle.registration}`;
       const added = businessToday(vehicle._creationTime);
-      const common = { kind: "vehicle" as const, targetId: vehicle._id, name, today: args.today, responsible, admins, management, sent };
+      const common = { kind: "vehicle" as const, targetId: vehicle._id, name, today: args.today, responsible, admins, management, escalateAfterDays: escalationDays, sent };
       reminders.push(
         ...plan({ ...common, prefix: "registration", what: "registration", date: vehicle.registration_expiry, since: added, leadDays: REGISTRATION_REMINDER_DAYS }),
         ...plan({ ...common, prefix: "service", what: "service", date: vehicle.next_service, since: vehicle.last_service, leadDays: SERVICE_REMINDER_DAYS }),

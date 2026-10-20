@@ -7,6 +7,7 @@ import { addDays, businessHour, businessToday, formatLongDate } from "./whsDates
 import { accreditationLink, managementLink } from "./whsLinks";
 import { planReminders } from "./whsStatus";
 import { isManagementUser } from "./permissions";
+import { escalateAfterDays } from "./whsSettings";
 
 /**
  * Accreditation reminders (WHS framework 7), by email. Decisions are in
@@ -28,8 +29,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Used when an accreditation type has no `escalate_after_days` of its own. */
-const DEFAULT_ESCALATE_AFTER_DAYS = 14;
 
 interface Reminder {
   record_id: Id<"whs_records">;
@@ -52,6 +51,8 @@ function days(count: number): string {
 export const due = internalQuery({
   args: { today: v.string() },
   handler: async (ctx, args): Promise<Reminder[]> => {
+    // The admin's setting (decision AD47); a type's own value, if ever set, wins.
+    const escalationDays = await escalateAfterDays(ctx);
     const types = await ctx.db.query("accreditation_types").collect();
     const typeById = new Map(types.map((type) => [type._id, type]));
     const longestLead = Math.max(0, ...types.flatMap((type) => type.reminder_days));
@@ -96,7 +97,7 @@ export const due = internalQuery({
         expires: version.expires,
         verifiedDate: businessToday(version.verified_at),
         reminderDays: type.reminder_days,
-        escalateAfterDays: type.escalate_after_days ?? DEFAULT_ESCALATE_AFTER_DAYS,
+        escalateAfterDays: type.escalate_after_days ?? escalationDays,
       });
       if (planned.length === 0) continue;
 

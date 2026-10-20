@@ -813,4 +813,15 @@ export default defineSchema({
     latitude: v.number(),
     longitude: v.number(),
   }),
+
+  /**
+   * WHS settings the admin can change, one row (decision AD47). Absent values
+   * fall back to the defaults in whsSettings.ts.
+   */
+  whs_settings: defineTable({
+    /** Days overdue before management is emailed once (framework 7 "a configurable period"). */
+    escalate_after_days: v.optional(v.number()),
+    updated_by: v.optional(v.id("users")),
+    updated_at: v.optional(v.number()),
+  }),
 });

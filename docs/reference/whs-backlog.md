@@ -44,8 +44,6 @@ acknowledgements, history), medical centres list.
   the ten reports as PDF and Excel once to check them (AD27).
 - [ ] Subcontractor portal (separate Figma flow, a separate web app), not started (AD11). The
   Management dashboard is built (AD43).
-- [ ] Production: set `WEB_APP_URL` to `https://admin.westernusi.com.au` when deploying (AD45):
-  `npx convex env set WEB_APP_URL https://admin.westernusi.com.au --prod`.
 - [ ] Management dashboard: sign in once as a real management user and as an admin with both
   dashboards, and click through (built and tested on the backend only, 20 Oct).
 
