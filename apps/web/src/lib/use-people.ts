@@ -14,5 +14,10 @@ export function useInspectors() {
   const users = useQuery(api.users.list);
   return (users ?? [])
     .filter((user) => user.role === "installer" || user.role === "subcontractor")
-    .map((user) => ({ value: user._id as string, label: user.subcontractor ? `${user.name} · ${user.subcontractor}` : `${user.name} · Western USI` }));
+    .map((user) => ({
+      value: user._id as string,
+      label: user.subcontractor ? `${user.name} · ${user.subcontractor}` : `${user.name} · Western USI`,
+      name: user.name,
+      company: user.subcontractor ?? "Western USI",
+    }));
 }

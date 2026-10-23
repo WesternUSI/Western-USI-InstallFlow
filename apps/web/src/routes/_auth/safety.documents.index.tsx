@@ -11,13 +11,8 @@ export const Route = createFileRoute("/_auth/safety/documents/")({
 });
 
 const ALL = "all";
-const KINDS = [
-  { value: "swms", label: "SWMS" },
-  { value: "sds", label: "SDS" },
-  { value: "document", label: "Other safety document" },
-];
 
-/** Safety Documents (framework 4A), real data, with how many workers still have to acknowledge. */
+/** Safety Documents (framework 4A), real data, with how many workers still have to acknowledge. Filtered by each document's own type (decision AD48). */
 function SafetyDocuments() {
   const data = useRegister();
   const list = useListState();
@@ -26,11 +21,10 @@ function SafetyDocuments() {
   const kind = list.get("kind", ALL);
   const setKind = (value: string) => list.set("kind", value);
   const needle = query.trim().toLowerCase();
-  const rows = (data?.rows ?? []).filter(
-    (row) =>
-      (row.category === "swms" || row.category === "sds" || row.category === "document") &&
-      (needle === "" || row.name.toLowerCase().includes(needle)) &&
-      (kind === ALL || row.category === kind),
+  const documents = (data?.rows ?? []).filter((row) => row.category === "swms" || row.category === "sds" || row.category === "document");
+  const types = [...new Set(documents.map((row) => row.type).filter((type): type is string => !!type))].sort((a, b) => a.localeCompare(b));
+  const rows = documents.filter(
+    (row) => (needle === "" || row.name.toLowerCase().includes(needle)) && (kind === ALL || row.type === kind),
   );
 
   return (
@@ -40,7 +34,7 @@ function SafetyDocuments() {
           <div className="w-full sm:flex-1">
             <SearchBox value={query} onChange={setQuery} placeholder="Search documents" />
           </div>
-          <FilterSelect label="Type" value={kind} onChange={setKind} options={[{ value: ALL, label: "All" }, ...KINDS]} />
+          <FilterSelect label="Type" value={kind} onChange={setKind} options={[{ value: ALL, label: "All" }, ...types.map((type) => ({ value: type, label: type }))]} />
           <SafetyButton to="/safety/records/new/document" className="h-[38px]">
             + Add Document
           </SafetyButton>
@@ -54,7 +48,7 @@ function SafetyDocuments() {
           empty={data === undefined ? "Loading…" : "No documents match."}
           columns={[
             { key: "doc", header: "Document", render: (row) => <span className="text-[#111827]">{row.name}</span> },
-            { key: "type", header: "Type", render: (row) => KINDS.find((entry) => entry.value === row.category)?.label },
+            { key: "type", header: "Type", render: (row) => row.type },
             { key: "review", header: "Next review", render: (row) => formatIsoDate(row.due) },
             {
               key: "acks",

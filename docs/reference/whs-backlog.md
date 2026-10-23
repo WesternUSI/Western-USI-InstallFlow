@@ -48,16 +48,6 @@ acknowledgements, history), medical centres list.
   dashboards, and click through (built and tested on the backend only, 20 Oct).
 
 ## Other registers (framework §4, §13)
-- [ ] **Height and safety equipment** (client request, Mitch, 20 Oct). WAITING for Mitch's Excel sheet
-  before building. Outside the framework: §14 keeps "detailed plant registers" out of scope unless
-  separately approved, so ask the user's explicit permission to build it, then log it in
-  `whs-decisions.md`. What was agreed so far (user, 20 Oct):
-  - A new admin section holding the equipment list, imported from Excel like Medical Centres
-    (a newer sheet adds only new rows, no duplicates). The list is not shown in the installer app.
-  - The admin assigns periodic checks of an item to a worker; each assigned check shows on that
-    worker's phone as a short checklist, like the first-aid kit inspection (kits are the pattern).
-  - To ask Mitch: what is on the sheet (a sample); harnesses and lanyards only or all equipment; how
-    often each type is checked; whether anything beyond a pass/fail checklist is needed.
 - [ ] On-site changes in the app's Needs Attention for the people a SWMS is for (D12). Possible now
   that documents say who they are for (AD33).
 - [ ] Documents for a client or work type: link them to jobs when work orders are connected (§13

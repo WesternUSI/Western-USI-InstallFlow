@@ -23,4 +23,11 @@ export function reviewReminderDays(kind: string): number[] {
 
 /** The Type list's last choice: a kind of document that isn't listed, typed in (decision AD40). It is saved as a safety document with that name. */
 export const OTHER_DOCUMENT_TYPE = "other";
-export const DOCUMENT_TYPE_CHOICES = [...DOCUMENT_TYPES, { value: OTHER_DOCUMENT_TYPE, label: "Other (type the name)", kind: "document" as const }];
+/** The Type list with the types typed under "Other" on earlier documents added before "Other" (decision AD48). */
+export function documentTypeChoices(typed: string[] = []) {
+  return [
+    ...DOCUMENT_TYPES,
+    ...typed.map((name) => ({ value: name, label: name, kind: "document" as const })),
+    { value: OTHER_DOCUMENT_TYPE, label: "Other (type the name)", kind: "document" as const },
+  ];
+}

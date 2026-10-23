@@ -79,6 +79,7 @@ const NAV: (
       { to: "/safety/subcontractors", label: "Entities" },
       { to: "/safety/vehicles", label: "Vehicle Register" },
       { to: "/safety/kits", label: "First-Aid Kits" },
+      { to: "/safety/equipment", label: "Height & Safety Equipment" },
       { to: "/safety/medical-centres", label: "Medical Centres" },
       { to: "/safety/reports", label: "Reports & Exports" },
       // Roles & Permissions is hidden for now (decision AD28); the page is kept at /safety/roles.

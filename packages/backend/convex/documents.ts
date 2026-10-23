@@ -952,6 +952,34 @@ async function acknowledgingWorkers(ctx: QueryCtx, document: Doc<"whs_documents"
   }));
 }
 
+/** The Type list's own choices for a safety document that isn't a SWMS or SDS (web `DOCUMENT_TYPES`). */
+export const LISTED_DOCUMENT_TYPES = ["WHS Policy", "WHS Management System", "Client document", "Emergency procedure"];
+
+/** Types typed in under "Other" on earlier documents, archived ones included, offered for the next upload (decision AD48). */
+async function typedDocumentTypes(ctx: QueryCtx): Promise<string[]> {
+  const documents = await ctx.db
+    .query("whs_documents")
+    .withIndex("by_kind", (q) => q.eq("kind", "document"))
+    .collect();
+  const seen = new Set(LISTED_DOCUMENT_TYPES.map((name) => name.toLowerCase()));
+  const types: string[] = [];
+  for (const document of documents) {
+    const name = document.category?.trim();
+    if (!name || seen.has(name.toLowerCase())) continue;
+    seen.add(name.toLowerCase());
+    types.push(name);
+  }
+  return types.sort((a, b) => a.localeCompare(b));
+}
+
+export const adminDocumentTypes = query({
+  args: {},
+  handler: async (ctx): Promise<string[]> => {
+    await requireDocumentAdmin(ctx);
+    return typedDocumentTypes(ctx);
+  },
+});
+
 const AUDIT_TEXT: Record<string, string> = {
   uploaded: "Version issued",
   superseded: "Version superseded",
@@ -1131,6 +1159,8 @@ export const adminCreate = mutation({
     title: v.string(),
     code: v.optional(v.string()),
     category: v.optional(v.string()),
+    /** The category was typed under "Other", so it must be a new type (decision AD48). */
+    new_type: v.optional(v.boolean()),
     applies_to: v.optional(v.string()),
     for_entities: v.optional(audienceEntities),
     for_workers: v.optional(v.array(v.id("users"))),
@@ -1152,6 +1182,12 @@ export const adminCreate = mutation({
     // A safety document that isn't a SWMS or SDS says what kind it is, from the list or typed under "Other" (decision AD40).
     if (args.kind === "document" && !args.category?.trim()) {
       throw new ConvexError("Select the document type, or choose Other and type its name.");
+    }
+    if (args.kind === "document" && args.new_type) {
+      const typed = args.category!.trim().replace(/\s+/g, " ");
+      const known = [...LISTED_DOCUMENT_TYPES, ...(await typedDocumentTypes(ctx))];
+      const match = known.find((name) => name.toLowerCase() === typed.toLowerCase());
+      if (match !== undefined) throw new ConvexError(`There is already a document type called "${match}". Choose it from the list instead.`);
     }
     const existing = await ctx.db.query("whs_documents").withIndex("by_archived", (q) => q.eq("archived", false)).collect();
     if (existing.some((document) => document.title.toLowerCase() === title.toLowerCase())) {

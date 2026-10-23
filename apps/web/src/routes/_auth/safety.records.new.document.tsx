@@ -1,14 +1,14 @@
 import { api } from "@usi-installer/backend/convex/_generated/api";
 import type { Id } from "@usi-installer/backend/convex/_generated/dataModel";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { type Audience, AudiencePicker, EVERYONE, audienceError, useAudienceOptions } from "@/components/whs/audience-picker";
 import { CheckboxRow, Field, FieldRow, FilePicker, FormCard, SelectInput, TextInput } from "@/components/whs/safety-form";
 import { Notice, SafetyButton, SafetyPage } from "@/components/whs/safety-ui";
-import { DOCUMENT_TYPE_CHOICES, OTHER_DOCUMENT_TYPE } from "@/lib/document-kinds";
+import { OTHER_DOCUMENT_TYPE, documentTypeChoices } from "@/lib/document-kinds";
 import { toUserMessage } from "@/lib/errors";
 import { uploadFile } from "@/lib/upload-file";
 import { useResponsiblePeople } from "@/lib/use-people";
@@ -31,6 +31,7 @@ function AddSafetyDocument() {
   const generateUploadUrl = useMutation(api.documents.generateUploadUrl);
   const create = useMutation(api.documents.adminCreate);
   const people = useResponsiblePeople();
+  const typeChoices = documentTypeChoices(useQuery(api.documents.adminDocumentTypes));
 
   const [name, setName] = useState("");
   const [type, setType] = useState("");
@@ -75,7 +76,7 @@ function AddSafetyDocument() {
       toast.error(first ?? "Check the details and try again.");
       return;
     }
-    const chosen = DOCUMENT_TYPE_CHOICES.find((entry) => entry.value === type);
+    const chosen = typeChoices.find((entry) => entry.value === type);
     if (!chosen) return;
     setSaving(true);
     try {
@@ -85,6 +86,7 @@ function AddSafetyDocument() {
         title: name.trim(),
         code: code.trim() || undefined,
         category: chosen.kind === "document" ? (type === OTHER_DOCUMENT_TYPE ? otherType.trim() : chosen.value) : undefined,
+        new_type: type === OTHER_DOCUMENT_TYPE || undefined,
         applies_to: appliesTo.trim() || undefined,
         for_entities: audience.entities as ("western-usi" | Id<"subcontractors">)[],
         for_workers: audience.workers as Id<"users">[],
@@ -131,7 +133,7 @@ function AddSafetyDocument() {
                 setType(value);
                 setErrors((current) => ({ ...current, type: undefined, otherType: undefined }));
               }}
-              options={DOCUMENT_TYPE_CHOICES}
+              options={typeChoices}
               invalid={!!errors.type}
             />
           </Field>

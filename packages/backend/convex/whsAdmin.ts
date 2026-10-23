@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { query, type QueryCtx } from "./_generated/server";
+import { LISTED_DOCUMENT_TYPES } from "./documents";
 import { certificatesOf, entityName, INSURANCE_TYPE_LABELS, policyStatus } from "./insurance";
 import { deriveKitStatus } from "./kits";
 import { deriveVehicleStatus, VEHICLE_STATUS_LABELS, type VehicleStatus } from "./vehicles";
@@ -37,6 +38,8 @@ export interface RegisterRow {
   status: RegisterStatus;
   /** `YYYY-MM-DD`: expiry, review or next inspection. */
   due?: string;
+  /** Documents: the type shown and filtered on, e.g. "SWMS" or "City of Perth" (decision AD48). */
+  type?: string;
   /** Documents: workers who still have to acknowledge the current version. */
   outstanding?: number;
   /** Accreditations: whose it is, for the management matrix and worker pages (decision AD43). */
@@ -68,6 +71,15 @@ export async function requirePanelUser(ctx: QueryCtx) {
 }
 
 const ADMIN_LIST = "Admin list";
+
+/** A document's type as listed, so "WHS policy" and "WHS Policy" are one type. */
+function documentType(document: Doc<"whs_documents">): string {
+  if (document.kind === "swms") return "SWMS";
+  if (document.kind === "sds") return "SDS";
+  const name = document.category?.trim();
+  if (!name) return "Safety document";
+  return LISTED_DOCUMENT_TYPES.find((listed) => listed.toLowerCase() === name.toLowerCase()) ?? name;
+}
 
 const DOCUMENT_REVIEW_DAYS: Record<Doc<"whs_documents">["kind"], number> = { swms: 30, document: 30, sds: 60 };
 
@@ -200,6 +212,7 @@ export const register = query({
         id: document._id,
         name: document.title,
         category: document.kind,
+        type: documentType(document),
         entity: "Western USI",
         status,
         due: current.review_date,

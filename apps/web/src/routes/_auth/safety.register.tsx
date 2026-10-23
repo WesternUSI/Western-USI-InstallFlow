@@ -49,16 +49,21 @@ export const Route = createFileRoute("/_auth/safety/register")({
 
 const ALL = "all";
 
-/** Framework 5's categories (and other safety documents, 4A). */
+/** Framework 5's categories. Other safety documents (4A) are listed by their own type, "type:<name>" (decision AD48). */
 const CATEGORIES = [
   { value: "insurance", label: "Insurance" },
   { value: "vehicle", label: "Vehicle" },
   { value: "accreditation", label: "Accreditation" },
   { value: "swms", label: "SWMS" },
   { value: "sds", label: "SDS" },
-  { value: "document", label: "Other safety document" },
   { value: "first-aid", label: "First aid" },
 ];
+const TYPE_PREFIX = "type:";
+
+function matchesCategory(row: RegisterRow, category: string): boolean {
+  if (category.startsWith(TYPE_PREFIX)) return row.category === "document" && row.type === category.slice(TYPE_PREFIX.length);
+  return row.category === category;
+}
 
 /** Framework 6's statuses ("Overdue/Expired" is one), plus "Needs action" (vehicle and first-aid cards) and "Acknowledgements outstanding" (SWMS card). */
 const STATUSES = [
@@ -107,7 +112,7 @@ function RegisterScreen() {
   const rows = (data?.rows ?? []).filter(
     (row) =>
       (needle === "" || `${row.name} ${row.person ?? ""} ${row.entity}`.toLowerCase().includes(needle)) &&
-      (!search.category || row.category === search.category) &&
+      (!search.category || matchesCategory(row, search.category)) &&
       (!search.entity || row.entity === search.entity) &&
       (!search.status || matchesStatus(row, search.status)) &&
       (!search.person ||
@@ -130,6 +135,12 @@ function RegisterScreen() {
   ];
   const vehicleOptions = distinct(allRows.map((row) => row.vehicle)).map((value) => ({ value, label: value }));
   const responsibleOptions = distinct(allRows.map((row) => row.responsible)).map((value) => ({ value, label: value }));
+  const documentTypes = distinct(allRows.filter((row) => row.category === "document").map((row) => row.type));
+  const categoryOptions = [
+    ...CATEGORIES.slice(0, 5),
+    ...documentTypes.map((type) => ({ value: `${TYPE_PREFIX}${type}`, label: type })),
+    ...CATEGORIES.slice(5),
+  ];
 
   const clear = () => list.clear(FILTERS);
 
@@ -140,7 +151,7 @@ function RegisterScreen() {
   const toolbar = (
     <Toolbar>
       <SearchBox value={query} onChange={setQuery} placeholder="Search Records" />
-      {select("Category", "category", CATEGORIES)}
+      {select("Category", "category", categoryOptions)}
       {select("Entity", "entity", (data?.entities ?? []).map((value) => ({ value, label: value })))}
       {select(
         "Status",
@@ -236,7 +247,7 @@ function RegisterScreen() {
                   </div>
                 ),
               },
-              { key: "category", header: "Category", render: (row) => CATEGORIES.find((entry) => entry.value === row.category)?.label },
+              { key: "category", header: "Category", render: (row) => row.type ?? CATEGORIES.find((entry) => entry.value === row.category)?.label },
               { key: "entity", header: "Entity", render: (row) => row.entity },
               {
                 key: "due",

@@ -16,6 +16,7 @@ import type * as derive from "../derive.js";
 import type * as documents from "../documents.js";
 import type * as email from "../email.js";
 import type * as emails from "../emails.js";
+import type * as equipment from "../equipment.js";
 import type * as geo from "../geo.js";
 import type * as healthCheck from "../healthCheck.js";
 import type * as http from "../http.js";
@@ -65,6 +66,7 @@ declare const fullApi: ApiFromModules<{
   documents: typeof documents;
   email: typeof email;
   emails: typeof emails;
+  equipment: typeof equipment;
   geo: typeof geo;
   healthCheck: typeof healthCheck;
   http: typeof http;

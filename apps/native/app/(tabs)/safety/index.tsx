@@ -7,6 +7,7 @@ import { PrimaryButton, WhsHeader, WhsScreen } from "@/components/whs/whs-ui";
 import { useAccreditations } from "@/hooks/use-accreditations";
 import { useWhsAttention } from "@/hooks/use-whs-attention";
 import { useDocuments } from "@/hooks/use-documents";
+import { useEquipmentChecks } from "@/hooks/use-equipment-checks";
 import { useKits } from "@/hooks/use-kits";
 
 function SafetyTile({
@@ -72,6 +73,7 @@ export default function SafetyScreen() {
   const currentAccreditations = (accreditations ?? []).filter((item) => item.status === "current").length;
   const { items: documents } = useDocuments();
   const { items: kits } = useKits();
+  const { items: equipmentChecks } = useEquipmentChecks();
   const countOf = (kind: "swms" | "sds" | "document", noun: string) =>
     documents === undefined ? "Loading…" : `${documents.filter((item) => item.kind === kind).length} ${noun}`;
 
@@ -146,6 +148,16 @@ export default function SafetyScreen() {
             subtitle={kits === undefined ? "Loading…" : `${kits.length} assigned to you`}
             onPress={() => go("/safety/kits")}
           />
+        </View>
+        <View className="flex-row gap-[14px]">
+          <SafetyTile
+            icon={<Ionicons name="construct" size={24} color="#d97706" />}
+            iconBackground="#fef7ee"
+            title={"Equipment\nChecks"}
+            subtitle={equipmentChecks === undefined ? "Loading…" : `${equipmentChecks.length} assigned to you`}
+            onPress={() => go("/safety/equipment")}
+          />
+          <View className="flex-1" />
         </View>
       </View>
 

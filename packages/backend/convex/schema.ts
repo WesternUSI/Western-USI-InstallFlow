@@ -815,6 +815,69 @@ export default defineSchema({
   }),
 
   /**
+   * Height and safety equipment (decision AD49): ladders and safety steps from
+   * Mitch's "Height and Safety Equipment register" sheet, columns kept as he
+   * supplied them. Type + brand + name/number identifies an item. Dates are
+   * `YYYY-MM-DD` when the sheet gave a date, else the text as written.
+   */
+  equipment: defineTable({
+    type: v.string(),
+    brand: v.string(),
+    /** "Name / Number" on the sheet, e.g. "Step 1" or "Blue 3M". */
+    name: v.string(),
+    damage: v.optional(v.string()),
+    repair_history: v.optional(v.string()),
+    out_of_service_date: v.optional(v.string()),
+    last_updated: v.optional(v.string()),
+    archived: v.boolean(),
+  }).index("by_archived", ["archived"]),
+
+  /**
+   * One check of an item, assigned to a worker by the admin and done once on
+   * their phone (AD49). Ladder lines are Pass or Action; damage is asked
+   * separately. A check with an issue stays Action required until reviewed.
+   */
+  equipment_checks: defineTable({
+    equipment_id: v.id("equipment"),
+    assigned_to: v.id("users"),
+    assigned_by: v.id("users"),
+    /** "Check by" date. */
+    due: v.string(),
+    state: v.union(v.literal("assigned"), v.literal("done"), v.literal("cancelled")),
+    done_on: v.optional(v.string()),
+    answers: v.optional(v.array(v.object({ check: v.string(), answer: v.union(v.literal("pass"), v.literal("action")) }))),
+    /** What's wrong, when any line is Action. */
+    problem: v.optional(v.string()),
+    damage_found: v.optional(v.boolean()),
+    damage_description: v.optional(v.string()),
+    photo: v.optional(v.id("_storage")),
+    notes: v.optional(v.string()),
+    reviewed_at: v.optional(v.number()),
+    reviewed_by: v.optional(v.id("users")),
+    outcome: v.optional(v.union(v.literal("repaired"), v.literal("out-of-service"), v.literal("no-action"))),
+    review_note: v.optional(v.string()),
+  })
+    .index("by_equipment", ["equipment_id"])
+    .index("by_assigned_and_state", ["assigned_to", "state"]),
+
+  /** Append-only trail for equipment (framework 11). */
+  equipment_audit: defineTable({
+    equipment_id: v.id("equipment"),
+    check_id: v.optional(v.id("equipment_checks")),
+    action: v.union(
+      v.literal("added"),
+      v.literal("imported"),
+      v.literal("assigned"),
+      v.literal("checked"),
+      v.literal("reviewed"),
+      v.literal("edited"),
+      v.literal("archived"),
+    ),
+    actor_id: v.optional(v.id("users")),
+    details: v.optional(v.string()),
+  }).index("by_equipment", ["equipment_id"]),
+
+  /**
    * WHS settings the admin can change, one row (decision AD47). Absent values
    * fall back to the defaults in whsSettings.ts.
    */
