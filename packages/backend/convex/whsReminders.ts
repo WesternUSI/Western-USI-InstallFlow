@@ -6,7 +6,7 @@ import { enabledRecipientEmails } from "./emails";
 import { addDays, businessHour, businessToday, formatLongDate } from "./whsDates";
 import { accreditationLink, managementLink } from "./whsLinks";
 import { planReminders } from "./whsStatus";
-import { isManagementUser } from "./permissions";
+import { holdsAccreditations, isManagementUser } from "./permissions";
 import { escalateAfterDays } from "./whsSettings";
 
 /**
@@ -91,6 +91,8 @@ export const due = internalQuery({
       const responsible = (await ctx.db.get(record.responsible_user_id)) ?? worker;
       // A removed type is no longer asked for, so its evidence isn't chased either (decision AD31).
       if (type === undefined || type.archived || worker === null || responsible === null) continue;
+      // Nor is a subcontractor login's an admin has switched off as a worker (decision R6).
+      if (!holdsAccreditations(worker, true)) continue;
 
       const planned = planReminders({
         today: args.today,

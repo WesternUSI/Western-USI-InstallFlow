@@ -400,6 +400,17 @@ export const inviteInstaller = action({
       }
     }
 
+    // A subcontractor's people can never be admin or management, so an email
+    // that already has either is refused here rather than by Clerk.
+    if (args.subcontractor_id !== undefined) {
+      const existing: Doc<"users"> | null = await ctx.runQuery(internal.users.findByEmail, { email: args.work_email });
+      if (existing !== null && (isAdminUser(existing) || isManagementUser(existing))) {
+        throw new ConvexError(
+          "That email belongs to an admin or management account. A subcontractor can't be admin or management.",
+        );
+      }
+    }
+
     const clerkSecretKey = process.env.CLERK_SECRET_KEY;
     if (!clerkSecretKey) {
       throw new Error("CLERK_SECRET_KEY is not configured on this Convex deployment");
@@ -504,6 +515,55 @@ export const ensureDefaultTeam = mutation({
       !isWhsOnly(user)) {
       await ctx.db.patch(user._id, { team: "Team 1" });
     }
+  },
+});
+
+/**
+ * The installer app calls this when a subcontractor login opens it, once: from
+ * then on the login is also one of the company's workers unless an admin has
+ * switched that off (decision R6).
+ */
+export const markInstallerAppOpened = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) return;
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_id", (q) => q.eq("clerk_id", identity.subject))
+      .unique();
+    if (user !== null && user.role === "subcontractor" && user.opened_installer_app_at === undefined) {
+      await ctx.db.patch(user._id, { opened_installer_app_at: Date.now() });
+    }
+  },
+});
+
+/**
+ * The admin's sole-trader switch on a subcontractor login (decision R6): on,
+ * the login is also one of the company's workers and must hold their
+ * accreditations; off, it never is, even after opening the installer app.
+ */
+export const setSoleTrader = mutation({
+  args: { user_id: v.string(), sole_trader: v.boolean() },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    const caller =
+      identity === null
+        ? null
+        : await ctx.db
+            .query("users")
+            .withIndex("by_clerk_id", (q) => q.eq("clerk_id", identity.subject))
+            .unique();
+    if (caller === null || !isAdminUser(caller)) {
+      throw new ConvexError("Only an administrator can change this.");
+    }
+    const userId = ctx.db.normalizeId("users", args.user_id);
+    const user = userId === null ? null : await ctx.db.get(userId);
+    if (user === null) throw new ConvexError("That person no longer exists.");
+    if (user.role !== "subcontractor") {
+      throw new ConvexError("Only a subcontractor's login can be set as a sole trader.");
+    }
+    await ctx.db.patch(user._id, { sole_trader: args.sole_trader });
   },
 });
 

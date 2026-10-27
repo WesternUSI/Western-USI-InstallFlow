@@ -59,7 +59,7 @@ function SubcontractorProfile() {
       <SubcontractorTabs subcontractorId={subcontractorId} active={tab} />
       {tab === "overview" && <OverviewTab subcontractorId={subcontractorId} name={name} isWesternUsi={isWesternUsi} />}
       {tab === "business" && <BusinessTab subcontractorId={subcontractorId} isWesternUsi={isWesternUsi} />}
-      {tab === "workers" && <WorkersTab name={name} isWesternUsi={isWesternUsi} />}
+      {tab === "workers" && <WorkersTab subcontractorId={subcontractorId} name={name} isWesternUsi={isWesternUsi} />}
       {tab === "accreditations" && <AccreditationsTab subcontractorId={subcontractorId} name={name} />}
       {tab === "documents" && <DocumentsTab subcontractorId={subcontractorId} name={name} />}
       {tab === "requirements" && <RequirementsTab subcontractorId={subcontractorId} name={name} isWesternUsi={isWesternUsi} />}
@@ -268,8 +268,25 @@ function AgreementCard({ subcontractorId }: { subcontractorId: string }) {
  * SC10 Workers, real: the people attached to this subcontractor. Subcontractor
  * people never join a team (decision A2); they are invited from Users.
  */
-function WorkersTab({ name, isWesternUsi }: { name: string; isWesternUsi: boolean }) {
+function WorkersTab({ subcontractorId, name, isWesternUsi }: { subcontractorId: string; name: string; isWesternUsi: boolean }) {
   const users = useQuery(api.users.list);
+  const logins = useQuery(api.subcontractors.logins, isWesternUsi ? "skip" : { subcontractor_id: subcontractorId });
+  const setSoleTrader = useMutation(api.users.setSoleTrader);
+  const [saving, setSaving] = useState<string | null>(null);
+  const loginOf = (id: string) => logins?.find((login) => login.id === id);
+
+  // The sole-trader switch (decision R6): on, the login must hold its own accreditations; off always wins.
+  const toggle = async (userId: string, on: boolean) => {
+    setSaving(userId);
+    try {
+      await setSoleTrader({ user_id: userId, sole_trader: on });
+      toast.success(on ? "Set as a sole trader: they must hold their own accreditations" : "No longer a worker: their accreditations aren't required");
+    } catch (error) {
+      toast.error(toUserMessage(error, "Could not change that. Please try again."));
+    } finally {
+      setSaving(null);
+    }
+  };
   // Western USI's workers are its installers with no subcontractor.
   const people = (users ?? []).filter((user) =>
     isWesternUsi ? user.subcontractor === undefined && user.role === "installer" : user.subcontractor === name,
@@ -297,6 +314,40 @@ function WorkersTab({ name, isWesternUsi }: { name: string; isWesternUsi: boolea
             { key: "user", header: "User", render: (row) => <span className="font-semibold text-[#111827]">{row.name}</span> },
             { key: "email", header: "Username / email", render: (row) => row.email },
             { key: "role", header: "Role", render: (row) => (row.role === "subcontractor" ? "Subcontractor login" : "Installer") },
+            {
+              key: "worker",
+              header: "Also a worker",
+              render: (row) => {
+                if (row.role !== "subcontractor") return "Yes";
+                const login = loginOf(row._id);
+                if (login === undefined) return "—";
+                const why =
+                  login.sole_trader === true
+                    ? "Set as a sole trader"
+                    : login.sole_trader === false
+                      ? "Switched off"
+                      : login.is_worker
+                        ? login.opened_app
+                          ? "Automatic: uses the installer app"
+                          : "Automatic: has evidence on file"
+                        : "Automatic: hasn't used the installer app";
+                return (
+                  <label className="flex cursor-pointer items-start gap-2">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 size-4 accent-[#2563eb]"
+                      checked={login.is_worker}
+                      disabled={saving === row._id}
+                      onChange={(event) => void toggle(row._id, event.target.checked)}
+                    />
+                    <span className="flex flex-col">
+                      <span className="text-[13px] text-[#111827]">Sole trader</span>
+                      <span className="text-[11px] text-[#64748b]">{why}</span>
+                    </span>
+                  </label>
+                );
+              },
+            },
             { key: "status", header: "Status", render: (row) => <span className="text-[13px] text-[#111827]">{String(row.status).replace(/_/g, " ")}</span> },
             {
               key: "actions",

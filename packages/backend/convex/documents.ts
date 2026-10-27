@@ -97,6 +97,36 @@ async function summarise(ctx: QueryCtx, user: Doc<"users">, document: Doc<"whs_d
   };
 }
 
+/**
+ * On-site changes on a SWMS's current version that the worker still has to sign
+ * (decision D12): only for workers the SWMS is for. A change sent back is left
+ * out, since the reporter records it again.
+ */
+async function changesToSign(
+  ctx: QueryCtx,
+  user: Doc<"users">,
+  document: Doc<"whs_documents">,
+  versionId: Id<"whs_document_versions">,
+) {
+  if (document.kind !== "swms" || !mustAcknowledgeDocuments(user) || !documentIsFor(document, user)) return [];
+  const changes = await ctx.db
+    .query("swms_changes")
+    .withIndex("by_version", (q) => q.eq("version_id", versionId))
+    .collect();
+  const unsigned = await Promise.all(
+    changes
+      .filter((change) => change.state !== "sent-back")
+      .map(async (change) => {
+        const signoff = await ctx.db
+          .query("swms_change_signoffs")
+          .withIndex("by_change_and_worker", (q) => q.eq("change_id", change._id).eq("worker_id", user._id))
+          .unique();
+        return signoff === null ? [{ id: change._id, change: change.change, date: change.date, time: change.time }] : [];
+      }),
+  );
+  return unsigned.flat();
+}
+
 /** Every document meant for the signed-in worker (decision AD33), titles A-Z. */
 export const mine = query({
   args: {},
@@ -105,7 +135,14 @@ export const mine = query({
     const documents = (await ctx.db.query("whs_documents").collect()).filter(
       (document) => !document.archived && canSeeDocument(document, user),
     );
-    const items = await Promise.all(documents.map((document) => summarise(ctx, user, document)));
+    const items = await Promise.all(
+      documents.map(async (document) => {
+        const item = await summarise(ctx, user, document);
+        return item === null
+          ? null
+          : { ...item, changes_to_sign: await changesToSign(ctx, user, document, item.version_id) };
+      }),
+    );
     return items
       .flatMap((item) => (item === null ? [] : [item]))
       .sort((a, b) => a.title.localeCompare(b.title));

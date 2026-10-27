@@ -14,27 +14,10 @@ import { toUserMessage } from "@/lib/errors";
 import { useAppToast } from "@/lib/toast";
 import { formatIsoDate } from "@/lib/whs-format";
 
-type Answer = "pass" | "action";
-
-const ANSWERS: { value: Answer; label: string; icon: "checkmark-circle" | "warning"; background: string; color: string }[] = [
-  { value: "pass", label: "Pass", icon: "checkmark-circle", background: "#f0fdf4", color: "#16a34a" },
-  { value: "action", label: "Action", icon: "warning", background: "#fef7ee", color: "#d97706" },
-];
-
 interface Errors {
-  checks?: string;
-  problem?: string;
   damage?: string;
   description?: string;
 }
-
-const cardStyle = {
-  shadowColor: "#000000",
-  shadowOpacity: 0.03,
-  shadowRadius: 4,
-  shadowOffset: { width: 0, height: 2 },
-  elevation: 1,
-};
 
 function Choice({ label, icon, background, color, selected, onPress }: { label: string; icon: keyof typeof Ionicons.glyphMap; background: string; color: string; selected: boolean; onPress: () => void }) {
   return (
@@ -54,9 +37,9 @@ function Choice({ label, icon, background, color, selected, onPress }: { label: 
 }
 
 /**
- * One equipment check, on one screen (decision AD49): the ladder checklist
- * for the item's type, each Pass or Action, then whether there is any damage.
- * Done once; the office reviews anything found.
+ * One equipment check (decision AD49, Mitch 23 Oct): "Any damage?" Yes/No,
+ * with a description and optional photo when Yes, and a recommendation.
+ * Done once; the office reviews any damage found.
  */
 export default function EquipmentCheckScreen() {
   const router = useRouter();
@@ -66,11 +49,9 @@ export default function EquipmentCheckScreen() {
   const submitCheck = useMutation(api.equipment.submitCheck);
   const { showError } = useAppToast();
 
-  const [answers, setAnswers] = useState<Record<string, Answer>>({});
-  const [problem, setProblem] = useState("");
   const [damage, setDamage] = useState<boolean | null>(null);
   const [description, setDescription] = useState("");
-  const [notes, setNotes] = useState("");
+  const [recommendation, setRecommendation] = useState("");
   const [photo, setPhoto] = useState<PickedFile | null>(null);
   const [errors, setErrors] = useState<Errors>({});
   const [submitting, setSubmitting] = useState(false);
@@ -87,9 +68,6 @@ export default function EquipmentCheckScreen() {
       </WhsScreen>
     );
   }
-
-  const completed = check.checks.filter((line) => answers[line.id]).length;
-  const actions = Object.values(answers).filter((answer) => answer === "action").length;
 
   const addPhoto = async (source: "camera" | "library") => {
     if (source === "camera") {
@@ -119,12 +97,10 @@ export default function EquipmentCheckScreen() {
 
   const handleSubmit = async () => {
     const found: Errors = {};
-    if (completed < check.checks.length) found.checks = `Answer all ${check.checks.length} checks: Pass or Action.`;
-    if (actions > 0 && problem.trim() === "") found.problem = "Describe what's wrong with the checks marked Action.";
     if (damage === null) found.damage = "Say whether there is any damage.";
     if (damage === true && description.trim() === "") found.description = "Describe the damage.";
     setErrors(found);
-    const first = found.checks ?? found.problem ?? found.damage ?? found.description;
+    const first = found.damage ?? found.description;
     if (first !== undefined || damage === null) {
       showError(first ?? "Check the details and try again.");
       return;
@@ -136,12 +112,10 @@ export default function EquipmentCheckScreen() {
         damage && photo !== null ? await uploadToStorage(await generateUploadUrl(), photo) : undefined;
       const result = await submitCheck({
         check_id: check.id,
-        answers: check.checks.map((line) => ({ check: line.id, answer: answers[line.id] })),
-        problem: actions > 0 ? problem.trim() : undefined,
         damage_found: damage,
         damage_description: damage ? description.trim() : undefined,
+        recommendation: recommendation.trim() || undefined,
         photo: photoId,
-        notes: notes.trim() || undefined,
       });
       router.replace(`/safety/equipment-check-done?issue=${result.issue ? 1 : 0}` as Href);
     } catch (caught) {
@@ -160,52 +134,17 @@ export default function EquipmentCheckScreen() {
         {check.damage && check.damage.toLowerCase() !== "nil" ? `. Known damage: ${check.damage}` : ""}
       </Text>
 
-      <View className="gap-[14px]">
-        {check.checks.map((line) => (
-          <View
-            key={line.id}
-            className="rounded-[16px] border bg-white p-[17px]"
-            style={{ ...cardStyle, borderColor: errors.checks && !answers[line.id] ? "#ef4444" : "#f3f4f6" }}
-          >
-            <Text className="pb-[14px] text-[15px] font-bold leading-[20.6px] text-[#0f172a]">{line.label}</Text>
-            <View className="flex-row gap-2">
-              {ANSWERS.map((option) => (
-                <Choice
-                  key={option.value}
-                  label={option.label}
-                  icon={option.icon}
-                  background={option.background}
-                  color={option.color}
-                  selected={answers[line.id] === option.value}
-                  onPress={() => {
-                    setAnswers((current) => ({ ...current, [line.id]: option.value }));
-                    setErrors((current) => ({ ...current, checks: undefined, problem: undefined }));
-                  }}
-                />
-              ))}
-            </View>
-          </View>
-        ))}
-      </View>
-      {errors.checks ? <Text className="mt-2 text-[12px] font-medium text-[#dc2626]">{errors.checks}</Text> : null}
-
-      <View className="mt-4 gap-4">
-        {actions > 0 ? (
-          <NotesCard
-            label="What's wrong"
-            placeholder="e.g. Left foot pad missing"
-            value={problem}
-            onChangeText={(value) => {
-              setProblem(value.slice(0, 1000));
-              setErrors((current) => ({ ...current, problem: undefined }));
-            }}
-            error={errors.problem}
-          />
-        ) : null}
-
+      <View className="gap-4">
         <View
           className="rounded-[16px] border bg-white p-[17px]"
-          style={{ ...cardStyle, borderColor: errors.damage ? "#ef4444" : "#f3f4f6" }}
+          style={{
+            borderColor: errors.damage ? "#ef4444" : "#f3f4f6",
+            shadowColor: "#000000",
+            shadowOpacity: 0.03,
+            shadowRadius: 4,
+            shadowOffset: { width: 0, height: 2 },
+            elevation: 1,
+          }}
         >
           <Text className="pb-[14px] text-[15px] font-bold leading-[20.6px] text-[#0f172a]">Any damage?</Text>
           <View className="flex-row gap-2">
@@ -217,7 +156,7 @@ export default function EquipmentCheckScreen() {
               selected={damage === false}
               onPress={() => {
                 setDamage(false);
-                setErrors((current) => ({ ...current, damage: undefined, description: undefined }));
+                setErrors({});
               }}
             />
             <Choice
@@ -272,13 +211,15 @@ export default function EquipmentCheckScreen() {
           </>
         ) : null}
 
-        <NotesCard label="Notes (optional)" placeholder="Anything else about the item..." value={notes} onChangeText={(value) => setNotes(value.slice(0, 1000))} />
+        <NotesCard
+          label="Recommendation (optional)"
+          placeholder="e.g. Replace the rope before next use"
+          value={recommendation}
+          onChangeText={(value) => setRecommendation(value.slice(0, 1000))}
+        />
       </View>
 
-      <View className="mt-4 gap-[10px]">
-        <Text className="px-[2px] text-[12.5px] leading-[18.75px] text-[#64748b]">
-          {completed} of {check.checks.length} checks completed
-        </Text>
+      <View className="mt-4">
         {submitting ? (
           <View className="items-center py-[14px]">
             <ActivityIndicator />

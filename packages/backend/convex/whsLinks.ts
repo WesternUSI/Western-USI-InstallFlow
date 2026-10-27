@@ -29,3 +29,19 @@ export function managementLink(path: string): { label: string; url: string } | u
   const base = process.env.WEB_APP_URL?.trim().replace(/\/+$/, "");
   return base ? { label: "Open it in the management dashboard", url: `${base}${path}` } : undefined;
 }
+
+/** A record in the admin panel, e.g. "/safety/insurance/<id>", for emails to the admin list. Same `WEB_APP_URL` as `managementLink`. */
+export function adminPanelLink(path: string): { label: string; url: string } | undefined {
+  const base = process.env.WEB_APP_URL?.trim().replace(/\/+$/, "");
+  return base ? { label: "Open it in the admin panel", url: `${base}${path}` } : undefined;
+}
+
+/**
+ * A record in the subcontractor portal, e.g. "/subcontractor/insurance/<id>",
+ * for emails to a subcontractor's login (decision AD50). Same `WEB_APP_URL` as
+ * `managementLink`: the staging site on dev, the live site on production.
+ */
+export function subcontractorLink(path: string): { label: string; url: string } | undefined {
+  const base = process.env.WEB_APP_URL?.trim().replace(/\/+$/, "");
+  return base ? { label: "Open it in the subcontractor portal", url: `${base}${path}` } : undefined;
+}

@@ -86,6 +86,12 @@ export default defineSchema({
     // employee. Required for the "subcontractor" role. Separate from `team`,
     // which is work-order allocation.
     subcontractor_id: v.optional(v.id("subcontractors")),
+    // A subcontractor login only: whether they are also one of the company's
+    // workers, set by an admin (decision R6). Absent means automatic: a worker
+    // once they open the installer app or have evidence on file. False always wins.
+    sole_trader: v.optional(v.boolean()),
+    // A subcontractor login's first time in the installer app (decision R6).
+    opened_installer_app_at: v.optional(v.number()),
   })
     .index("by_clerk_id", ["clerk_id"])
     // The WHS register reads only the people who hold accreditations (installers, subcontractor logins).
@@ -834,8 +840,8 @@ export default defineSchema({
 
   /**
    * One check of an item, assigned to a worker by the admin and done once on
-   * their phone (AD49). Ladder lines are Pass or Action; damage is asked
-   * separately. A check with an issue stays Action required until reviewed.
+   * their phone (AD49): "Any damage?" Yes/No and a recommendation. A check
+   * that found damage stays Action required until reviewed.
    */
   equipment_checks: defineTable({
     equipment_id: v.id("equipment"),
@@ -845,12 +851,13 @@ export default defineSchema({
     due: v.string(),
     state: v.union(v.literal("assigned"), v.literal("done"), v.literal("cancelled")),
     done_on: v.optional(v.string()),
-    answers: v.optional(v.array(v.object({ check: v.string(), answer: v.union(v.literal("pass"), v.literal("action")) }))),
-    /** What's wrong, when any line is Action. */
-    problem: v.optional(v.string()),
     damage_found: v.optional(v.boolean()),
     damage_description: v.optional(v.string()),
+    recommendation: v.optional(v.string()),
     photo: v.optional(v.id("_storage")),
+    /** From the first, placeholder checklist (23 Oct); no longer written. */
+    answers: v.optional(v.array(v.object({ check: v.string(), answer: v.union(v.literal("pass"), v.literal("action")) }))),
+    problem: v.optional(v.string()),
     notes: v.optional(v.string()),
     reviewed_at: v.optional(v.number()),
     reviewed_by: v.optional(v.id("users")),

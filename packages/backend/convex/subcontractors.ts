@@ -1,6 +1,6 @@
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { requireAdmin } from "./permissions";
+import { holdsAccreditations, requireAdmin } from "./permissions";
 
 /** A trimmed value, or undefined when it is blank — so an empty form field is "not given". */
 function clean(value: string | undefined) {
@@ -80,5 +80,35 @@ export const add = mutation({
     }
 
     return id;
+  },
+});
+
+/**
+ * A subcontractor's logins for its Workers tab, each with whether it is also
+ * one of the company's workers right now and why (decision R6), so the admin
+ * can set the sole-trader switch.
+ */
+export const logins = query({
+  args: { subcontractor_id: v.string() },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+    const subcontractorId = ctx.db.normalizeId("subcontractors", args.subcontractor_id);
+    if (subcontractorId === null) return [];
+    const logins = (await ctx.db.query("users").withIndex("by_role", (q) => q.eq("role", "subcontractor")).collect()).filter(
+      (user) => user.subcontractor_id === subcontractorId,
+    );
+    return await Promise.all(
+      logins.map(async (login) => {
+        const hasEvidence =
+          (await ctx.db.query("whs_records").withIndex("by_worker", (q) => q.eq("worker_id", login._id)).first()) !== null;
+        return {
+          id: login._id,
+          sole_trader: login.sole_trader,
+          is_worker: holdsAccreditations(login, hasEvidence),
+          opened_app: login.opened_installer_app_at !== undefined,
+          has_evidence: hasEvidence,
+        };
+      }),
+    );
   },
 });

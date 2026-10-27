@@ -23,9 +23,6 @@ as they come up. Nothing here is done; if it is done, it is not here.
 - [ ] PDF picking on a rebuilt iOS app.
 - [ ] Android run-through.
 
-### Build (framework)
-- [ ] Subcontractor panel: the contact uploads evidence for their workers (§10).
-
 ### Needs permission or a decision first
 - [ ] Subcontractor editing its own required list (§10 says "view"): permission needed.
 
@@ -40,16 +37,16 @@ first-aid kits (details, corrective action, assign, add), insurance (register, d
 verify, add), vehicles (register, details, service, availability, add), subcontractor profile
 (overview, business records with the signed agreement, workers, WHS requirements, SWMS
 acknowledgements, history), medical centres list.
-- [ ] Reports & Exports: install `jspdf` and `jspdf-autotable` in apps/web, then download each of
-  the ten reports as PDF and Excel once to check them (AD27).
-- [ ] Subcontractor portal (separate Figma flow, a separate web app), not started (AD11). The
-  Management dashboard is built (AD43).
+- [ ] Subcontractor portal left-out screens, to decide later (AD50): first-aid kits (Figma S13–S18, S27),
+  safety documents and acknowledging (S19–S22), export (S23–S24).
+- [ ] Subcontractor portal: click through the screens in a browser as a subcontractor login. The whole
+  flow was tested on the dev backend on 27 Oct as the real accounts (portal data, other companies
+  refused, insurance renewal and worker evidence uploaded, sent back, replaced and verified, every email
+  and staging link, reminders, the sole-trader switch); the screens themselves weren't clicked.
 - [ ] Management dashboard: sign in once as a real management user and as an admin with both
   dashboards, and click through (built and tested on the backend only, 20 Oct).
 
 ## Other registers (framework §4, §13)
-- [ ] On-site changes in the app's Needs Attention for the people a SWMS is for (D12). Possible now
-  that documents say who they are for (AD33).
 - [ ] Documents for a client or work type: link them to jobs when work orders are connected (§13
   stage 4); until then "Client or work type" is text shown to workers (AD33).
 - [ ] Prove: drawing a signature, acknowledging and signing a change on a device.
@@ -59,8 +56,6 @@ acknowledgements, history), medical centres list.
 - [ ] Medical centres: two practices are marked "(historical listing)" in Mitch's sheet (Centrepoint,
   Midland; Mount Lawley) and several hours are "Not confirmed". Ask Mitch whether to keep them.
 - [ ] Prove medical centres on a device: location prompt, drive times, Call and Navigate.
-- [ ] Insurance: subcontractors upload their own certificates in the subcontractor panel (not built);
-  the admin's verify screen for those is ready.
 - [ ] Vehicle first-aid kits: vehicles are shared (VH3), so decide who a vehicle kit is assigned to for
   inspections (kits are assigned to one person, K4).
 - [ ] §13 stage 4 "warn when an assigned vehicle is non-compliant": vehicles are shared, so decide later
@@ -68,7 +63,8 @@ acknowledgements, history), medical centres list.
 - [ ] Inspection frequency: replace the 3-month default with Mitch's answer (K2, asked 13 Oct).
 - [ ] Prove kits on a device: inspection with a photo, resolving an issue.
 - [ ] Remove the dev test data before go-live: sample documents, kits, and everything `whsDemo:seed` and
-  `whsDemo:seedAssets` added (marked "Dummy data for testing"). Reminders are off on dev
+  `whsDemo:seedAssets` added (marked "Dummy data for testing"), and the 27 Oct end-to-end test uploads
+  (files named "E2E test - …", on Umar Industries' Public Liability and umark22's ASIC Card). Reminders are off on dev
   (`WHS_REMINDERS_OFF=true`); leave it unset on production.
 - [ ] Job-order integration: warnings for expired credentials, insurance, vehicles (§13 stage 4).
 

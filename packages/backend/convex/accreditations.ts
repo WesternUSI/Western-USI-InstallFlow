@@ -8,10 +8,10 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
-import { canVerifyEvidence, canViewCompliance, isAdminUser } from "./permissions";
+import { canVerifyEvidence, canViewCompliance, holdsAccreditations, isAdminUser } from "./permissions";
 import { internal } from "./_generated/api";
 import { businessToday, formatLongDate } from "./whsDates";
-import { accreditationLink } from "./whsLinks";
+import { accreditationLink, subcontractorLink } from "./whsLinks";
 import { checkReason, describeEdit } from "./whsEdits";
 import {
   type AccreditationStatus,
@@ -145,6 +145,11 @@ export const mine = query({
         .collect(),
     ]);
 
+    // A subcontractor login that isn't also a worker holds nothing (decision R6).
+    if (user.role === "subcontractor" && !holdsAccreditations(user, records.length > 0)) {
+      return { worker_name: user.name ?? user.email, items: [] };
+    }
+
     const versionsByType = new Map<Id<"accreditation_types">, Version[]>();
     await Promise.all(
       records.map(async (record) => {
@@ -252,107 +257,133 @@ async function supersede(ctx: MutationCtx, version: Version, actorId: Id<"users"
  * own upload is verified straight away (decision V4) because they are the
  * one who checks it.
  */
+const uploadArgs = {
+  type_id: v.id("accreditation_types"),
+  file_id: v.id("_storage"),
+  file_name: v.string(),
+  content_type: v.optional(v.string()),
+  number: v.optional(v.string()),
+  issued: v.optional(v.string()),
+  expires: v.optional(v.string()),
+  notes: v.optional(v.string()),
+};
+
 export const submit = mutation({
-  args: {
-    type_id: v.id("accreditation_types"),
-    file_id: v.id("_storage"),
-    file_name: v.string(),
-    content_type: v.optional(v.string()),
-    number: v.optional(v.string()),
-    issued: v.optional(v.string()),
-    expires: v.optional(v.string()),
-    notes: v.optional(v.string()),
-  },
+  args: uploadArgs,
   handler: async (ctx, args): Promise<{ status: AccreditationStatus }> => {
     const user = await requireCaller(ctx);
-
-    const type = await ctx.db.get(args.type_id);
-    if (type === null || type.archived) {
-      throw new ConvexError("That accreditation type no longer exists.");
-    }
-
-    const existing = await ctx.db
-      .query("whs_records")
-      .withIndex("by_worker_and_type", (q) => q.eq("worker_id", user._id).eq("type_id", type._id))
-      .unique();
-    if (existing === null && !(await requiredTypeIds(ctx, user)).has(type._id)) {
-      throw new ConvexError(`${type.name} isn't on your required list.`);
-    }
-
-    if ((await ctx.db.system.get(args.file_id)) === null) {
-      throw new ConvexError("Your file didn't finish uploading. Please try again.");
-    }
-
-    const number = args.number?.trim() || undefined;
-    if (number !== undefined && number.length > MAX_NUMBER_LENGTH) {
-      throw new ConvexError(`The card or licence number can be up to ${MAX_NUMBER_LENGTH} characters.`);
-    }
-    const notes = args.notes?.trim() || undefined;
-    if (notes !== undefined && notes.length > MAX_NOTES_LENGTH) {
-      throw new ConvexError(`Notes can be up to ${MAX_NOTES_LENGTH} characters.`);
-    }
-
-    const issued = args.issued?.trim() || undefined;
-    if (issued !== undefined && !isValidIsoDate(issued)) {
-      throw new ConvexError("The issued date isn't a valid date.");
-    }
-    // A blank expiry means the accreditation doesn't expire (decision S6).
-    const expires = args.expires?.trim() || undefined;
-    if (expires !== undefined && !isValidIsoDate(expires)) {
-      throw new ConvexError("The expiry date isn't a valid date.");
-    }
-    if (issued !== undefined && expires !== undefined && expires < issued) {
-      throw new ConvexError("The expiry date can't be before the issued date.");
-    }
-
-    const recordId =
-      existing?._id ??
-      (await ctx.db.insert("whs_records", {
-        category: "accreditation",
-        worker_id: user._id,
-        type_id: type._id,
-        responsible_user_id: user._id,
-      }));
-
-    // Re-uploading before the office has looked replaces the earlier upload.
-    const previous = await versionsOf(ctx, recordId);
-    for (const version of previous.filter((entry) => entry.state === "pending")) {
-      await supersede(ctx, version, user._id, "Replaced by a newer upload before it was checked.");
-    }
-
-    const autoVerified = isAdminUser(user);
-    const versionId = await ctx.db.insert("whs_record_versions", {
-      record_id: recordId,
-      file_id: args.file_id,
-      file_name: args.file_name,
-      content_type: args.content_type,
-      number,
-      issued,
-      expires,
-      no_expiry: expires === undefined,
-      notes,
-      uploaded_by: user._id,
-      state: autoVerified ? "verified" : "pending",
-      verified_by: autoVerified ? user._id : undefined,
-      verified_at: autoVerified ? Date.now() : undefined,
-    });
-    await audit(ctx, { record_id: recordId, version_id: versionId, action: "uploaded", actor_id: user._id });
-
-    if (autoVerified) {
-      for (const version of previous.filter((entry) => entry.state === "verified")) {
-        await supersede(ctx, version, user._id, `Replaced by a newer verified upload. Previous expiry: ${version.expires ?? "none"}.`);
-      }
-      await audit(ctx, { record_id: recordId, version_id: versionId, action: "verified", actor_id: user._id });
-    }
-
-    const status = deriveAccreditationStatus(
-      await versionsOf(ctx, recordId),
-      businessToday(),
-      dueSoonWindowDays(type.reminder_days),
-    );
-    return { status };
+    return await saveUpload(ctx, user, user, args);
   },
 });
+
+/**
+ * Saves evidence `uploader` sends in for `worker`'s accreditation: their own
+ * (the app), or one of their workers' (the subcontractor portal, framework
+ * 10). An admin's upload is verified straight away (decision V4); anyone
+ * else's waits for review.
+ */
+export async function saveUpload(
+  ctx: MutationCtx,
+  uploader: Doc<"users">,
+  worker: Doc<"users">,
+  args: {
+    type_id: Id<"accreditation_types">;
+    file_id: Id<"_storage">;
+    file_name: string;
+    content_type?: string;
+    number?: string;
+    issued?: string;
+    expires?: string;
+    notes?: string;
+  },
+): Promise<{ status: AccreditationStatus }> {
+  const type = await ctx.db.get(args.type_id);
+  if (type === null || type.archived) {
+    throw new ConvexError("That accreditation type no longer exists.");
+  }
+
+  const existing = await ctx.db
+    .query("whs_records")
+    .withIndex("by_worker_and_type", (q) => q.eq("worker_id", worker._id).eq("type_id", type._id))
+    .unique();
+  if (existing === null && !(await requiredTypeIds(ctx, worker)).has(type._id)) {
+    const whose = worker._id === uploader._id ? "your" : `${worker.name ?? worker.email}'s`;
+    throw new ConvexError(`${type.name} isn't on ${whose} required list.`);
+  }
+
+  if ((await ctx.db.system.get(args.file_id)) === null) {
+    throw new ConvexError("Your file didn't finish uploading. Please try again.");
+  }
+
+  const number = args.number?.trim() || undefined;
+  if (number !== undefined && number.length > MAX_NUMBER_LENGTH) {
+    throw new ConvexError(`The card or licence number can be up to ${MAX_NUMBER_LENGTH} characters.`);
+  }
+  const notes = args.notes?.trim() || undefined;
+  if (notes !== undefined && notes.length > MAX_NOTES_LENGTH) {
+    throw new ConvexError(`Notes can be up to ${MAX_NOTES_LENGTH} characters.`);
+  }
+
+  const issued = args.issued?.trim() || undefined;
+  if (issued !== undefined && !isValidIsoDate(issued)) {
+    throw new ConvexError("The issued date isn't a valid date.");
+  }
+  // A blank expiry means the accreditation doesn't expire (decision S6).
+  const expires = args.expires?.trim() || undefined;
+  if (expires !== undefined && !isValidIsoDate(expires)) {
+    throw new ConvexError("The expiry date isn't a valid date.");
+  }
+  if (issued !== undefined && expires !== undefined && expires < issued) {
+    throw new ConvexError("The expiry date can't be before the issued date.");
+  }
+
+  const recordId =
+    existing?._id ??
+    (await ctx.db.insert("whs_records", {
+      category: "accreditation",
+      worker_id: worker._id,
+      type_id: type._id,
+      responsible_user_id: worker._id,
+    }));
+
+  // Re-uploading before the office has looked replaces the earlier upload.
+  const previous = await versionsOf(ctx, recordId);
+  for (const version of previous.filter((entry) => entry.state === "pending")) {
+    await supersede(ctx, version, uploader._id, "Replaced by a newer upload before it was checked.");
+  }
+
+  const autoVerified = isAdminUser(uploader);
+  const versionId = await ctx.db.insert("whs_record_versions", {
+    record_id: recordId,
+    file_id: args.file_id,
+    file_name: args.file_name,
+    content_type: args.content_type,
+    number,
+    issued,
+    expires,
+    no_expiry: expires === undefined,
+    notes,
+    uploaded_by: uploader._id,
+    state: autoVerified ? "verified" : "pending",
+    verified_by: autoVerified ? uploader._id : undefined,
+    verified_at: autoVerified ? Date.now() : undefined,
+  });
+  await audit(ctx, { record_id: recordId, version_id: versionId, action: "uploaded", actor_id: uploader._id });
+
+  if (autoVerified) {
+    for (const version of previous.filter((entry) => entry.state === "verified")) {
+      await supersede(ctx, version, uploader._id, `Replaced by a newer verified upload. Previous expiry: ${version.expires ?? "none"}.`);
+    }
+    await audit(ctx, { record_id: recordId, version_id: versionId, action: "verified", actor_id: uploader._id });
+  }
+
+  const status = deriveAccreditationStatus(
+    await versionsOf(ctx, recordId),
+    businessToday(),
+    dueSoonWindowDays(type.reminder_days),
+  );
+  return { status };
+}
 
 async function pendingVersion(ctx: MutationCtx, versionId: Id<"whs_record_versions">) {
   const version = await ctx.db.get(versionId);
@@ -403,6 +434,24 @@ async function notifyWorker(
         "Please sign in to the Western USI InstallFlow app and upload a corrected copy.",
       ],
       link,
+    });
+  }
+
+  // Uploaded by their subcontractor's login on their behalf: tell that login too, with a portal link (decision AD50).
+  const uploader = version.uploaded_by === worker._id ? null : await ctx.db.get(version.uploaded_by);
+  if (uploader !== null && uploader.role === "subcontractor") {
+    await ctx.scheduler.runAfter(0, internal.email.sendWhsEmail, {
+      to: [uploader.email],
+      subject: outcome.approved ? `${name}'s ${type.name} has been approved` : `${name}'s ${type.name} needs another look`,
+      lines: outcome.approved
+        ? [`Hi ${uploader.name ?? uploader.email},`, `Western USI checked the ${type.name} you uploaded for ${name} and approved it.`]
+        : [
+            `Hi ${uploader.name ?? uploader.email},`,
+            `Western USI couldn't approve the ${type.name} you uploaded for ${name}.`,
+            `Reason: ${outcome.reason}`,
+            "Please upload a corrected copy in the subcontractor portal.",
+          ],
+      link: subcontractorLink(`/subcontractor/accreditations/${record._id}`),
     });
   }
 }
@@ -628,95 +677,102 @@ async function nameOf(ctx: QueryCtx, id: Id<"users"> | undefined) {
 /**
  * One worker's accreditation for the admin's Review Evidence screen. `key` is
  * the register row id: a record id, or `workerId:typeId` for a Missing one.
+ * `canSee` limits whose the viewer may open (the subcontractor portal: only
+ * their own workers').
  */
+export async function accreditationDetail(
+  ctx: QueryCtx,
+  viewer: Doc<"users">,
+  key: string,
+  canSee: (worker: Doc<"users">) => boolean = () => true,
+) {
+  let record: Doc<"whs_records"> | null = null;
+  let workerId: Id<"users"> | null = null;
+  let typeId: Id<"accreditation_types"> | null = null;
+  const recordId = ctx.db.normalizeId("whs_records", key);
+  if (recordId !== null) {
+    record = await ctx.db.get(recordId);
+    workerId = record?.worker_id ?? null;
+    typeId = record?.type_id ?? null;
+  } else {
+    const [workerPart, typePart] = key.split(":");
+    workerId = ctx.db.normalizeId("users", workerPart ?? "");
+    typeId = ctx.db.normalizeId("accreditation_types", typePart ?? "");
+    if (workerId !== null && typeId !== null) {
+      const w = workerId;
+      const t = typeId;
+      record = await ctx.db
+        .query("whs_records")
+        .withIndex("by_worker_and_type", (q) => q.eq("worker_id", w).eq("type_id", t))
+        .unique();
+    }
+  }
+  if (workerId === null || typeId === null) return null;
+  const [worker, type] = await Promise.all([ctx.db.get(workerId), ctx.db.get(typeId)]);
+  if (worker === null || type === null || !canSee(worker)) return null;
+
+  const versions = record === null ? [] : await versionsOf(ctx, record._id);
+  const status = deriveAccreditationStatus(versions, businessToday(), dueSoonWindowDays(type.reminder_days));
+  const pending = lastWhere(versions, "pending");
+  const verified = lastWhere(versions, "verified");
+  const latest = versions[versions.length - 1];
+  const shown = pending ?? verified ?? latest;
+  const subcontractor = worker.subcontractor_id === undefined ? null : await ctx.db.get(worker.subcontractor_id);
+
+  const trail =
+    record === null
+      ? []
+      : await ctx.db
+          .query("whs_audit")
+          .withIndex("by_record", (q) => q.eq("record_id", record._id))
+          .order("desc")
+          .take(20);
+
+  return {
+    key,
+    record_id: record?._id,
+    worker_id: worker._id,
+    type_id: type._id,
+    worker: worker.name ?? worker.email,
+    entity: subcontractor?.name ?? "Western USI",
+    type: type.name,
+    status,
+    can_verify: canVerifyEvidence(viewer),
+    reminder_days: type.reminder_days,
+    evidence:
+      shown === undefined
+        ? null
+        : {
+            version_id: shown._id,
+            state: shown.state,
+            file_name: shown.file_name,
+            url: await ctx.storage.getUrl(shown.file_id),
+            number: shown.number,
+            issued: shown.issued,
+            expires: shown.expires,
+            no_expiry: shown.no_expiry,
+            notes: shown.notes,
+            uploaded_by: await nameOf(ctx, shown.uploaded_by),
+            uploaded_at: shown._creationTime,
+            verified_by: await nameOf(ctx, shown.verified_by),
+            verified_at: shown.verified_at,
+            rejected_reason: shown.state === "rejected" ? shown.rejected_reason : undefined,
+          },
+    pending_version_id: pending?._id,
+    activity: await Promise.all(
+      trail.map(async (row) => ({
+        at: row._creationTime,
+        action: row.action,
+        by: await nameOf(ctx, row.actor_id),
+        details: row.details,
+      })),
+    ),
+  };
+}
+
 export const adminDetail = query({
   args: { key: v.string() },
-  handler: async (ctx, args) => {
-    const viewer = await requirePanelUser(ctx);
-
-    let record: Doc<"whs_records"> | null = null;
-    let workerId: Id<"users"> | null = null;
-    let typeId: Id<"accreditation_types"> | null = null;
-    const recordId = ctx.db.normalizeId("whs_records", args.key);
-    if (recordId !== null) {
-      record = await ctx.db.get(recordId);
-      workerId = record?.worker_id ?? null;
-      typeId = record?.type_id ?? null;
-    } else {
-      const [workerPart, typePart] = args.key.split(":");
-      workerId = ctx.db.normalizeId("users", workerPart ?? "");
-      typeId = ctx.db.normalizeId("accreditation_types", typePart ?? "");
-      if (workerId !== null && typeId !== null) {
-        const w = workerId;
-        const t = typeId;
-        record = await ctx.db
-          .query("whs_records")
-          .withIndex("by_worker_and_type", (q) => q.eq("worker_id", w).eq("type_id", t))
-          .unique();
-      }
-    }
-    if (workerId === null || typeId === null) return null;
-    const [worker, type] = await Promise.all([ctx.db.get(workerId), ctx.db.get(typeId)]);
-    if (worker === null || type === null) return null;
-
-    const versions = record === null ? [] : await versionsOf(ctx, record._id);
-    const status = deriveAccreditationStatus(versions, businessToday(), dueSoonWindowDays(type.reminder_days));
-    const pending = lastWhere(versions, "pending");
-    const verified = lastWhere(versions, "verified");
-    const latest = versions[versions.length - 1];
-    const shown = pending ?? verified ?? latest;
-    const subcontractor = worker.subcontractor_id === undefined ? null : await ctx.db.get(worker.subcontractor_id);
-
-    const trail =
-      record === null
-        ? []
-        : await ctx.db
-            .query("whs_audit")
-            .withIndex("by_record", (q) => q.eq("record_id", record._id))
-            .order("desc")
-            .take(20);
-
-    return {
-      key: args.key,
-      record_id: record?._id,
-      worker_id: worker._id,
-      type_id: type._id,
-      worker: worker.name ?? worker.email,
-      entity: subcontractor?.name ?? "Western USI",
-      type: type.name,
-      status,
-      can_verify: canVerifyEvidence(viewer),
-      reminder_days: type.reminder_days,
-      evidence:
-        shown === undefined
-          ? null
-          : {
-              version_id: shown._id,
-              state: shown.state,
-              file_name: shown.file_name,
-              url: await ctx.storage.getUrl(shown.file_id),
-              number: shown.number,
-              issued: shown.issued,
-              expires: shown.expires,
-              no_expiry: shown.no_expiry,
-              notes: shown.notes,
-              uploaded_by: await nameOf(ctx, shown.uploaded_by),
-              uploaded_at: shown._creationTime,
-              verified_by: await nameOf(ctx, shown.verified_by),
-              verified_at: shown.verified_at,
-              rejected_reason: shown.state === "rejected" ? shown.rejected_reason : undefined,
-            },
-      pending_version_id: pending?._id,
-      activity: await Promise.all(
-        trail.map(async (row) => ({
-          at: row._creationTime,
-          action: row.action,
-          by: await nameOf(ctx, row.actor_id),
-          details: row.details,
-        })),
-      ),
-    };
-  },
+  handler: async (ctx, args) => await accreditationDetail(ctx, await requirePanelUser(ctx), args.key),
 });
 
 /**
@@ -904,34 +960,39 @@ export const forWorker = query({
     const workerId = ctx.db.normalizeId("users", args.worker_id);
     const worker = workerId === null ? null : await ctx.db.get(workerId);
     if (worker === null) return null;
-    const today = businessToday();
-    const [types, required, records] = await Promise.all([
-      ctx.db.query("accreditation_types").collect(),
-      requiredTypeIds(ctx, worker),
-      ctx.db
-        .query("whs_records")
-        .withIndex("by_worker", (q) => q.eq("worker_id", worker._id))
-        .collect(),
-    ]);
-    const recordByType = new Map(records.map((record) => [record.type_id, record]));
-    const versionsByType = new Map<Id<"accreditation_types">, Version[]>();
-    for (const record of records) versionsByType.set(record.type_id, await versionsOf(ctx, record._id));
-    const subcontractor = worker.subcontractor_id === undefined ? null : await ctx.db.get(worker.subcontractor_id);
-
-    const items = types
-      .filter((type) => required.has(type._id) || versionsByType.has(type._id))
-      .filter((type) => !type.archived || versionsByType.has(type._id))
-      .map((type) => ({
-        ...summarise(type, versionsByType.get(type._id) ?? [], today),
-        key: recordByType.get(type._id)?._id ?? `${worker._id}:${type._id}`,
-        required: required.has(type._id),
-      }))
-      .sort((a, b) => a.rank - b.rank || a.sort_order - b.sort_order);
-
-    return {
-      worker: worker.name ?? worker.email,
-      entity: subcontractor?.name ?? "Western USI",
-      items: items.map(({ verified_by: _verifiedBy, ...item }) => item),
-    };
+    return await workerAccreditations(ctx, worker);
   },
 });
+
+/** Every accreditation a worker must hold or has uploaded, most urgent first, each with its register key. */
+export async function workerAccreditations(ctx: QueryCtx, worker: Doc<"users">) {
+  const today = businessToday();
+  const [types, required, records] = await Promise.all([
+    ctx.db.query("accreditation_types").collect(),
+    requiredTypeIds(ctx, worker),
+    ctx.db
+      .query("whs_records")
+      .withIndex("by_worker", (q) => q.eq("worker_id", worker._id))
+      .collect(),
+  ]);
+  const recordByType = new Map(records.map((record) => [record.type_id, record]));
+  const versionsByType = new Map<Id<"accreditation_types">, Version[]>();
+  for (const record of records) versionsByType.set(record.type_id, await versionsOf(ctx, record._id));
+  const subcontractor = worker.subcontractor_id === undefined ? null : await ctx.db.get(worker.subcontractor_id);
+
+  const items = types
+    .filter((type) => required.has(type._id) || versionsByType.has(type._id))
+    .filter((type) => !type.archived || versionsByType.has(type._id))
+    .map((type) => ({
+      ...summarise(type, versionsByType.get(type._id) ?? [], today),
+      key: recordByType.get(type._id)?._id ?? `${worker._id}:${type._id}`,
+      required: required.has(type._id),
+    }))
+    .sort((a, b) => a.rank - b.rank || a.sort_order - b.sort_order);
+
+  return {
+    worker: worker.name ?? worker.email,
+    entity: subcontractor?.name ?? "Western USI",
+    items: items.map(({ verified_by: _verifiedBy, ...item }) => item),
+  };
+}

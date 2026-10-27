@@ -9,14 +9,14 @@ import { Eye, EyeOff } from "lucide-react";
 import * as React from "react";
 
 import westernUsiLogo from "@/assets/western-usi-logo.png";
-import { markLanding, pendingPage } from "@/lib/dashboard-mode";
+import { isEmailLinkPage, markLanding, pendingPage } from "@/lib/dashboard-mode";
 
 const REMEMBERED_EMAIL_KEY = "usi.remembered-email";
 
 export const Route = createFileRoute("/login")({
-  // `redirect`: a management page to open after signing in, e.g. from an escalation email (decision AD45).
+  // `redirect`: a management or subcontractor portal page to open after signing in, e.g. from an email (decisions AD45, AD50).
   validateSearch: (search: Record<string, unknown>): { redirect?: string } => ({
-    redirect: typeof search.redirect === "string" && search.redirect.startsWith("/management") ? search.redirect : undefined,
+    redirect: typeof search.redirect === "string" && isEmailLinkPage(search.redirect) ? search.redirect : undefined,
   }),
   component: RouteComponent,
 });

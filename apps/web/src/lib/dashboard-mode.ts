@@ -9,6 +9,8 @@ type Access = { role?: string; has_admin_access?: boolean; has_management_access
 export const hasAdminDashboard = (user: Access) => user?.role === "admin" || user?.has_admin_access === true;
 export const hasManagementDashboard = (user: Access) => user?.role === "management" || user?.has_management_access === true;
 export const hasBothDashboards = (user: Access) => hasAdminDashboard(user) && hasManagementDashboard(user);
+/** A subcontractor's login opens the subcontractor portal, never either dashboard (framework 10). */
+export const hasSubcontractorPortal = (user: Access) => user?.role === "subcontractor";
 
 export type Dashboard = "admin" | "management";
 
@@ -48,13 +50,17 @@ export function clearLanding() {
 
 const PENDING_KEY = "usi.pendingPage";
 
+/** Pages an email can link to: the management dashboard (decision AD45) and the subcontractor portal (AD50). */
+export const isEmailLinkPage = (path: string) => path.startsWith("/management") || path.startsWith("/subcontractor");
+
 /**
- * A management page someone opened while signed out, e.g. from an escalation
- * email (decision AD45). Kept for the browser tab, so it survives the sign-in
- * flow even if the login's address loses it; opened once they are signed in.
+ * A management or subcontractor portal page someone opened while signed out,
+ * e.g. from an escalation or reminder email (decisions AD45, AD50). Kept for
+ * the browser tab, so it survives the sign-in flow even if the login's address
+ * loses it; opened once they are signed in.
  */
 export function setPendingPage(path: string) {
-  if (!path.startsWith("/management")) return;
+  if (!isEmailLinkPage(path)) return;
   safely(() => sessionStorage.setItem(PENDING_KEY, path), undefined);
 }
 
@@ -62,8 +68,16 @@ export function setPendingPage(path: string) {
 export function pendingPage(): string | undefined {
   return safely(() => {
     const path = sessionStorage.getItem(PENDING_KEY) ?? undefined;
-    return path?.startsWith("/management") ? path : undefined;
+    return path !== undefined && isEmailLinkPage(path) ? path : undefined;
   }, undefined);
+}
+
+/** The waiting page this person can open: management pages for management, portal pages for a subcontractor's login. */
+export function pendingPageFor(user: Access): string | undefined {
+  const path = pendingPage();
+  if (path === undefined) return undefined;
+  if (path.startsWith("/management")) return hasManagementDashboard(user) ? path : undefined;
+  return hasSubcontractorPortal(user) ? path : undefined;
 }
 
 export function clearPendingPage() {

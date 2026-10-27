@@ -33,6 +33,7 @@ import type * as privateData from "../privateData.js";
 import type * as releaseTime from "../releaseTime.js";
 import type * as scheduledImports from "../scheduledImports.js";
 import type * as sites from "../sites.js";
+import type * as subcontractorPortal from "../subcontractorPortal.js";
 import type * as subcontractors from "../subcontractors.js";
 import type * as teams from "../teams.js";
 import type * as users from "../users.js";
@@ -83,6 +84,7 @@ declare const fullApi: ApiFromModules<{
   releaseTime: typeof releaseTime;
   scheduledImports: typeof scheduledImports;
   sites: typeof sites;
+  subcontractorPortal: typeof subcontractorPortal;
   subcontractors: typeof subcontractors;
   teams: typeof teams;
   users: typeof users;

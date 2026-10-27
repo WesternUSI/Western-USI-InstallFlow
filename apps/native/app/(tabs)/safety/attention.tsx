@@ -89,10 +89,16 @@ function Chip({ label, count, active, onPress }: { label: string; count: number;
  */
 export default function AttentionScreen() {
   const router = useRouter();
-  const { accreditations, documents, kits, count, isLoading } = useWhsAttention();
+  const { accreditations, documents, changes, kits, count, isLoading } = useWhsAttention();
   const [filter, setFilter] = useState<Group | "all">("all");
 
-  const counts: Record<Group, number> = { "action-required": 0, overdue: 0, missing: 0, "due-soon": 0, "to-sign": documents.length };
+  const counts: Record<Group, number> = {
+    "action-required": 0,
+    overdue: 0,
+    missing: 0,
+    "due-soon": 0,
+    "to-sign": documents.length + changes.length,
+  };
   for (const item of accreditations) counts[groupOf(item.status)]++;
   for (const kit of kits) counts[groupOf(kit.status)]++;
   const visible = GROUPS.filter((group) => counts[group.id] > 0);
@@ -140,6 +146,16 @@ export default function AttentionScreen() {
               status="action-required"
               action="Read & Acknowledge"
               onPress={() => router.push(documentHref(item))}
+            />
+          ))}
+          {(show("to-sign") ? changes : []).map((change) => (
+            <Card
+              key={change.id}
+              title={`On-site change: ${change.document_title}`}
+              text={`Recorded ${formatIsoDate(change.date)} ${change.time}: ${change.change}`}
+              status="action-required"
+              action="Read & Sign"
+              onPress={() => router.push(`/safety/swms/changes/${change.id}` as Href)}
             />
           ))}
           {kits

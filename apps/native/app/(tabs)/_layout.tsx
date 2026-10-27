@@ -76,6 +76,7 @@ function TabsNavigator() {
 function AuthorizedGate() {
   const { isLoaded, role, convexUser } = useCurrentUser();
   const ensureDefaultTeam = useMutation(api.users.ensureDefaultTeam);
+  const markInstallerAppOpened = useMutation(api.users.markInstallerAppOpened);
 
   // Safety net: anyone using the app with no team yet goes on Team 1 — except
   // subcontractors' workers, who only see the WHS side and never join a team.
@@ -87,6 +88,13 @@ function AuthorizedGate() {
   useEffect(() => {
     if (needsTeam) void ensureDefaultTeam();
   }, [needsTeam, ensureDefaultTeam]);
+
+  // A subcontractor login using the app is also one of its company's workers,
+  // unless an admin switched that off (decision R6). Told to the server once.
+  const firstAppOpen = role === "subcontractor" && convexUser != null && convexUser.opened_installer_app_at === undefined;
+  useEffect(() => {
+    if (firstAppOpen) void markInstallerAppOpened();
+  }, [firstAppOpen, markInstallerAppOpened]);
 
   if (!isLoaded) {
     return <AuthLoadingView />;

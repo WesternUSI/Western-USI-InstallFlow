@@ -49,6 +49,22 @@ export function isWhsOnly(user: Pick<Doc<"users">, "role" | "subcontractor_id">)
 }
 
 /**
+ * Who must hold accreditations (decision R6): every installer, and a
+ * subcontractor login only when it is also one of the company's workers. An
+ * admin sets that with the sole-trader switch; until they do, the login counts
+ * once it has opened the installer app or has evidence on file. Switched off
+ * always wins.
+ */
+export function holdsAccreditations(
+  user: Pick<Doc<"users">, "role" | "sole_trader" | "opened_installer_app_at">,
+  hasEvidence: boolean,
+): boolean {
+  if (user.role === "installer") return true;
+  if (user.role !== "subcontractor" || user.sole_trader === false) return false;
+  return user.sole_trader === true || user.opened_installer_app_at !== undefined || hasEvidence;
+}
+
+/**
  * Who is asked to acknowledge safety documents: installers only, Western
  * USI's and subcontractors' workers alike (decision D9). Admins,
  * management and subcontractor logins (the business accounts) are not asked.

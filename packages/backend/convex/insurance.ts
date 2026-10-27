@@ -1,9 +1,11 @@
 import { ConvexError, v } from "convex/values";
+import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { isValidIsoDate, requireCaller, requireVerifier } from "./accreditations";
 import { canViewCompliance, isAdminUser } from "./permissions";
-import { businessToday } from "./whsDates";
+import { businessToday, formatLongDate } from "./whsDates";
+import { subcontractorLink } from "./whsLinks";
 import { deriveAccreditationStatus } from "./whsStatus";
 import { checkReason, describeEdit } from "./whsEdits";
 
@@ -139,67 +141,77 @@ export const list = query({
   },
 });
 
+/**
+ * One policy with all its certificates and its activity. `canSee` limits which
+ * policies the viewer may open (the subcontractor portal: only their own).
+ */
+export async function policyDetail(
+  ctx: QueryCtx,
+  viewer: Doc<"users">,
+  policyIdText: string,
+  canSee: (policy: Doc<"insurance_policies">) => boolean = () => true,
+) {
+  const policyId = ctx.db.normalizeId("insurance_policies", policyIdText);
+  const policy = policyId === null ? null : await ctx.db.get(policyId);
+  // An archived policy still opens, read-only, so its history stays reachable (framework 11).
+  if (policy === null || !canSee(policy)) return null;
+
+  const certificates = await certificatesOf(ctx, policy._id);
+  const pending = [...certificates].reverse().find((certificate) => certificate.state === "pending");
+  const verified = [...certificates].reverse().find((certificate) => certificate.state === "verified");
+  const shown = pending ?? verified ?? certificates[certificates.length - 1];
+  const trail = await ctx.db
+    .query("insurance_audit")
+    .withIndex("by_policy", (q) => q.eq("policy_id", policy._id))
+    .order("desc")
+    .take(20);
+
+  return {
+    id: policy._id,
+    type: INSURANCE_TYPE_LABELS[policy.insurance_type],
+    insurance_type: policy.insurance_type,
+    entity: await entityName(ctx, policy.subcontractor_id),
+    subcontractor_id: policy.subcontractor_id,
+    insurer: policy.insurer,
+    policy_number: policy.policy_number,
+    coverage: policy.coverage,
+    responsible: await nameOf(ctx, policy.responsible_user_id),
+    responsible_id: policy.responsible_user_id,
+    notes: policy.notes,
+    status: policyStatus(certificates, businessToday()),
+    archived: policy.archived,
+    can_manage: isAdminUser(viewer) && !policy.archived,
+    certificate:
+      shown === undefined
+        ? null
+        : {
+            id: shown._id,
+            state: shown.state,
+            start: shown.start,
+            expires: shown.expires,
+            file_name: shown.file_name,
+            url: await ctx.storage.getUrl(shown.file_id),
+            uploaded_by: await nameOf(ctx, shown.uploaded_by),
+            uploaded_at: shown._creationTime,
+            verified_by: await nameOf(ctx, shown.verified_by),
+            verified_at: shown.verified_at,
+            rejected_reason: shown.rejected_reason,
+          },
+    pending_certificate_id: pending?._id,
+    history: certificates
+      .filter((certificate) => certificate.state === "superseded")
+      .reverse()
+      .map((certificate) => ({ start: certificate.start, expires: certificate.expires, file_name: certificate.file_name })),
+    activity: await Promise.all(
+      trail.map(async (row) => ({ at: row._creationTime, action: row.action, by: await nameOf(ctx, row.actor_id), details: row.details })),
+    ),
+  };
+}
+
 /** One policy with all its certificates and its activity. */
 export const adminDetail = query({
   args: { policy_id: v.string() },
-  handler: async (ctx, args) => {
-    const viewer = await requirePanel(ctx);
-    const policyId = ctx.db.normalizeId("insurance_policies", args.policy_id);
-    const policy = policyId === null ? null : await ctx.db.get(policyId);
-    // An archived policy still opens, read-only, so its history stays reachable (framework 11).
-    if (policy === null) return null;
-
-    const certificates = await certificatesOf(ctx, policy._id);
-    const pending = [...certificates].reverse().find((certificate) => certificate.state === "pending");
-    const verified = [...certificates].reverse().find((certificate) => certificate.state === "verified");
-    const shown = pending ?? verified ?? certificates[certificates.length - 1];
-    const trail = await ctx.db
-      .query("insurance_audit")
-      .withIndex("by_policy", (q) => q.eq("policy_id", policy._id))
-      .order("desc")
-      .take(20);
-
-    return {
-      id: policy._id,
-      type: INSURANCE_TYPE_LABELS[policy.insurance_type],
-      insurance_type: policy.insurance_type,
-      entity: await entityName(ctx, policy.subcontractor_id),
-      subcontractor_id: policy.subcontractor_id,
-      insurer: policy.insurer,
-      policy_number: policy.policy_number,
-      coverage: policy.coverage,
-      responsible: await nameOf(ctx, policy.responsible_user_id),
-      responsible_id: policy.responsible_user_id,
-      notes: policy.notes,
-      status: policyStatus(certificates, businessToday()),
-      archived: policy.archived,
-      can_manage: isAdminUser(viewer) && !policy.archived,
-      certificate:
-        shown === undefined
-          ? null
-          : {
-              id: shown._id,
-              state: shown.state,
-              start: shown.start,
-              expires: shown.expires,
-              file_name: shown.file_name,
-              url: await ctx.storage.getUrl(shown.file_id),
-              uploaded_by: await nameOf(ctx, shown.uploaded_by),
-              uploaded_at: shown._creationTime,
-              verified_by: await nameOf(ctx, shown.verified_by),
-              verified_at: shown.verified_at,
-              rejected_reason: shown.rejected_reason,
-            },
-      pending_certificate_id: pending?._id,
-      history: certificates
-        .filter((certificate) => certificate.state === "superseded")
-        .reverse()
-        .map((certificate) => ({ start: certificate.start, expires: certificate.expires, file_name: certificate.file_name })),
-      activity: await Promise.all(
-        trail.map(async (row) => ({ at: row._creationTime, action: row.action, by: await nameOf(ctx, row.actor_id), details: row.details })),
-      ),
-    };
-  },
+  handler: async (ctx, args) => await policyDetail(ctx, await requirePanel(ctx), args.policy_id),
 });
 
 const certificateArgs = {
@@ -316,6 +328,68 @@ export const adminRenew = mutation({
   },
 });
 
+/**
+ * A subcontractor's login uploads a renewal for its own policy (framework 8,
+ * 10). It waits for an admin or management to verify it (decision AD15), and
+ * the current certificate stays until then. A newer upload before it is
+ * checked replaces the waiting one.
+ */
+export async function saveContactRenewal(
+  ctx: MutationCtx,
+  contact: Doc<"users">,
+  policy: Doc<"insurance_policies">,
+  args: { start: string; expires: string; file_id: Id<"_storage">; file_name: string; content_type?: string },
+) {
+  checkDates(args.start, args.expires);
+  if ((await ctx.db.system.get(args.file_id)) === null) throw new ConvexError("The certificate didn't finish uploading. Please try again.");
+  for (const certificate of await certificatesOf(ctx, policy._id)) {
+    if (certificate.state !== "pending") continue;
+    await ctx.db.patch(certificate._id, { state: "superseded" });
+    await audit(ctx, {
+      policy_id: policy._id,
+      certificate_id: certificate._id,
+      action: "superseded",
+      actor_id: contact._id,
+      details: "Replaced by a newer upload before it was checked.",
+    });
+  }
+  const certificateId = await ctx.db.insert("insurance_certificates", {
+    policy_id: policy._id,
+    start: args.start,
+    expires: args.expires,
+    file_id: args.file_id,
+    file_name: args.file_name,
+    content_type: args.content_type,
+    uploaded_by: contact._id,
+    state: "pending",
+  });
+  await audit(ctx, { policy_id: policy._id, certificate_id: certificateId, action: "uploaded", actor_id: contact._id, details: `Renewal to ${args.expires}.` });
+}
+
+/** Tells a subcontractor's login how Western USI checked the certificate it uploaded (decision AD50). */
+async function notifyContact(
+  ctx: MutationCtx,
+  certificate: Doc<"insurance_certificates">,
+  outcome: { approved: true; expires: string } | { approved: false; reason: string },
+) {
+  const [uploader, policy] = await Promise.all([ctx.db.get(certificate.uploaded_by), ctx.db.get(certificate.policy_id)]);
+  if (uploader === null || uploader.role !== "subcontractor" || policy === null) return;
+  const type = INSURANCE_TYPE_LABELS[policy.insurance_type];
+  await ctx.scheduler.runAfter(0, internal.email.sendWhsEmail, {
+    to: [uploader.email],
+    subject: outcome.approved ? `Your ${type} certificate has been verified` : `Your ${type} certificate needs another look`,
+    lines: outcome.approved
+      ? [`Hi ${uploader.name ?? uploader.email},`, `Western USI checked the ${type} certificate you uploaded and verified it. It is valid until ${formatLongDate(outcome.expires)}.`]
+      : [
+          `Hi ${uploader.name ?? uploader.email},`,
+          `Western USI couldn't verify the ${type} certificate you uploaded.`,
+          `Reason: ${outcome.reason}`,
+          "Please upload a corrected certificate in the subcontractor portal.",
+        ],
+    link: subcontractorLink(`/subcontractor/insurance/${policy._id}`),
+  });
+}
+
 /** Verifies a certificate a subcontractor uploaded (Figma SC07); the admin confirms the expiry. */
 export const adminVerify = mutation({
   args: { certificate_id: v.id("insurance_certificates"), expires: v.string() },
@@ -334,6 +408,7 @@ export const adminVerify = mutation({
       actor_id: admin._id,
       details: args.expires !== certificate.expires ? `Expiry confirmed as ${args.expires} (was ${certificate.expires}).` : undefined,
     });
+    await notifyContact(ctx, certificate, { approved: true, expires: args.expires });
   },
 });
 
@@ -349,6 +424,7 @@ export const adminReject = mutation({
     if (certificate.state !== "pending") throw new ConvexError("That certificate has already been checked.");
     await ctx.db.patch(certificate._id, { state: "rejected", rejected_reason: reason });
     await audit(ctx, { policy_id: certificate.policy_id, certificate_id: certificate._id, action: "rejected", actor_id: admin._id, details: reason });
+    await notifyContact(ctx, certificate, { approved: false, reason });
   },
 });
 

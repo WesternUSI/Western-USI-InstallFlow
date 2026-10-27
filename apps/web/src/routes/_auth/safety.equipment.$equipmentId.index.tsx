@@ -1,6 +1,5 @@
 import { api } from "@usi-installer/backend/convex/_generated/api";
 import { createFileRoute } from "@tanstack/react-router";
-import { cn } from "@usi-installer/ui/lib/utils";
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
@@ -16,11 +15,6 @@ import { formatIsoDate, formatTime } from "@/lib/upload-file";
 export const Route = createFileRoute("/_auth/safety/equipment/$equipmentId/")({
   component: EquipmentDetails,
 });
-
-const ANSWER: Record<string, { label: string; className: string }> = {
-  pass: { label: "Pass", className: "bg-[#f0fdf4] text-[#16a34a]" },
-  action: { label: "Action", className: "bg-[#fef7ee] text-[#d97706]" },
-};
 
 const OUTCOMES = [
   { value: "repaired", label: "Repaired" },
@@ -81,20 +75,11 @@ function EquipmentDetails() {
                 <h3 className="text-base font-semibold text-[#111827]">
                   Last check · {formatIsoDate(latest.done_on)} by {latest.by}
                 </h3>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {latest.answers.map((entry) => (
-                    <div key={entry.label} className="flex items-center justify-between gap-3 rounded-[8px] border border-[#f1f5f9] px-3 py-2">
-                      <span className="text-[13px] text-[#111827]">{entry.label}</span>
-                      <span className={cn("rounded-[4px] px-2 py-0.5 text-[11px] font-semibold", ANSWER[entry.answer]?.className)}>{ANSWER[entry.answer]?.label}</span>
-                    </div>
-                  ))}
-                </div>
                 <DetailGrid
                   columns={2}
                   items={[
-                    ...(latest.problem ? [{ label: "What's wrong", value: latest.problem }] : []),
-                    { label: "Damage found", value: latest.damage_found ? (latest.damage_description ?? "Yes") : "No" },
-                    { label: "Notes", value: latest.notes ?? "—" },
+                    { label: "Any damage", value: latest.damage_found ? (latest.damage_description ?? "Yes") : "No" },
+                    { label: "Recommendation", value: latest.recommendation ?? "—" },
                     ...(latest.reviewed_at
                       ? [{ label: "Reviewed", value: `${formatTime(latest.reviewed_at)} by ${latest.reviewed_by}: ${OUTCOME_TEXT[latest.outcome ?? ""] ?? ""}. ${latest.review_note ?? ""}` }]
                       : []),
@@ -159,7 +144,7 @@ function EquipmentDetails() {
   );
 }
 
-/** The admin decides what happens after a check found a problem or damage. */
+/** The admin decides what happens after a check found damage. */
 function ReviewPanel({ equipmentId }: { equipmentId: Item["id"] }) {
   const review = useMutation(api.equipment.adminReview);
   const [outcome, setOutcome] = useState("");
@@ -194,7 +179,7 @@ function ReviewPanel({ equipmentId }: { equipmentId: Item["id"] }) {
     <Panel className="flex flex-col gap-4 p-6">
       <h3 className="text-base font-semibold text-[#111827]">Review the check</h3>
       <p className="text-[13px] text-[#64748b]">
-        The last check found a problem or damage. The item stays Action required until you decide. Repaired adds your note to the repair history and sets Damage
+        The last check found damage. The item stays Action required until you decide. Repaired adds your note to the repair history and sets Damage
         back to Nil; out of service sets today's date.
       </p>
       <FieldRow>

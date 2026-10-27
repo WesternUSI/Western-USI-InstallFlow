@@ -5,7 +5,7 @@ import { LISTED_DOCUMENT_TYPES } from "./documents";
 import { certificatesOf, entityName, INSURANCE_TYPE_LABELS, policyStatus } from "./insurance";
 import { deriveKitStatus } from "./kits";
 import { deriveVehicleStatus, VEHICLE_STATUS_LABELS, type VehicleStatus } from "./vehicles";
-import { canViewCompliance, documentIsFor, isAdminUser, mustAcknowledgeDocuments } from "./permissions";
+import { canViewCompliance, documentIsFor, holdsAccreditations, isAdminUser, mustAcknowledgeDocuments } from "./permissions";
 import { businessToday, addDays } from "./whsDates";
 import { deriveAccreditationStatus, dueSoonWindowDays } from "./whsStatus";
 
@@ -147,8 +147,11 @@ export const register = query({
     for (const version of versions) {
       versionsByRecord.set(version.record_id, [...(versionsByRecord.get(version.record_id) ?? []), version]);
     }
-    // Accreditations: installers and subcontractor logins (decision R6).
-    const workers = [...installers, ...logins];
+    // Accreditations: installers, and subcontractor logins that are also workers (decision R6).
+    const workers = [
+      ...installers,
+      ...logins.filter((login) => holdsAccreditations(login, records.some((record) => record.worker_id === login._id))),
+    ];
     // Acknowledgements: installers only (decision D9).
     const acknowledgers = workers.filter(mustAcknowledgeDocuments);
     for (const worker of workers) {

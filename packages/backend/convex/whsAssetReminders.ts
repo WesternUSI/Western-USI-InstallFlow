@@ -8,7 +8,7 @@ import { REGISTRATION_REMINDER_DAYS, SERVICE_REMINDER_DAYS, INSURANCE_REMINDER_D
 import { businessToday, formatLongDate } from "./whsDates";
 import { planReminders } from "./whsStatus";
 import { isManagementUser } from "./permissions";
-import { managementLink } from "./whsLinks";
+import { managementLink, subcontractorLink } from "./whsLinks";
 import { escalateAfterDays } from "./whsSettings";
 
 /**
@@ -59,7 +59,11 @@ function plan(input: {
   /** Days overdue before management is emailed (decision AD47). */
   escalateAfterDays: number;
   sent: Set<string>;
+  /** What the reminder asks them to do, and a link to it (the subcontractor portal, decision AD50). */
+  instruction?: string;
+  link?: { label: string; url: string };
 }): AssetReminder[] {
+  const instruction = input.instruction ?? "Please arrange it and update the WHS register.";
   const out: AssetReminder[] = [];
   const due = formatLongDate(input.date);
   for (const candidate of planReminders({
@@ -78,7 +82,8 @@ function plan(input: {
         action: "reminder_sent",
         to: input.responsible,
         subject: `${input.name}: ${input.what} due ${due}`,
-        lines: [`${input.name}: ${input.what} is due on ${due}, in ${days(candidate.daysLeft ?? 0)}.`, "Please arrange it and update the WHS register."],
+        lines: [`${input.name}: ${input.what} is due on ${due}, in ${days(candidate.daysLeft ?? 0)}.`, instruction],
+        link: input.link,
       });
     } else if (candidate.kind === "overdue") {
       out.push({
@@ -88,8 +93,9 @@ function plan(input: {
         subject: `${input.name}: ${input.what} is overdue`,
         lines: [
           `${input.name}: ${input.what} was due on ${due}, ${days(candidate.overdueDays ?? 0)} ago.`,
-          "Please update the WHS register. This reminder goes out each week until it's done.",
+          `${input.instruction ?? "Please update the WHS register."} This reminder goes out each week until it's done.`,
         ],
+        link: input.link,
       });
     } else {
       out.push({
@@ -116,6 +122,8 @@ export const due = internalQuery({
     const reminders: AssetReminder[] = [];
 
     const policies = await ctx.db.query("insurance_policies").withIndex("by_archived", (q) => q.eq("archived", false)).collect();
+    // A subcontractor's own logins get its policy reminders too, with a portal link (decision AD50).
+    const contactLogins = await ctx.db.query("users").withIndex("by_role", (q) => q.eq("role", "subcontractor")).collect();
     for (const policy of policies) {
       const certificates = await ctx.db
         .query("insurance_certificates")
@@ -129,24 +137,42 @@ export const due = internalQuery({
           row.key === undefined ? [] : [row.key],
         ),
       );
+      const common = {
+        kind: "insurance" as const,
+        targetId: policy._id,
+        name: `${await entityName(ctx, policy.subcontractor_id)} ${INSURANCE_TYPE_LABELS[policy.insurance_type]}`,
+        what: "the policy",
+        date: current.expires,
+        since: businessToday(current.verified_at ?? current._creationTime),
+        leadDays: INSURANCE_REMINDER_DAYS,
+        today: args.today,
+        escalateAfterDays: escalationDays,
+        sent,
+      };
       reminders.push(
         ...plan({
-          kind: "insurance",
-          targetId: policy._id,
+          ...common,
           prefix: "insurance",
-          name: `${await entityName(ctx, policy.subcontractor_id)} ${INSURANCE_TYPE_LABELS[policy.insurance_type]}`,
-          what: "the policy",
-          date: current.expires,
-          since: businessToday(current.verified_at ?? current._creationTime),
-          leadDays: INSURANCE_REMINDER_DAYS,
-          today: args.today,
           responsible: await responsibleEmails(ctx, policy.responsible_user_id, admins),
           admins,
           management,
-          escalateAfterDays: escalationDays,
-          sent,
         }),
       );
+      const contacts = contactLogins.filter((login) => login.subcontractor_id === policy.subcontractor_id).map((login) => login.email);
+      if (policy.subcontractor_id !== undefined && contacts.length > 0) {
+        // Their own reminders: before expiry and weekly once overdue; escalation stays with management.
+        reminders.push(
+          ...plan({
+            ...common,
+            prefix: "insurance-contact",
+            responsible: contacts,
+            admins: [],
+            management: [],
+            instruction: "Please upload the renewed certificate of currency in the subcontractor portal.",
+            link: subcontractorLink(`/subcontractor/insurance/${policy._id}`),
+          }),
+        );
+      }
     }
 
     const vehicles = await ctx.db.query("vehicles").withIndex("by_archived", (q) => q.eq("archived", false)).collect();

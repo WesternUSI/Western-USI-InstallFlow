@@ -10,32 +10,16 @@ import { checkReason, describeEdit } from "./whsEdits";
  * Height and safety equipment (decision AD49): the company's ladders and
  * safety steps, imported from Mitch's sheet or added by hand. The admin
  * assigns a one-off check of an item to a worker with a "check by" date; the
- * worker does it on their phone. A check that finds a problem or damage
- * updates the item's Damage and stays Action required until the admin
- * reviews it (repaired, out of service or no action needed). Not in the
+ * worker answers "Any damage?" and adds a recommendation on their phone
+ * (Mitch, 23 Oct). Damage found updates the item's Damage and stays Action
+ * required until the admin reviews it (repaired, out of service or no action
+ * needed). Not in the
  * Compliance Register and not shown to installers except their own checks.
  */
 
 const MAX_TEXT = 1000;
 const MAX_SHORT_TEXT = 200;
 const IMPORT_REASON = "Updated from Excel import";
-
-/** The ladder checklist. Rope and pulley only for extension ladders, platform and guard rail only for platform ladders. */
-const CHECKS: { id: string; label: string; applies?: (type: string) => boolean }[] = [
-  { id: "feet", label: "Feet and non-slip pads" },
-  { id: "rungs", label: "Rungs or steps" },
-  { id: "rails", label: "Rails / stiles (no bends, cracks or dents)" },
-  { id: "locks", label: "Locks, hinges and spreaders" },
-  { id: "rope", label: "Rope and pulley", applies: (type) => type.toLowerCase().includes("extension") },
-  { id: "platform", label: "Platform and guard rail", applies: (type) => type.toLowerCase().includes("platform") },
-  { id: "labels", label: "Labels and load rating readable" },
-];
-
-export function checksFor(type: string) {
-  return CHECKS.filter((check) => check.applies === undefined || check.applies(type)).map(({ id, label }) => ({ id, label }));
-}
-
-const CHECK_LABEL = new Map(CHECKS.map((check) => [check.id, check.label]));
 
 export type EquipmentStatus = "current" | "overdue" | "action-required" | "out-of-service";
 
@@ -51,7 +35,7 @@ function text(value: string | undefined, label: string, max = MAX_SHORT_TEXT) {
 }
 
 function hasIssue(check: Doc<"equipment_checks">) {
-  return check.state === "done" && ((check.answers ?? []).some((entry) => entry.answer === "action") || check.damage_found === true);
+  return check.state === "done" && check.damage_found === true;
 }
 
 async function checksOf(ctx: QueryCtx, equipmentId: Id<"equipment">) {
@@ -176,11 +160,9 @@ export const adminDetail = query({
           : {
               done_on: latest.done_on,
               by: await personName(ctx, latest.assigned_to),
-              answers: (latest.answers ?? []).map((entry) => ({ label: CHECK_LABEL.get(entry.check) ?? entry.check, answer: entry.answer })),
-              problem: latest.problem,
               damage_found: latest.damage_found,
               damage_description: latest.damage_description,
-              notes: latest.notes,
+              recommendation: latest.recommendation,
               photo_url: latest.photo === undefined ? null : await ctx.storage.getUrl(latest.photo),
               needs_review: unreviewed,
               reviewed_at: latest.reviewed_at,
@@ -424,7 +406,7 @@ export const adminAssign = mutation({
 });
 
 /**
- * The admin reviews a check that found a problem or damage: repaired (added
+ * The admin reviews a check that found damage: repaired (added
  * to the repair history, Damage back to "Nil"), out of service from today, or
  * no action needed. The note is required either way.
  */
@@ -503,7 +485,7 @@ async function assignedCheck(ctx: QueryCtx, user: Doc<"users">, checkId: Id<"equ
   return { check, item };
 }
 
-/** One open check for its screen: the item and the checklist lines for its type. */
+/** One open check for its screen. */
 export const checkDetail = query({
   args: { check_id: v.string() },
   handler: async (ctx, args) => {
@@ -519,7 +501,6 @@ export const checkDetail = query({
       subtitle: [item.brand, item.type].filter(Boolean).join(" · "),
       due: check.due,
       damage: item.damage,
-      checks: checksFor(item.type),
     };
   },
 });
@@ -533,32 +514,19 @@ export const generateUploadUrl = mutation({
   },
 });
 
-/** The worker's check, from one screen. Damage found updates the item's Damage. */
+/** The worker's check: "Any damage?" and an optional recommendation (Mitch, 23 Oct). Damage found updates the item's Damage. */
 export const submitCheck = mutation({
   args: {
     check_id: v.id("equipment_checks"),
-    answers: v.array(v.object({ check: v.string(), answer: v.string() })),
-    problem: v.optional(v.string()),
     damage_found: v.boolean(),
     damage_description: v.optional(v.string()),
+    recommendation: v.optional(v.string()),
     photo: v.optional(v.id("_storage")),
-    notes: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<{ issue: boolean }> => {
     const user = await requireCaller(ctx);
     const { check, item } = await assignedCheck(ctx, user, args.check_id);
-    const lines = checksFor(item.type);
-    const answers: { check: string; answer: "pass" | "action" }[] = [];
-    for (const line of lines) {
-      const given = args.answers.find((entry) => entry.check === line.id);
-      if (given === undefined || (given.answer !== "pass" && given.answer !== "action")) {
-        throw new ConvexError(`Answer all ${lines.length} checks: Pass or Action.`);
-      }
-      answers.push({ check: line.id, answer: given.answer });
-    }
-    const actions = answers.filter((entry) => entry.answer === "action").length;
-    const problem = text(args.problem, "The problem", MAX_TEXT);
-    if (actions > 0 && problem === undefined) throw new ConvexError("Describe what's wrong with the checks marked Action.");
+    const recommendation = text(args.recommendation, "The recommendation", MAX_TEXT);
     const damage = text(args.damage_description, "The damage", MAX_TEXT);
     if (args.damage_found && damage === undefined) throw new ConvexError("Describe the damage.");
     if (args.photo !== undefined && (await ctx.db.system.get(args.photo)) === null) {
@@ -568,26 +536,19 @@ export const submitCheck = mutation({
     await ctx.db.patch(check._id, {
       state: "done",
       done_on: businessToday(),
-      answers,
-      problem: actions > 0 ? problem : undefined,
       damage_found: args.damage_found,
       damage_description: args.damage_found ? damage : undefined,
-      photo: args.photo,
-      notes: text(args.notes, "Notes", MAX_TEXT),
+      recommendation,
+      photo: args.damage_found ? args.photo : undefined,
     });
     if (args.damage_found && damage !== undefined) await ctx.db.patch(item._id, { damage });
-    const issue = actions > 0 || args.damage_found;
     await ctx.db.insert("equipment_audit", {
       equipment_id: item._id,
       check_id: check._id,
       action: "checked",
       actor_id: user._id,
-      details: issue
-        ? [actions > 0 ? `${actions} ${actions === 1 ? "check needs" : "checks need"} action: ${problem}` : "", args.damage_found ? `Damage: ${damage}` : ""]
-            .filter(Boolean)
-            .join(". ")
-        : "All clear, no damage.",
+      details: [args.damage_found ? `Damage: ${damage}` : "No damage", recommendation ? `Recommendation: ${recommendation}` : ""].filter(Boolean).join(". "),
     });
-    return { issue };
+    return { issue: args.damage_found };
   },
 });

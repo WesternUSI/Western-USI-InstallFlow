@@ -12,9 +12,10 @@ import {
   clearLanding,
   hasAdminDashboard,
   hasManagementDashboard,
+  hasSubcontractorPortal,
   isLanding,
   lastDashboard,
-  pendingPage,
+  pendingPageFor,
   rememberDashboard,
 } from "@/lib/dashboard-mode";
 import { SidebarProvider } from "@/lib/sidebar-context";
@@ -80,8 +81,8 @@ function AdminGate() {
     return <Loader />;
   }
 
-  // A management page opened from an email before signing in (decision AD45).
-  const waiting = user !== null && hasManagementDashboard(user) ? pendingPage() : undefined;
+  // A management or portal page opened from an email before signing in (decisions AD45, AD50).
+  const waiting = pendingPageFor(user);
   if (waiting) {
     return <OpenPage href={waiting} />;
   }
@@ -91,6 +92,10 @@ function AdminGate() {
   }
   if (openManagement) {
     return <Navigate to="/management" />;
+  }
+  // A subcontractor's login has its own portal (framework 10).
+  if (hasSubcontractorPortal(user)) {
+    return <Navigate to="/subcontractor" />;
   }
 
   if (user === null || !isAdmin) {
