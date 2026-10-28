@@ -294,7 +294,7 @@ function EditDocumentDialog({ doc, open, onClose }: { doc: DocumentDetail; open:
   const [category, setCategory] = useState(listed(doc.category) || !doc.category ? (doc.category ?? "") : OTHER_DOCUMENT_TYPE);
   const [otherCategory, setOtherCategory] = useState(listed(doc.category) ? "" : (doc.category ?? ""));
   const [appliesTo, setAppliesTo] = useState(doc.applies_to ?? "");
-  const [audience, setAudience] = useState<Audience>(savedAudience(doc.for_entities, doc.for_workers));
+  const [audience, setAudience] = useState<Audience>(savedAudience(doc.for_entities, doc.for_workers, doc.office_only));
   const { companyName } = useAudienceOptions();
   const [requireAck, setRequireAck] = useState(doc.acknowledgement_required);
   const [responsible, setResponsible] = useState<string>(doc.responsible_id ?? "");
@@ -310,7 +310,7 @@ function EditDocumentDialog({ doc, open, onClose }: { doc: DocumentDetail; open:
     setCategory(listed(doc.category) || !doc.category ? (doc.category ?? "") : OTHER_DOCUMENT_TYPE);
     setOtherCategory(listed(doc.category) ? "" : (doc.category ?? ""));
     setAppliesTo(doc.applies_to ?? "");
-    setAudience(savedAudience(doc.for_entities, doc.for_workers));
+    setAudience(savedAudience(doc.for_entities, doc.for_workers, doc.office_only));
     setRequireAck(doc.acknowledgement_required);
     setResponsible(doc.responsible_id ?? "");
     setReview(doc.current?.review_date ?? "");
@@ -341,7 +341,8 @@ function EditDocumentDialog({ doc, open, onClose }: { doc: DocumentDetail; open:
         applies_to: appliesTo.trim() || undefined,
         for_entities: audience.entities as ("western-usi" | Id<"subcontractors">)[],
         for_workers: audience.workers as Id<"users">[],
-        acknowledgement_required: requireAck,
+        office_only: audience.mode === "office",
+        acknowledgement_required: requireAck && audience.mode !== "office",
         responsible_user_id: responsible === "" ? null : (responsible as Id<"users">),
         notes: notes.trim() || undefined,
         review_date: review || undefined,
@@ -405,9 +406,11 @@ function EditDocumentDialog({ doc, open, onClose }: { doc: DocumentDetail; open:
         }}
         error={errors.audience}
       />
-      <CheckboxRow checked={requireAck} onChange={setRequireAck}>
-        Require acknowledgement from workers
-      </CheckboxRow>
+      {audience.mode === "office" ? null : (
+        <CheckboxRow checked={requireAck} onChange={setRequireAck}>
+          Require acknowledgement from workers
+        </CheckboxRow>
+      )}
       <FieldRow>
         <Field label="Review date" error={errors.review}>
           <TextInput type="date" value={review} onChange={setReview} invalid={!!errors.review} />

@@ -44,6 +44,7 @@ export function InviteUserForm() {
   const inviteAdmin = useAction(api.users.inviteAdmin);
   const teamNames = useTeamNames();
   const subcontractors = useQuery(api.subcontractors.list) ?? [];
+  const accreditationTypes = useQuery(api.accreditationTypes.list) ?? [];
 
   const [role, setRole] = useState<InviteRole>("installer");
   const [name, setName] = useState("");
@@ -53,6 +54,11 @@ export function InviteUserForm() {
   // The select can hand back null for "nothing chosen", so test truthiness, not just the sentinel.
   const hasSubcontractor = !!subcontractor && subcontractor !== NO_SUBCONTRACTOR;
   const [subcontractorMissing, setSubcontractorMissing] = useState(false);
+  // An installer's accreditations, ticked from their company's list; none to begin with (decision AD53).
+  const [ticks, setTicks] = useState<string[]>([]);
+  const company = hasSubcontractor ? subcontractor : "western-usi";
+  const companyLabel = subcontractors.find((option) => option._id === subcontractor)?.name ?? "Western USI";
+  const companyTypes = accreditationTypes.filter((type) => type.required_for.includes(company));
   // A subcontractor's login or worker only sees the WHS side, so they never get a team.
   const whsOnly = role === "subcontractor" || (role === "installer" && hasSubcontractor);
   // Management oversees compliance rather than installing, so they have no team either.
@@ -91,6 +97,8 @@ export function InviteUserForm() {
           subcontractor_id:
             role !== "management" && hasSubcontractor ? (subcontractor as Id<"subcontractors">) : undefined,
           role: role === "installer" ? undefined : role,
+          accreditation_type_ids:
+            role === "installer" ? (ticks.filter((id) => companyTypes.some((type) => type.id === id)) as Id<"accreditation_types">[]) : undefined,
         });
         if (result.password === undefined) {
           // An existing admin was given management access: no new login to send (decision AD43).
@@ -113,6 +121,7 @@ export function InviteUserForm() {
       setTeam(NO_TEAM);
       setSubcontractor(NO_SUBCONTRACTOR);
       setSubcontractorMissing(false);
+      setTicks([]);
     } catch (error) {
       toast.error(toUserMessage(error, "Could not create that account"));
     } finally {
@@ -207,6 +216,8 @@ export function InviteUserForm() {
                 onValueChange={(value) => {
                   setSubcontractor((value as string | null) ?? NO_SUBCONTRACTOR);
                   setSubcontractorMissing(false);
+                  // Each company has its own list, so start again.
+                  setTicks([]);
                 }}
               >
                 <SelectTrigger
@@ -243,6 +254,34 @@ export function InviteUserForm() {
             {isSaving ? "Sending…" : "Send Invite"}
             <Send className="size-4" />
           </Button>
+
+          {role === "installer" && (
+            <div className="w-full">
+              <p className="text-sm font-medium text-slate-700">Accreditations this person needs (optional)</p>
+              <p className="mb-2 text-xs text-slate-500">
+                From {companyLabel}'s list. Only ticked ones are asked for; you can change them later on the person's page.
+              </p>
+              {companyTypes.length === 0 ? (
+                <p className="text-xs text-slate-400">{companyLabel} has no accreditations on its list yet.</p>
+              ) : (
+                <div className="flex flex-wrap gap-x-5 gap-y-2">
+                  {companyTypes.map((type) => (
+                    <label key={type.id} className="flex cursor-pointer items-center gap-2 text-sm text-slate-800">
+                      <input
+                        type="checkbox"
+                        checked={ticks.includes(type.id)}
+                        onChange={(event) =>
+                          setTicks(event.target.checked ? [...ticks, type.id] : ticks.filter((id) => id !== type.id))
+                        }
+                        className="size-4 accent-blue-600"
+                      />
+                      {type.name}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </form>
       </section>
 

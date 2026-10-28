@@ -243,6 +243,15 @@ export function StatusBadge({ status, label }: { status: SafetyStatus; label?: s
   );
 }
 
+/** Next to a document's name: kept off the installer app (decision AD52). */
+export function OfficeOnlyTag() {
+  return (
+    <span className="ml-2 inline-flex rounded-[4px] bg-[#f1f5f9] px-2 py-0.5 text-[11px] font-medium whitespace-nowrap text-[#475569]">
+      Office only
+    </span>
+  );
+}
+
 export function statusLabel(status: SafetyStatus) {
   return STATUS[status].label;
 }

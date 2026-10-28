@@ -81,13 +81,23 @@ export async function requireCaller(ctx: QueryCtx) {
   return user;
 }
 
-/** The accreditation types this person must hold: their subcontractor's list, or Western USI's. */
-async function requiredTypeIds(ctx: QueryCtx, user: Doc<"users">) {
-  const rows = await ctx.db
-    .query("accreditation_requirements")
-    .withIndex("by_subcontractor", (q) => q.eq("subcontractor_id", user.subcontractor_id))
-    .collect();
-  return new Set(rows.map((row) => row.type_id));
+/**
+ * The accreditation types this person must hold: the ones an admin ticked for
+ * them that are still on their company's list (decision AD53).
+ */
+export async function requiredTypeIds(ctx: QueryCtx, user: Doc<"users">) {
+  const [offered, ticked] = await Promise.all([
+    ctx.db
+      .query("accreditation_requirements")
+      .withIndex("by_subcontractor", (q) => q.eq("subcontractor_id", user.subcontractor_id))
+      .collect(),
+    ctx.db
+      .query("accreditation_assignments")
+      .withIndex("by_worker", (q) => q.eq("worker_id", user._id))
+      .collect(),
+  ]);
+  const onList = new Set(offered.map((row) => row.type_id));
+  return new Set(ticked.map((row) => row.type_id).filter((typeId) => onList.has(typeId)));
 }
 
 async function versionsOf(ctx: QueryCtx, recordId: Id<"whs_records">) {

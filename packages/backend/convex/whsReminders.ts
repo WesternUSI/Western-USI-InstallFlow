@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
+import { requiredTypeIds } from "./accreditations";
 import { enabledRecipientEmails } from "./emails";
 import { addDays, businessHour, businessToday, formatLongDate } from "./whsDates";
 import { accreditationLink, managementLink } from "./whsLinks";
@@ -72,6 +73,8 @@ export const due = internalQuery({
       .map((user) => user.email);
 
     const reminders: Reminder[] = [];
+    // What each worker is ticked for, read once per worker (decision AD53).
+    const requiredBy = new Map<Id<"users">, Set<Id<"accreditation_types">>>();
 
     for (const version of versions) {
       if (version.expires === undefined || version.verified_at === undefined) continue;
@@ -93,6 +96,10 @@ export const due = internalQuery({
       if (type === undefined || type.archived || worker === null || responsible === null) continue;
       // Nor is a subcontractor login's an admin has switched off as a worker (decision R6).
       if (!holdsAccreditations(worker, true)) continue;
+      // Nor a card the worker isn't ticked for (decision AD53).
+      const required = requiredBy.get(worker._id) ?? (await requiredTypeIds(ctx, worker));
+      requiredBy.set(worker._id, required);
+      if (!required.has(record.type_id)) continue;
 
       const planned = planReminders({
         today: args.today,

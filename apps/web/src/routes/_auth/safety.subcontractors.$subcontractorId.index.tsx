@@ -4,7 +4,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { ReasonDialog } from "@/components/whs/reason-dialog";
-import { Field, SelectInput, TextArea, TextInput } from "@/components/whs/safety-form";
+import { CheckboxRow, Field, SelectInput, TextArea, TextInput } from "@/components/whs/safety-form";
 import { toUserMessage } from "@/lib/errors";
 
 import { DetailGrid, Notice, PagedTable, Panel, RowAction, SafetyButton, SafetyPage, StatusBadge } from "@/components/whs/safety-ui";
@@ -557,6 +557,8 @@ function AccreditationsTab({ subcontractorId, name }: { subcontractorId: string;
   const rows = (useEntityRows(name) ?? []).filter((row) => row.category === "accreditation");
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<{ id: string; name: string } | null>(null);
+  // "Choose workers" for one accreditation (decision AD53).
+  const [choosing, setChoosing] = useState<{ id: string; name: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
   const required = (types ?? []).filter((type) => type.required_for.includes(subcontractorId));
@@ -581,7 +583,7 @@ function AccreditationsTab({ subcontractorId, name }: { subcontractorId: string;
       <Panel className="flex flex-wrap items-center justify-between gap-4 rounded-[12px] p-6">
         <div>
           <h3 className="text-sm font-bold text-[#111827]">Accreditations for {name}</h3>
-          <p className="text-xs text-[#64748b]">Every worker at {name} is asked for each of these.</p>
+          <p className="text-xs text-[#64748b]">Workers at {name} are only asked for the ones they're ticked for. Use Choose workers to tick them.</p>
         </div>
         <SafetyButton onClick={() => setAdding(true)} disabled={types === undefined}>
           + Add Accreditation
@@ -599,7 +601,7 @@ function AccreditationsTab({ subcontractorId, name }: { subcontractorId: string;
               header: "Workers",
               render: (row) => {
                 const list = rows.filter((entry) => entry.name === row.name);
-                if (list.length === 0) return <span className="text-[13px] text-[#64748b]">No workers yet</span>;
+                if (list.length === 0) return <span className="text-[13px] text-[#64748b]">No one ticked</span>;
                 const count = (statuses: string[]) => list.filter((entry) => statuses.includes(entry.status)).length;
                 return (
                   <span className="text-[13px]">
@@ -621,6 +623,7 @@ function AccreditationsTab({ subcontractorId, name }: { subcontractorId: string;
               align: "right",
               render: (row) => (
                 <div className="flex justify-end gap-2">
+                  <RowAction onClick={() => setChoosing({ id: row.id, name: row.name })}>Choose workers</RowAction>
                   <RowAction
                     onClick={() =>
                       void navigate({ to: "/safety/register", search: { category: "accreditation", entity: name, q: row.name } as never })
@@ -643,14 +646,18 @@ function AccreditationsTab({ subcontractorId, name }: { subcontractorId: string;
         onClose={() => setAdding(false)}
         onAdd={async (typeId) => {
           const type = others.find((entry) => entry.id === typeId);
-          if (type && (await change(type.id, type.name, true))) setAdding(false);
+          if (type && (await change(type.id, type.name, true))) {
+            setAdding(false);
+            setChoosing({ id: type.id, name: type.name });
+          }
         }}
         onCreate={async (typeName) => {
           setBusy(true);
           try {
-            await createType({ name: typeName, required_for: [subcontractorId] });
+            const typeId = await createType({ name: typeName, required_for: [subcontractorId] });
             toast.success(`${typeName} created for ${name}`);
             setAdding(false);
+            setChoosing({ id: typeId, name: typeName });
           } catch (error) {
             toast.error(toUserMessage(error, "Could not create that accreditation."));
           } finally {
@@ -663,7 +670,7 @@ function AccreditationsTab({ subcontractorId, name }: { subcontractorId: string;
           <DialogHeader>
             <DialogTitle className="text-lg font-bold text-slate-900">Remove {removing?.name} for {name}?</DialogTitle>
             <DialogDescription className="text-sm leading-relaxed text-slate-500">
-              Workers at {name} won't be asked for it any more, and its reminders stop. Cards they already uploaded are kept.
+              Everyone at {name} ticked for it is unticked: they won't be asked for it or reminded about it any more. Cards they already uploaded are kept.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -682,7 +689,98 @@ function AccreditationsTab({ subcontractorId, name }: { subcontractorId: string;
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <ChooseWorkersDialog accreditation={choosing} entity={subcontractorId} name={name} onClose={() => setChoosing(null)} />
     </>
+  );
+}
+
+/** "Choose workers": tick which of the company's workers must hold one accreditation (decision AD53). */
+function ChooseWorkersDialog({
+  accreditation,
+  entity,
+  name,
+  onClose,
+}: {
+  accreditation: { id: string; name: string } | null;
+  entity: string;
+  name: string;
+  onClose: () => void;
+}) {
+  const workers = useQuery(
+    api.accreditationTypes.workersForType,
+    accreditation === null ? "skip" : { type_id: accreditation.id as Id<"accreditation_types">, entity },
+  );
+  const save = useMutation(api.accreditationTypes.adminSetWorkersForType);
+  // Null until changed: start from the saved ticks each time it opens.
+  const [ticked, setTicked] = useState<string[] | null>(null);
+  const [openFor, setOpenFor] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  if ((accreditation?.id ?? null) !== openFor) {
+    setOpenFor(accreditation?.id ?? null);
+    setTicked(null);
+  }
+  const current = ticked ?? (workers ?? []).filter((worker) => worker.ticked).map((worker) => worker.id as string);
+  const allTicked = workers !== undefined && workers.length > 0 && current.length === workers.length;
+
+  const submit = async () => {
+    if (accreditation === null) return;
+    setBusy(true);
+    try {
+      await save({ type_id: accreditation.id as Id<"accreditation_types">, entity, worker_ids: current as Id<"users">[] });
+      toast.success(`${accreditation.name}: ${current.length} ${current.length === 1 ? "person" : "people"} ticked at ${name}`);
+      onClose();
+    } catch (error) {
+      toast.error(toUserMessage(error, "Could not save who needs that accreditation."));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open={accreditation !== null} onOpenChange={(next) => !next && !busy && onClose()}>
+      <DialogContent className="rounded-xl border-slate-200 bg-white sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-lg font-bold text-slate-900">Who needs {accreditation?.name}?</DialogTitle>
+          <DialogDescription className="text-sm leading-relaxed text-slate-500">
+            Tick the workers at {name} who must hold it. Anyone unticked isn't asked for it.
+          </DialogDescription>
+        </DialogHeader>
+        {workers === undefined ? (
+          <p className="text-sm text-slate-500">Loading…</p>
+        ) : workers.length === 0 ? (
+          <p className="text-sm text-slate-500">No workers at {name} yet.</p>
+        ) : (
+          <div className="flex flex-col gap-3">
+            <button
+              type="button"
+              className="w-fit text-xs font-medium text-[#2563eb] hover:underline"
+              onClick={() => setTicked(allTicked ? [] : workers.map((worker) => worker.id as string))}
+            >
+              {allTicked ? "Untick all" : "Tick all"}
+            </button>
+            <div className="flex max-h-72 flex-col gap-2.5 overflow-y-auto">
+              {workers.map((worker) => (
+                <CheckboxRow
+                  key={worker.id}
+                  checked={current.includes(worker.id)}
+                  onChange={(on) => setTicked(on ? [...current, worker.id] : current.filter((id) => id !== worker.id))}
+                >
+                  {worker.name}
+                </CheckboxRow>
+              ))}
+            </div>
+          </div>
+        )}
+        <DialogFooter>
+          <SafetyButton variant="secondary" onClick={onClose} disabled={busy}>
+            Cancel
+          </SafetyButton>
+          <SafetyButton onClick={() => void submit()} disabled={busy || workers === undefined || workers.length === 0}>
+            {busy ? "Saving…" : "Save"}
+          </SafetyButton>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

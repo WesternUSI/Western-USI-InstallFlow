@@ -90,7 +90,8 @@ function AddSafetyDocument() {
         applies_to: appliesTo.trim() || undefined,
         for_entities: audience.entities as ("western-usi" | Id<"subcontractors">)[],
         for_workers: audience.workers as Id<"users">[],
-        acknowledgement_required: requireAck,
+        office_only: audience.mode === "office" || undefined,
+        acknowledgement_required: requireAck && audience.mode !== "office",
         responsible_user_id: responsible === "" ? undefined : (responsible as Id<"users">),
         notes: notes.trim() || undefined,
         version: version.trim(),
@@ -188,9 +189,11 @@ function AddSafetyDocument() {
           error={errors.audience}
         />
         <Notice tone="info">Status is calculated automatically. Reminders default to {reminder} days before review, then weekly once overdue.</Notice>
-        <CheckboxRow checked={requireAck} onChange={setRequireAck}>
-          Require acknowledgement from workers
-        </CheckboxRow>
+        {audience.mode === "office" ? null : (
+          <CheckboxRow checked={requireAck} onChange={setRequireAck}>
+            Require acknowledgement from workers
+          </CheckboxRow>
+        )}
         <div className="flex flex-wrap gap-3">
           <SafetyButton variant="secondary" to="/safety/records/new">
             Cancel

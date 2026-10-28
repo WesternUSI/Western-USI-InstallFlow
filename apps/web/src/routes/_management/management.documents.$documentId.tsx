@@ -38,7 +38,7 @@ function DocumentForManagement() {
   const validate = useMutation(api.documents.validateChange);
   const sendBack = useMutation(api.documents.sendBackChange);
   const [sendingBack, setSendingBack] = useState<Id<"swms_changes"> | null>(null);
-  const back = { to: "/management/exceptions", label: "Exceptions" };
+  const back = { to: "/management/documents", label: "Safety Documents" };
 
   if (doc === undefined || doc === null) {
     return (

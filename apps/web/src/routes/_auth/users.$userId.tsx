@@ -10,7 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@usi-installer/ui/components/select";
-import { useAction, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { ChevronLeft, MailCheck, ShieldAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -20,6 +20,7 @@ import { CredentialsDialog } from "@/components/credentials-dialog";
 import { DeleteUserDialog } from "@/components/delete-user-dialog";
 import { PageHeader } from "@/components/page-header";
 import { useTeamNames } from "@/hooks/use-teams";
+import { toUserMessage } from "@/lib/errors";
 import type { Team } from "@/lib/teams";
 import { USER_STATUS_CLASSES, USER_STATUS_LABELS, type UserStatus } from "@/lib/userStatus";
 
@@ -289,7 +290,9 @@ function UserDetailPage() {
               </div>
             </section>
 
-            <div className="flex flex-col gap-4">
+            <RequiredAccreditations userId={id} name={user.name} />
+
+            <div className="flex flex-col gap-4 lg:col-start-3 lg:row-start-1">
               <section className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white px-6 py-5">
                 <div className="flex items-center gap-2">
                   <MailCheck className="size-4 text-blue-600" />
@@ -352,5 +355,73 @@ function UserDetailPage() {
         }}
       />
     </>
+  );
+}
+
+/**
+ * The accreditations this person must hold, ticked from their company's list
+ * (decision AD53). Only shown for people who hold accreditations.
+ */
+function RequiredAccreditations({ userId, name }: { userId: Id<"users">; name: string }) {
+  const data = useQuery(api.accreditationTypes.forWorker, { user_id: userId });
+  const save = useMutation(api.accreditationTypes.adminSetForWorker);
+  // Null until changed, so it follows the saved ticks.
+  const [ticked, setTicked] = useState<string[] | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+
+  if (!data) return null;
+  const saved = data.items.filter((item) => item.ticked).map((item) => item.id as string);
+  const current = ticked ?? saved;
+  const changed = current.length !== saved.length || current.some((id) => !saved.includes(id));
+
+  async function handleSave() {
+    setIsSaving(true);
+    try {
+      await save({ user_id: userId, type_ids: current as Id<"accreditation_types">[] });
+      toast.success(`Required accreditations saved for ${name}`);
+      setTicked(null);
+    } catch (error) {
+      toast.error(toUserMessage(error, "Could not save those accreditations."));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <section className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white px-6 py-5 lg:col-span-2">
+      <div>
+        <h2 className="text-base font-bold text-slate-900">Required accreditations</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          Tick what {name} must hold, from {data.company}'s list. Unticked ones aren't asked for, never show as missing and get no reminders.
+        </p>
+      </div>
+      {data.items.length === 0 ? (
+        <p className="text-sm text-slate-400">{data.company} has no accreditations on its list yet.</p>
+      ) : (
+        <div className="grid gap-2.5 sm:grid-cols-2">
+          {data.items.map((item) => (
+            <label key={item.id} className="flex w-fit cursor-pointer items-center gap-2.5 text-sm text-slate-800">
+              <input
+                type="checkbox"
+                checked={current.includes(item.id)}
+                onChange={(event) =>
+                  setTicked(event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id))
+                }
+                className="size-4 accent-blue-600"
+              />
+              {item.name}
+            </label>
+          ))}
+        </div>
+      )}
+      <div className="flex justify-end gap-3 border-t border-slate-200 pt-5">
+        <Button variant="outline" className="h-[38px] rounded-lg" disabled={!changed || isSaving} onClick={() => setTicked(null)}>
+          Undo
+        </Button>
+        <Button className="h-[38px] rounded-lg" disabled={!changed || isSaving} onClick={() => void handleSave()}>
+          {isSaving ? "Saving…" : "Save Accreditations"}
+        </Button>
+      </div>
+    </section>
   );
 }

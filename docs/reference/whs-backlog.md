@@ -69,7 +69,7 @@ acknowledgements, history), medical centres list.
 - [ ] Job-order integration: warnings for expired credentials, insurance, vehicles (§13 stage 4).
 
 ## Access and roles
-- [ ] Per-person access scoping (work orders / WHS / both, applicable items), deferred (A3).
+- [ ] Per-person access scoping (work orders / WHS / both, applicable items), deferred (A3). Accreditations are now ticked per person (AD53).
 
 ## Known issues
 - [ ] Prove on a device: the new calendar on date fields, and the logo after its rename (14 Oct).

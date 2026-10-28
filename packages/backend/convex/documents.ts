@@ -1083,6 +1083,7 @@ export const adminDetail = query({
       for_entities: document.for_entities ?? [],
       for_workers: document.for_workers ?? [],
       for_text: await audienceText(ctx, document),
+      office_only: document.office_only === true,
       acknowledgement_required: document.acknowledgement_required,
       responsible: responsible === null ? undefined : (responsible.name ?? responsible.email),
       responsible_id: document.responsible_user_id,
@@ -1169,8 +1170,9 @@ async function checkAudience(ctx: QueryCtx, entities: (Id<"subcontractors"> | "w
   return { for_entities: [...new Set(entities)], for_workers: [...new Set(workers)] };
 }
 
-/** "Everyone", or "Western USI, Umar Industries; T. Alvarez" (decision AD33). */
-async function audienceText(ctx: QueryCtx, document: Pick<Doc<"whs_documents">, "for_entities" | "for_workers">) {
+/** "Everyone", "Office only (not in the app)", or "Western USI, Umar Industries; T. Alvarez" (decisions AD33, AD52). */
+async function audienceText(ctx: QueryCtx, document: Pick<Doc<"whs_documents">, "for_entities" | "for_workers" | "office_only">) {
+  if (document.office_only) return "Office only (not in the app)";
   const entities = document.for_entities ?? [];
   const workers = document.for_workers ?? [];
   if (entities.length === 0 && workers.length === 0) return "Everyone";
@@ -1201,6 +1203,8 @@ export const adminCreate = mutation({
     applies_to: v.optional(v.string()),
     for_entities: v.optional(audienceEntities),
     for_workers: v.optional(v.array(v.id("users"))),
+    /** Kept off the installer app; no one signs it (decision AD52). */
+    office_only: v.optional(v.boolean()),
     acknowledgement_required: v.boolean(),
     responsible_user_id: v.optional(v.id("users")),
     notes: v.optional(v.string()),
@@ -1240,8 +1244,10 @@ export const adminCreate = mutation({
       code: checkText(args.code, "The document code"),
       category: checkText(args.category, "The category"),
       applies_to: checkText(args.applies_to, "Client or work type"),
-      ...(await checkAudience(ctx, args.for_entities ?? [], args.for_workers ?? [])),
-      acknowledgement_required: args.acknowledgement_required,
+      ...(args.office_only
+        ? { for_entities: [], for_workers: [], office_only: true }
+        : await checkAudience(ctx, args.for_entities ?? [], args.for_workers ?? [])),
+      acknowledgement_required: args.office_only ? false : args.acknowledgement_required,
       responsible_user_id: args.responsible_user_id,
       notes: checkText(args.notes, "Notes", MAX_TEXT),
       archived: false,
@@ -1358,6 +1364,8 @@ export const adminEdit = mutation({
     applies_to: v.optional(v.string()),
     for_entities: audienceEntities,
     for_workers: v.array(v.id("users")),
+    /** Kept off the installer app; no one signs it (decision AD52). */
+    office_only: v.optional(v.boolean()),
     acknowledgement_required: v.boolean(),
     responsible_user_id: v.union(v.id("users"), v.null()),
     notes: v.optional(v.string()),
@@ -1387,13 +1395,15 @@ export const adminEdit = mutation({
       if (!/^\d{4}-\d{2}-\d{2}$/.test(reviewDate)) throw new ConvexError("Select a valid review date.");
       if (current !== undefined && reviewDate <= current.issued) throw new ConvexError("The review date must be after the issue date.");
     }
-    const audience = await checkAudience(ctx, args.for_entities, args.for_workers);
+    const audience = args.office_only
+      ? { for_entities: [], for_workers: [], office_only: true }
+      : { ...(await checkAudience(ctx, args.for_entities, args.for_workers)), office_only: undefined };
     const next = {
       title,
       category: checkText(args.category, "The category"),
       applies_to: checkText(args.applies_to, "Client or work type"),
       ...audience,
-      acknowledgement_required: args.acknowledgement_required,
+      acknowledgement_required: args.office_only ? false : args.acknowledgement_required,
       responsible_user_id: args.responsible_user_id ?? undefined,
       notes: checkText(args.notes, "Notes", MAX_TEXT),
     };
@@ -1458,7 +1468,8 @@ async function checkEntity(ctx: QueryCtx, entity: string): Promise<"western-usi"
 /**
  * The safety documents one entity's workers are asked to read and sign
  * (`assigned`, with how many have signed), and the ones that aren't for them
- * (`available`, to add). A document that is for everyone counts as assigned.
+ * (`available`, to add). A document that is for everyone counts as assigned;
+ * an office-only one is in neither list (decision AD52).
  */
 export const forEntity = query({
   args: { entity: v.string() },
@@ -1474,6 +1485,7 @@ export const forEntity = query({
     const assigned = [];
     const available = [];
     for (const document of documents) {
+      if (document.office_only) continue;
       const forWorkers = new Set(document.for_workers ?? []);
       const everyone = (document.for_entities ?? []).length === 0 && forWorkers.size === 0;
       const wholeEntity = (document.for_entities ?? []).includes(entity);
@@ -1517,6 +1529,9 @@ export const adminSetEntity = mutation({
     const admin = await requireDocumentAdmin(ctx);
     const document = await ctx.db.get(args.document_id);
     if (document === null || document.archived) throw new ConvexError("That document no longer exists.");
+    if (document.office_only) {
+      throw new ConvexError("This document is office only. Open it and change who must read and sign it first.");
+    }
     const entity = await checkEntity(ctx, args.entity);
     const reason = checkReason(args.reason);
 

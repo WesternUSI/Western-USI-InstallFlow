@@ -6,7 +6,8 @@ import { CheckboxRow, Field } from "@/components/whs/safety-form";
 const WESTERN_USI = "western-usi";
 
 export interface Audience {
-  mode: "everyone" | "some";
+  /** "office": kept off the installer app, signed by no one (decision AD52). */
+  mode: "everyone" | "some" | "office";
   /** Companies whose workers all sign: "western-usi" or subcontractor ids. */
   entities: string[];
   /** People picked one by one (user ids), under companies set to "Only some". */
@@ -16,15 +17,17 @@ export interface Audience {
 }
 
 export const EVERYONE: Audience = { mode: "everyone", entities: [], workers: [], partial: [] };
+export const OFFICE_ONLY: Audience = { mode: "office", entities: [], workers: [], partial: [] };
 
 /** The picker's starting point from a saved document: nothing chosen means everyone. */
-export function savedAudience(entities: string[], workers: string[]): Audience {
+export function savedAudience(entities: string[], workers: string[], officeOnly = false): Audience {
+  if (officeOnly) return OFFICE_ONLY;
   return entities.length === 0 && workers.length === 0 ? EVERYONE : { mode: "some", entities, workers, partial: [] };
 }
 
 /** What's wrong with the choice, for the form's own check before saving. */
 export function audienceError(audience: Audience, companyName: (id: string) => string): string | undefined {
-  if (audience.mode === "everyone") return undefined;
+  if (audience.mode !== "some") return undefined;
   if (audience.partial.length > 0) {
     return `Tick at least one person at ${companyName(audience.partial[0])}, or choose All workers`;
   }
@@ -53,6 +56,7 @@ export function useAudienceOptions() {
  * "Who must read and sign this?" (framework 4A "applicable workers",
  * decision AD33). Everyone, or ticked companies; for each company, all its
  * workers or only some of them, chosen from that company's people only.
+ * Or office only: admins and management see it, the app never does (AD52).
  */
 export function AudiencePicker({ value, onChange, error }: { value: Audience; onChange: (next: Audience) => void; error?: string }) {
   const { companies, installers } = useAudienceOptions();
@@ -104,6 +108,7 @@ export function AudiencePicker({ value, onChange, error }: { value: Audience; on
     <Field label="Who must read and sign this?" required error={error}>
       <div className="flex flex-col gap-2">
         {radio(value.mode === "everyone", "Everyone", () => onChange(EVERYONE))}
+        {radio(value.mode === "office", "Office only – don't show in the app", () => onChange(OFFICE_ONLY))}
         {radio(value.mode === "some", "Only some companies or people", () =>
           value.mode === "some" ? undefined : onChange({ mode: "some", entities: [], workers: [], partial: [] }),
         )}
@@ -146,7 +151,9 @@ export function AudiencePicker({ value, onChange, error }: { value: Audience; on
           </div>
         ) : null}
         <p className="text-xs text-[#64748b]">
-          {asked} {asked === 1 ? "person" : "people"} will be asked to read and sign it.
+          {value.mode === "office"
+            ? "Only admins and management can open it. No one is asked to sign it."
+            : `${asked} ${asked === 1 ? "person" : "people"} will be asked to read and sign it.`}
         </p>
       </div>
     </Field>

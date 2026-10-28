@@ -42,6 +42,8 @@ export interface RegisterRow {
   type?: string;
   /** Documents: workers who still have to acknowledge the current version. */
   outstanding?: number;
+  /** Documents: kept off the installer app (decision AD52). */
+  office_only?: boolean;
   /** Accreditations: whose it is, for the management matrix and worker pages (decision AD43). */
   worker_id?: string;
   /** SWMS: on-site changes to the current version waiting for the admin (decision D3). */
@@ -112,12 +114,13 @@ export const register = query({
         .query("whs_record_versions")
         .withIndex("by_state_and_expires", (q) => q.eq("state", state))
         .collect();
-    const [installers, logins, subcontractors, types, requirements, records, pending, verified, rejected] = await Promise.all([
+    const [installers, logins, subcontractors, types, requirements, assignments, records, pending, verified, rejected] = await Promise.all([
       ctx.db.query("users").withIndex("by_role", (q) => q.eq("role", "installer")).collect(),
       ctx.db.query("users").withIndex("by_role", (q) => q.eq("role", "subcontractor")).collect(),
       ctx.db.query("subcontractors").withIndex("by_archived", (q) => q.eq("archived", false)).collect(),
       ctx.db.query("accreditation_types").collect(),
       ctx.db.query("accreditation_requirements").collect(),
+      ctx.db.query("accreditation_assignments").collect(),
       ctx.db.query("whs_records").collect(),
       versionsInState("pending"),
       versionsInState("verified"),
@@ -155,8 +158,12 @@ export const register = query({
     // Acknowledgements: installers only (decision D9).
     const acknowledgers = workers.filter(mustAcknowledgeDocuments);
     for (const worker of workers) {
-      const required = new Set(
+      // Ticked for this worker and still on their company's list (decision AD53).
+      const onList = new Set(
         requirements.filter((row) => row.subcontractor_id === worker.subcontractor_id).map((row) => row.type_id),
+      );
+      const required = new Set(
+        assignments.filter((row) => row.worker_id === worker._id && onList.has(row.type_id)).map((row) => row.type_id),
       );
       const own = records.filter((record) => record.worker_id === worker._id);
       const typeIds = new Set([...required, ...own.map((record) => record.type_id)]);
@@ -220,6 +227,7 @@ export const register = query({
         status,
         due: current.review_date,
         outstanding,
+        office_only: document.office_only || undefined,
         changes_to_review:
           document.kind === "swms"
             ? (
@@ -336,6 +344,8 @@ export const HISTORY_TEXT = {
     reminder_sent: "Reminder sent",
     escalated: "Escalated to management",
     edited: "Details changed",
+    required: "Ticked as required",
+    not_required: "Unticked, not required",
   },
   insurance: {
     added: "Policy added",
@@ -438,10 +448,11 @@ export const entityHistory = query({
     // Accreditations of the entity's workers.
     const typeNames = new Map((await ctx.db.query("accreditation_types").collect()).map((type) => [type._id, type.name]));
     for (const worker of workers) {
-      for (const record of await ctx.db
+      const records = await ctx.db
         .query("whs_records")
         .withIndex("by_worker", (q) => q.eq("worker_id", worker._id))
-        .collect()) {
+        .collect();
+      for (const record of records) {
         const label = `${typeNames.get(record.type_id) ?? "Accreditation"} · ${names.get(worker._id)}`;
         for (const row of await ctx.db
           .query("whs_audit")
@@ -449,6 +460,15 @@ export const entityHistory = query({
           .collect()) {
           await push(row, "accreditation", HISTORY_TEXT.accreditation, record._id, label);
         }
+      }
+      // Ticked or unticked as required (decision AD53); opens the record, or the Missing one by its register key.
+      for (const row of await ctx.db
+        .query("accreditation_assignment_audit")
+        .withIndex("by_worker", (q) => q.eq("worker_id", worker._id))
+        .collect()) {
+        const record = records.find((entry) => entry.type_id === row.type_id);
+        const label = `${typeNames.get(row.type_id) ?? "Accreditation"} · ${names.get(worker._id)}`;
+        await push(row, "accreditation", HISTORY_TEXT.accreditation, record?._id ?? `${worker._id}:${row.type_id}`, label);
       }
     }
 

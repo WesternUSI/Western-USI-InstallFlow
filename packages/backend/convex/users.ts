@@ -1,7 +1,8 @@
 import { ConvexError, v } from "convex/values";
 import { api, internal } from "./_generated/api";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { setTick } from "./accreditationTypes";
 import { isAdminUser, isManagementUser, isTeamless, isWhsOnly } from "./permissions";
 import { teamValidator } from "./teams";
 
@@ -292,6 +293,9 @@ export const finishInvite = internalMutation({
       ),
     ),
     subcontractor_id: v.optional(v.id("subcontractors")),
+    /** The accreditations ticked on the invite, and the admin who ticked them (decision AD53). */
+    accreditation_type_ids: v.optional(v.array(v.id("accreditation_types"))),
+    invited_by: v.optional(v.id("users")),
   },
   handler: async (ctx, args) => {
     if (args.role === "subcontractor" && args.subcontractor_id === undefined) {
@@ -321,10 +325,17 @@ export const finishInvite = internalMutation({
       must_change_password: true,
     };
 
+    let userId: Id<"users">;
     if (existing) {
       await ctx.db.patch(existing._id, patch);
+      userId = existing._id;
     } else {
-      await ctx.db.insert("users", { clerk_id: args.clerk_id, ...patch });
+      userId = await ctx.db.insert("users", { clerk_id: args.clerk_id, ...patch });
+    }
+    if (args.invited_by !== undefined) {
+      for (const typeId of args.accreditation_type_ids ?? []) {
+        await setTick(ctx, userId, typeId, true, args.invited_by, "Ticked on the invite.");
+      }
     }
   },
 });
@@ -363,6 +374,8 @@ export const inviteInstaller = action({
     role: v.optional(
       v.union(v.literal("installer"), v.literal("subcontractor"), v.literal("management")),
     ),
+    /** Installers: the accreditations from their company's list they must hold (decision AD53). */
+    accreditation_type_ids: v.optional(v.array(v.id("accreditation_types"))),
   },
   handler: async (ctx, args): Promise<{ email: string; password: string | undefined }> => {
     const caller = await ctx.runQuery(api.users.getCurrentUser, {});
@@ -374,6 +387,13 @@ export const inviteInstaller = action({
     }
     if (args.role === "management" && args.subcontractor_id !== undefined) {
       throw new ConvexError("Management belongs to Western USI, not to a subcontractor.");
+    }
+    const ticks = args.accreditation_type_ids ?? [];
+    if (ticks.length > 0) {
+      if (args.role !== undefined && args.role !== "installer") {
+        throw new ConvexError("Only installers are given accreditations on the invite.");
+      }
+      await ctx.runQuery(internal.accreditationTypes.checkInviteTicks, { subcontractor_id: args.subcontractor_id, type_ids: ticks });
     }
 
     // Management for an email that already has an account (decision AD43): an
@@ -450,6 +470,8 @@ export const inviteInstaller = action({
       team: args.subcontractor_id === undefined && args.role !== "management" ? args.team : undefined,
       role: args.role,
       subcontractor_id: args.subcontractor_id,
+      accreditation_type_ids: ticks,
+      invited_by: caller._id,
     });
 
     await ctx.scheduler.runAfter(0, internal.email.sendInviteEmail, {

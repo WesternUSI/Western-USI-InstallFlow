@@ -96,7 +96,7 @@ function AddWorkerAccreditation() {
           </Field>
         </FieldRow>
         {type === OTHER ? (
-          <Field label="Name of the accreditation" required error={errors.otherName} hint="Only this worker holds it. To require it of a whole company, use Add Accreditation on the company's page.">
+          <Field label="Name of the accreditation" required error={errors.otherName} hint="Only this worker holds it. To ask others for it, add it on their company's Accreditations tab and tick them.">
             <TextInput
               value={otherName}
               onChange={(value) => {

@@ -101,12 +101,14 @@ export async function requireAdmin(ctx: QueryCtx) {
 /**
  * Whether a document is meant for this person (framework 4A "applicable
  * workers", decision AD33): they are one of its people, or they work for one
- * of its entities. A document with neither set is for everyone (D6).
+ * of its entities. A document with neither set is for everyone (D6); an
+ * office-only one is for no one (AD52).
  */
 export function documentIsFor(
-  document: Pick<Doc<"whs_documents">, "for_entities" | "for_workers">,
+  document: Pick<Doc<"whs_documents">, "for_entities" | "for_workers" | "office_only">,
   user: Pick<Doc<"users">, "_id" | "subcontractor_id">,
 ): boolean {
+  if (document.office_only) return false;
   const entities = document.for_entities ?? [];
   const workers = document.for_workers ?? [];
   if (entities.length === 0 && workers.length === 0) return true;
@@ -114,11 +116,16 @@ export function documentIsFor(
   return entities.includes(user.subcontractor_id ?? "western-usi");
 }
 
-/** The office (admins and management) sees every document; everyone else only the ones meant for them. */
+/**
+ * Whether the installer app shows this document. The office (admins and
+ * management) sees every document but office-only ones, which stay in the
+ * panel (AD52); everyone else only the ones meant for them.
+ */
 export function canSeeDocument(
-  document: Pick<Doc<"whs_documents">, "for_entities" | "for_workers">,
+  document: Pick<Doc<"whs_documents">, "for_entities" | "for_workers" | "office_only">,
   user: Pick<Doc<"users">, "_id" | "subcontractor_id" | "role" | "has_admin_access" | "has_management_access">,
 ): boolean {
+  if (document.office_only) return false;
   if (canViewCompliance(user)) return true;
   return documentIsFor(document, user);
 }

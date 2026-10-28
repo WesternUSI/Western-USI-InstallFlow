@@ -28,11 +28,13 @@ const ITEMS = [
   { to: "/management/exceptions", label: "Exceptions" },
   { to: "/management/entities", label: "Entities" },
   { to: "/management/accreditations", label: "Worker Accreditations" },
+  { to: "/management/documents", label: "Safety Documents" },
 ];
 
 /** Which item a page belongs to, so record pages keep their section highlighted. */
 function activeItem(pathname: string): string {
   if (pathname.startsWith("/management/entities")) return "/management/entities";
+  if (pathname.startsWith("/management/documents")) return "/management/documents";
   if (pathname === "/management/accreditations" || pathname === "/management/accreditations/" || pathname.startsWith("/management/matrix") || pathname.startsWith("/management/workers")) {
     return "/management/accreditations";
   }

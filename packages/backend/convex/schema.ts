@@ -372,10 +372,10 @@ export default defineSchema({
   }).index("by_name", ["name"]),
 
   /**
-   * Which accreditation types a group of workers must hold. Rows with a
-   * `subcontractor_id` apply to that subcontractor's workers (every type, by
-   * default); rows without one apply to Western USI's own employees. A required
-   * type with no evidence is "Missing" (decision S4) — there is no placeholder row.
+   * Which accreditation types a company's workers can be asked for: the list
+   * each worker's own ticks are chosen from (decision AD53). Rows with a
+   * `subcontractor_id` belong to that subcontractor (every type, by default);
+   * rows without one to Western USI.
    */
   accreditation_requirements: defineTable({
     subcontractor_id: v.optional(v.id("subcontractors")),
@@ -383,6 +383,28 @@ export default defineSchema({
   })
     .index("by_subcontractor", ["subcontractor_id"])
     .index("by_type", ["type_id"]),
+
+  /**
+   * The accreditations one worker must hold, ticked by an admin from their
+   * company's list (decision AD53). Nothing is ticked to begin with. A ticked
+   * type still on the company's list with no evidence is "Missing" (decision
+   * S4) — there is no placeholder row.
+   */
+  accreditation_assignments: defineTable({
+    worker_id: v.id("users"),
+    type_id: v.id("accreditation_types"),
+  })
+    .index("by_worker", ["worker_id"])
+    .index("by_type", ["type_id"]),
+
+  /** Append-only trail of ticks and unticks on workers' required accreditations (framework 11). */
+  accreditation_assignment_audit: defineTable({
+    worker_id: v.id("users"),
+    type_id: v.id("accreditation_types"),
+    action: v.union(v.literal("required"), v.literal("not_required")),
+    actor_id: v.id("users"),
+    details: v.optional(v.string()),
+  }).index("by_worker", ["worker_id"]),
 
   /**
    * One register record: this worker's evidence for one accreditation type. It
@@ -485,6 +507,11 @@ export default defineSchema({
      */
     for_entities: v.optional(v.array(v.union(v.literal("western-usi"), v.id("subcontractors")))),
     for_workers: v.optional(v.array(v.id("users"))),
+    /**
+     * Office only (decision AD52): admins and management see it in the panel;
+     * it is never shown in the installer app and no one is asked to sign it.
+     */
+    office_only: v.optional(v.boolean()),
     /** Framework 4A "Acknowledgement required: yes/no". */
     acknowledgement_required: v.boolean(),
     /** Chased for reviews (framework 7). Absent means the admin recipient list. */
