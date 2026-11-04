@@ -45,6 +45,7 @@ function toRow(user: Doc<"users">) {
     role: user.role,
     has_admin_access: user.has_admin_access,
     has_management_access: user.has_management_access,
+    holds_accreditations: user.holds_accreditations === true,
     status: deriveUserStatus(user),
   };
 }
@@ -59,6 +60,7 @@ function toDetailRow(user: Doc<"users">) {
     role: user.role,
     status: deriveUserStatus(user),
     subcontractor_id: user.subcontractor_id,
+    holds_accreditations: user.holds_accreditations === true,
   };
 }
 
@@ -586,6 +588,35 @@ export const setSoleTrader = mutation({
       throw new ConvexError("Only a subcontractor's login can be set as a sole trader.");
     }
     await ctx.db.patch(user._id, { sole_trader: args.sole_trader });
+  },
+});
+
+/**
+ * The admin's "Holds accreditations" switch on an admin or management account
+ * (decision AD58): on, they are a Western USI worker for accreditations only
+ * (required list, register, reminders); off, they hold none. Their cards are
+ * kept either way.
+ */
+export const setHoldsAccreditations = mutation({
+  args: { user_id: v.id("users"), holds: v.boolean() },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    const caller =
+      identity === null
+        ? null
+        : await ctx.db
+            .query("users")
+            .withIndex("by_clerk_id", (q) => q.eq("clerk_id", identity.subject))
+            .unique();
+    if (caller === null || !isAdminUser(caller)) {
+      throw new ConvexError("Only an administrator can change this.");
+    }
+    const user = await ctx.db.get(args.user_id);
+    if (user === null) throw new ConvexError("That person no longer exists.");
+    if (user.role !== "admin" && user.role !== "management") {
+      throw new ConvexError("Only admin and management accounts have this switch; installers always hold accreditations.");
+    }
+    await ctx.db.patch(user._id, { holds_accreditations: args.holds });
   },
 });
 

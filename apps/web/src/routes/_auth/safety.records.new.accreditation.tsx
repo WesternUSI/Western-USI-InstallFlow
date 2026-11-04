@@ -9,7 +9,7 @@ import { Field, FieldRow, FilePicker, FormCard, SelectInput, TextInput } from "@
 import { Notice, SafetyButton, SafetyPage } from "@/components/whs/safety-ui";
 import { toUserMessage } from "@/lib/errors";
 import { uploadFile } from "@/lib/upload-file";
-import { useInspectors } from "@/lib/use-people";
+import { useAccreditationHolders } from "@/lib/use-people";
 
 export const Route = createFileRoute("/_auth/safety/records/new/accreditation")({
   component: AddWorkerAccreditation,
@@ -26,7 +26,7 @@ const OTHER = "other";
  */
 function AddWorkerAccreditation() {
   const navigate = useNavigate();
-  const workers = useInspectors();
+  const workers = useAccreditationHolders();
   const types = useQuery(api.accreditations.types);
   const generateUploadUrl = useMutation(api.accreditations.generateUploadUrl);
   const addEvidence = useMutation(api.accreditations.adminAddEvidence);

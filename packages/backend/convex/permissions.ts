@@ -53,13 +53,15 @@ export function isWhsOnly(user: Pick<Doc<"users">, "role" | "subcontractor_id">)
  * subcontractor login only when it is also one of the company's workers. An
  * admin sets that with the sole-trader switch; until they do, the login counts
  * once it has opened the installer app or has evidence on file. Switched off
- * always wins.
+ * always wins. An admin or management account holds them only when an admin
+ * turns on "Holds accreditations" (decision AD58).
  */
 export function holdsAccreditations(
-  user: Pick<Doc<"users">, "role" | "sole_trader" | "opened_installer_app_at">,
+  user: Pick<Doc<"users">, "role" | "sole_trader" | "opened_installer_app_at" | "holds_accreditations">,
   hasEvidence: boolean,
 ): boolean {
   if (user.role === "installer") return true;
+  if (user.role === "admin" || user.role === "management") return user.holds_accreditations === true;
   if (user.role !== "subcontractor" || user.sole_trader === false) return false;
   return user.sole_trader === true || user.opened_installer_app_at !== undefined || hasEvidence;
 }

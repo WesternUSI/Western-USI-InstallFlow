@@ -57,6 +57,15 @@ export interface RegisterRow {
   vehicle?: string;
 }
 
+/** Admin and management accounts switched on to hold accreditations, as Western USI workers (decision AD58). */
+export async function officeHolders(ctx: QueryCtx) {
+  const [admins, management] = await Promise.all([
+    ctx.db.query("users").withIndex("by_role", (q) => q.eq("role", "admin")).collect(),
+    ctx.db.query("users").withIndex("by_role", (q) => q.eq("role", "management")).collect(),
+  ]);
+  return [...admins, ...management].filter((user) => user.holds_accreditations === true && user.subcontractor_id === undefined);
+}
+
 /** The admin panel's own gate: admins only. */
 export async function requirePanelUser(ctx: QueryCtx) {
   const identity = await ctx.auth.getUserIdentity();
@@ -115,9 +124,10 @@ export const register = query({
         .query("whs_record_versions")
         .withIndex("by_state_and_expires", (q) => q.eq("state", state))
         .collect();
-    const [installers, logins, subcontractors, types, requirements, assignments, records, pending, verified, rejected] = await Promise.all([
+    const [installers, logins, office, subcontractors, types, requirements, assignments, records, pending, verified, rejected] = await Promise.all([
       ctx.db.query("users").withIndex("by_role", (q) => q.eq("role", "installer")).collect(),
       ctx.db.query("users").withIndex("by_role", (q) => q.eq("role", "subcontractor")).collect(),
+      officeHolders(ctx),
       ctx.db.query("subcontractors").withIndex("by_archived", (q) => q.eq("archived", false)).collect(),
       ctx.db.query("accreditation_types").collect(),
       ctx.db.query("accreditation_requirements").collect(),
@@ -156,6 +166,8 @@ export const register = query({
     const workers = [
       ...installers,
       ...logins.filter((login) => holdsAccreditations(login, records.some((record) => record.worker_id === login._id))),
+      // Admin and management accounts switched on to hold accreditations (decision AD58).
+      ...office,
     ];
     // Acknowledgements: installers only (decision D9).
     const acknowledgers = workers.filter(mustAcknowledgeDocuments);
@@ -445,11 +457,12 @@ export const entityHistory = query({
     };
 
     // The entity's people, as the register counts them (decision R6).
-    const [installers, logins] = await Promise.all([
+    const [installers, logins, office] = await Promise.all([
       ctx.db.query("users").withIndex("by_role", (q) => q.eq("role", "installer")).collect(),
       ctx.db.query("users").withIndex("by_role", (q) => q.eq("role", "subcontractor")).collect(),
+      officeHolders(ctx),
     ]);
-    const workers = [...installers, ...logins].filter((user) => user.subcontractor_id === args.subcontractor_id);
+    const workers = [...installers, ...logins, ...office].filter((user) => user.subcontractor_id === args.subcontractor_id);
     const workerIds = new Set(workers.map((worker) => worker._id));
     for (const worker of workers) names.set(worker._id, worker.name ?? worker.email);
 

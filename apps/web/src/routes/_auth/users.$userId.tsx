@@ -290,6 +290,9 @@ function UserDetailPage() {
               </div>
             </section>
 
+            {user.role === "admin" || user.role === "management" ? (
+              <HoldsAccreditationsSwitch userId={id} name={user.name} holds={user.holds_accreditations} />
+            ) : null}
             <RequiredAccreditations userId={id} name={user.name} />
 
             <div className="flex flex-col gap-4 lg:col-start-3 lg:row-start-1">
@@ -422,6 +425,48 @@ function RequiredAccreditations({ userId, name }: { userId: Id<"users">; name: s
           {isSaving ? "Saving…" : "Save Accreditations"}
         </Button>
       </div>
+    </section>
+  );
+}
+
+/**
+ * "Holds accreditations" for an admin or management account (decision AD58):
+ * on, they are a Western USI worker for accreditations only, so their own
+ * cards can be added like any worker's.
+ */
+function HoldsAccreditationsSwitch({ userId, name, holds }: { userId: Id<"users">; name: string; holds: boolean }) {
+  const setHolds = useMutation(api.users.setHoldsAccreditations);
+  const [isSaving, setIsSaving] = useState(false);
+
+  async function toggle(next: boolean) {
+    setIsSaving(true);
+    try {
+      await setHolds({ user_id: userId, holds: next });
+      toast.success(next ? `${name} now holds accreditations` : `${name} no longer holds accreditations`);
+    } catch (error) {
+      toast.error(toUserMessage(error, "Could not change that."));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <section className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white px-6 py-5 lg:col-span-2">
+      <label className="flex w-fit cursor-pointer items-center gap-2.5 text-sm font-semibold text-slate-900">
+        <input
+          type="checkbox"
+          checked={holds}
+          disabled={isSaving}
+          onChange={(event) => void toggle(event.target.checked)}
+          className="size-4 accent-blue-600"
+        />
+        Holds accreditations
+      </label>
+      <p className="text-sm text-slate-500">
+        {holds
+          ? `${name} is treated as a Western USI worker for accreditations: tick what they must hold below, and add their cards with Add Worker Accreditation. Nothing else about their account changes.`
+          : `Turn this on if ${name} holds their own cards (e.g. a White Card), so you can add and track them like a worker's. Their admin access doesn't change.`}
+      </p>
     </section>
   );
 }

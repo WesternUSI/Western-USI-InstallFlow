@@ -200,12 +200,15 @@ async function isWorker(ctx: QueryCtx, user: Doc<"users">) {
 
 /** A company's people who hold accreditations, A-Z. */
 async function workersOf(ctx: QueryCtx, owner: Id<"subcontractors"> | undefined) {
-  const [installers, logins] = await Promise.all([
+  const [installers, logins, admins, management] = await Promise.all([
     ctx.db.query("users").withIndex("by_role", (q) => q.eq("role", "installer")).collect(),
     ctx.db.query("users").withIndex("by_role", (q) => q.eq("role", "subcontractor")).collect(),
+    // Admin and management accounts count only when switched on (decision AD58).
+    ctx.db.query("users").withIndex("by_role", (q) => q.eq("role", "admin")).collect(),
+    ctx.db.query("users").withIndex("by_role", (q) => q.eq("role", "management")).collect(),
   ]);
   const workers: Doc<"users">[] = [];
-  for (const user of [...installers, ...logins]) {
+  for (const user of [...installers, ...logins, ...admins, ...management]) {
     if (user.subcontractor_id === owner && (await isWorker(ctx, user))) workers.push(user);
   }
   return workers.sort((a, b) => (a.name ?? a.email).localeCompare(b.name ?? b.email));

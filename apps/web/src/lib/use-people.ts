@@ -21,3 +21,23 @@ export function useInspectors() {
       company: user.subcontractor ?? "Western USI",
     }));
 }
+
+/**
+ * People who can hold accreditations, for Add Worker Accreditation: installers,
+ * subcontractor logins, and admin or management accounts switched on to hold
+ * them (decision AD58).
+ */
+export function useAccreditationHolders() {
+  const users = useQuery(api.users.list);
+  return (users ?? [])
+    .filter(
+      (user) =>
+        user.role === "installer" ||
+        user.role === "subcontractor" ||
+        ((user.role === "admin" || user.role === "management") && user.holds_accreditations),
+    )
+    .map((user) => ({
+      value: user._id as string,
+      label: user.subcontractor ? `${user.name} · ${user.subcontractor}` : `${user.name} · Western USI`,
+    }));
+}

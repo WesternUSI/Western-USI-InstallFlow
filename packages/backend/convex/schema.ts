@@ -92,6 +92,9 @@ export default defineSchema({
     sole_trader: v.optional(v.boolean()),
     // A subcontractor login's first time in the installer app (decision R6).
     opened_installer_app_at: v.optional(v.number()),
+    // An admin or management account that also holds accreditations, set by an
+    // admin (decision AD58): a Western USI worker for accreditations only.
+    holds_accreditations: v.optional(v.boolean()),
   })
     .index("by_clerk_id", ["clerk_id"])
     // The WHS register reads only the people who hold accreditations (installers, subcontractor logins).
