@@ -1,7 +1,8 @@
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
-import { DEFAULT_REMINDER_DAYS, requireCaller } from "./accreditations";
+import { DEFAULT_REMINDER_DAYS, liveRecords, removedTypeNamed, requireCaller } from "./accreditations";
+import { checkReason } from "./whsEdits";
 import { holdsAccreditations, isAdminUser } from "./permissions";
 
 /**
@@ -106,6 +107,13 @@ export const adminCreate = mutation({
     const admin = await requireAdmin(ctx);
     const name = await checkName(ctx, args.name);
     const owners = await checkOwners(ctx, args.required_for);
+    // One removed from the system under this name comes back, with its cards (decision AD54).
+    const removed = await removedTypeNamed(ctx, name);
+    if (removed !== null) {
+      await ctx.db.patch(removed._id, { archived: false, archived_by: undefined, archived_reason: undefined });
+      await setOwners(ctx, removed._id, owners, admin._id);
+      return removed._id;
+    }
     const last = (await ctx.db.query("accreditation_types").collect()).reduce((max, type) => Math.max(max, type.sort_order), 0);
     const id = await ctx.db.insert("accreditation_types", {
       name,
@@ -132,17 +140,20 @@ export const adminUpdate = mutation({
 });
 
 /**
- * Removes a type from use: no one is asked for it any more. It is archived,
- * never deleted (framework 11), so evidence already uploaded is kept.
+ * Removes a type from the whole system, with a reason (decision AD54): off
+ * every company's list, everyone unticked, no reminders, and its cards hidden
+ * everywhere. It is archived, never deleted (framework 11), with who removed
+ * it and why; creating one with the same name brings it back.
  */
 export const adminRemove = mutation({
-  args: { type_id: v.id("accreditation_types") },
+  args: { type_id: v.id("accreditation_types"), reason: v.string() },
   handler: async (ctx, args) => {
     const admin = await requireAdmin(ctx);
     const type = await ctx.db.get(args.type_id);
-    if (type === null || type.archived) throw new ConvexError("That accreditation no longer exists.");
+    if (type === null || type.archived) throw new ConvexError("That accreditation has already been removed.");
+    const reason = checkReason(args.reason, "remove");
     await setOwners(ctx, type._id, [], admin._id);
-    await ctx.db.patch(type._id, { archived: true });
+    await ctx.db.patch(type._id, { archived: true, archived_by: admin._id, archived_reason: reason });
   },
 });
 
@@ -184,11 +195,7 @@ const companyName = async (ctx: QueryCtx, owner: Id<"subcontractors"> | undefine
 /** Whether this person holds accreditations, as the register counts them (decision R6). */
 async function isWorker(ctx: QueryCtx, user: Doc<"users">) {
   if (user.role === "installer") return true;
-  const evidence = await ctx.db
-    .query("whs_records")
-    .withIndex("by_worker", (q) => q.eq("worker_id", user._id))
-    .first();
-  return holdsAccreditations(user, evidence !== null);
+  return holdsAccreditations(user, (await liveRecords(ctx, user._id)).length > 0);
 }
 
 /** A company's people who hold accreditations, A-Z. */

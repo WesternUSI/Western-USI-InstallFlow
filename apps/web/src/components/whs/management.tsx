@@ -55,6 +55,7 @@ export function mgmtRecordRoute(row: Pick<RegisterRow, "id" | "category">): { to
   if (row.category === "insurance") return { to: "/management/insurance/$policyId", params: { policyId: row.id } };
   if (row.category === "vehicle") return { to: "/management/vehicles/$vehicleId", params: { vehicleId: row.id } };
   if (row.category === "first-aid") return { to: "/management/kits/$kitId", params: { kitId: row.id } };
+  if (row.category === "equipment") return { to: "/management/equipment/$equipmentId", params: { equipmentId: row.id } };
   return { to: "/management/documents/$documentId", params: { documentId: row.id } };
 }
 
@@ -85,6 +86,8 @@ export const ACTIVITY_TEXT: Record<string, string> = {
   serviced: "Service recorded",
   out_of_service: "Set out of service",
   returned_to_service: "Returned to service",
+  document_added: "Document uploaded",
+  document_deleted: "Document deleted",
   inspected: "Inspection submitted",
   resolved: "Corrective action completed",
 };

@@ -1,5 +1,6 @@
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { liveRecords } from "./accreditations";
 import { holdsAccreditations, requireAdmin } from "./permissions";
 
 /** A trimmed value, or undefined when it is blank — so an empty form field is "not given". */
@@ -99,8 +100,7 @@ export const logins = query({
     );
     return await Promise.all(
       logins.map(async (login) => {
-        const hasEvidence =
-          (await ctx.db.query("whs_records").withIndex("by_worker", (q) => q.eq("worker_id", login._id)).first()) !== null;
+        const hasEvidence = (await liveRecords(ctx, login._id)).length > 0;
         return {
           id: login._id,
           sole_trader: login.sole_trader,

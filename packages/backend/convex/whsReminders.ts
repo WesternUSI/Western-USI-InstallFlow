@@ -80,7 +80,8 @@ export const due = internalQuery({
       if (version.expires === undefined || version.verified_at === undefined) continue;
 
       const record = await ctx.db.get(version.record_id);
-      if (record === null) continue;
+      // A deleted card is never chased (decision AD54).
+      if (record === null || record.archived) continue;
 
       // A renewal is already waiting for the office: the worker has done their part.
       const siblings = await ctx.db
@@ -257,6 +258,7 @@ export const sweepAtEight = internalAction({
     accreditations: { due: number; sent: number; failed: number };
     documents: { due: number; sent: number; failed: number };
     kits: { due: number; sent: number; failed: number };
+    equipment: { due: number; sent: number; failed: number };
     assets: { due: number; sent: number; failed: number };
   } | null> => {
     if (businessHour() !== SEND_HOUR) return null;
@@ -268,8 +270,10 @@ export const sweepAtEight = internalAction({
     const documents = await ctx.runAction(internal.whsDocReminders.sweep, {});
     // First-aid inspection reminders (whsKitReminders.ts).
     const kits = await ctx.runAction(internal.whsKitReminders.sweep, {});
+    // Height and safety equipment check reminders (equipment.ts, decision AD57).
+    const equipment = await ctx.runAction(internal.equipment.sweepReminders, {});
     // Insurance and vehicle reminders (whsAssetReminders.ts).
     const assets = await ctx.runAction(internal.whsAssetReminders.sweep, {});
-    return { accreditations, documents, kits, assets };
+    return { accreditations, documents, kits, equipment, assets };
   },
 });

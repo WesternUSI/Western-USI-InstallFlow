@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { internalAction, internalMutation } from "./_generated/server";
+import { liveRecord } from "./accreditations";
 import { placeholderPdf } from "./documents";
 import { addDays, addMonths, businessToday } from "./whsDates";
 
@@ -57,10 +58,7 @@ export const insert = internalMutation({
       for (const [typeName, kind] of Object.entries(plan)) {
         const type = types.find((entry) => entry.name === typeName);
         if (type === undefined) continue;
-        const existing = await ctx.db
-          .query("whs_records")
-          .withIndex("by_worker_and_type", (q) => q.eq("worker_id", worker._id).eq("type_id", type._id))
-          .unique();
+        const existing = await liveRecord(ctx, worker._id, type._id);
         if (existing !== null) continue;
 
         const recordId = await ctx.db.insert("whs_records", {
@@ -262,10 +260,7 @@ export const trim = internalMutation({
       const worker = byEmail(email);
       const type = types.find((entry) => entry.name === typeName);
       if (!worker || !type) continue;
-      const record = await ctx.db
-        .query("whs_records")
-        .withIndex("by_worker_and_type", (q) => q.eq("worker_id", worker._id).eq("type_id", type._id))
-        .unique();
+      const record = await liveRecord(ctx, worker._id, type._id);
       if (record === null) continue;
       const versions = await ctx.db.query("whs_record_versions").withIndex("by_record", (q) => q.eq("record_id", record._id)).collect();
       if (!versions.some((version) => version.notes === "Dummy data for testing")) continue;

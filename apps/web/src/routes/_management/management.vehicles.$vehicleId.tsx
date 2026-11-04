@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
 
 import { ACTIVITY_TEXT, ActivityPanel, MgmtPage, ReminderScheduleCard } from "@/components/whs/management";
+import { VehicleDocumentsPanel } from "@/components/whs/vehicle-documents";
 import { DetailsLayout, EvidencePreview, SideButton, SideCard } from "@/components/whs/record-cards";
 import { DetailGrid, Notice, Panel, StatusBadge } from "@/components/whs/safety-ui";
 import { formatIsoDate } from "@/lib/upload-file";
@@ -61,6 +62,7 @@ function VehicleForManagement() {
                 </p>
               </Panel>
             ) : null}
+            <VehicleDocumentsPanel vehicleId={vehicle.id} registration={vehicle.registration} documents={vehicle.documents} canManage={false} />
             <ActivityPanel
               lines={vehicle.activity.map((entry) => ({ at: entry.at, text: ACTIVITY_TEXT[entry.action] ?? entry.action, by: entry.by, details: entry.details }))}
             />

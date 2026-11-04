@@ -57,6 +57,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   sds: "SDS",
   document: "Other safety documents",
   "first-aid": "First-aid kits",
+  equipment: "Height & safety equipment",
 };
 
 function matches(row: RegisterRow, status: string): boolean {

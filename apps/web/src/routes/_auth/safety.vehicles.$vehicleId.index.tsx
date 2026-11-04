@@ -9,7 +9,8 @@ import { toast } from "sonner";
 import { DetailsLayout, EvidencePreview, SideButton, SideCard } from "@/components/whs/record-cards";
 import { ArchivedNotice, EditRecordDialog, ManageRecordCard } from "@/components/whs/record-admin";
 import { Field, FieldRow, SelectInput, TextArea, TextInput } from "@/components/whs/safety-form";
-import { DetailGrid, Notice, Panel, SafetyButton, SafetyPage, StatusBadge, reminderText } from "@/components/whs/safety-ui";
+import { DetailGrid, Notice, Panel, RowAction, SafetyButton, SafetyPage, StatusBadge, reminderText } from "@/components/whs/safety-ui";
+import { VehicleDocumentsPanel } from "@/components/whs/vehicle-documents";
 import { toUserMessage } from "@/lib/errors";
 import { MONTH_CHOICES } from "@/lib/kit-checks";
 import { formatIsoDate, formatTime } from "@/lib/upload-file";
@@ -29,6 +30,8 @@ const ACTION_TEXT: Record<string, string> = {
   escalated: "Escalated to management",
   edited: "Details changed",
   archived: "Archived",
+  document_added: "Document uploaded",
+  document_deleted: "Document deleted",
 };
 
 /** D2 Vehicle Details, real (framework 4E), with the Out of Service variant. */
@@ -78,13 +81,18 @@ function VehicleDetails() {
               <h3 className="text-base font-semibold text-[#111827]">Service history</h3>
               {vehicle.services.length === 0 ? <p className="text-xs text-[#64748b]">No services recorded in the app yet.</p> : null}
               {vehicle.services.map((service) => (
-                <p key={`${service.date}-${service.by}`} className="text-xs text-[#64748b]">
-                  {formatIsoDate(service.date)} · {service.provider ?? "—"}
-                  {service.odometer ? ` · ${service.odometer}` : ""}
-                  {service.notes ? ` · ${service.notes}` : ""} · recorded by {service.by}
-                </p>
+                <div key={`${service.date}-${service.by}`} className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs text-[#64748b]">
+                    {formatIsoDate(service.date)} · {service.provider ?? "—"}
+                    {service.odometer ? ` · ${service.odometer}` : ""}
+                    {service.notes ? ` · ${service.notes}` : ""} · recorded by {service.by}
+                  </p>
+                  {/* Every service's report, not just the latest (decision AD56). */}
+                  {service.file_url ? <RowAction onClick={() => window.open(service.file_url ?? "", "_blank", "noopener")}>Open report</RowAction> : null}
+                </div>
               ))}
             </Panel>
+            <VehicleDocumentsPanel vehicleId={vehicle.id} registration={vehicle.registration} documents={vehicle.documents} canManage={vehicle.can_manage} />
             <Panel className="flex flex-col gap-4 p-6">
               <h3 className="text-base font-semibold text-[#111827]">Recent activity</h3>
               {vehicle.activity.map((entry) => (

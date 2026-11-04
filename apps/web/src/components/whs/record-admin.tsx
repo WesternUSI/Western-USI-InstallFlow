@@ -96,33 +96,46 @@ export function ManageRecordCard({
   noun,
   onEdit,
   onArchive,
+  archive,
 }: {
   /** "vehicle", "policy", "kit", "document". */
   noun: string;
-  onEdit: () => void;
-  /** Absent when this kind of record isn't archived (accreditations). */
+  /** Absent when there is nothing to edit yet. */
+  onEdit?: () => void;
+  /** Absent when this kind of record isn't archived. */
   onArchive?: (reason: string) => Promise<void>;
+  /** Other words for the archive button and its dialog, e.g. "Delete" for an accreditation (decision AD54). */
+  archive?: { label: string; title: string; description: string; placeholder: string; missingMessage: string };
 }) {
   const [archiving, setArchiving] = useState(false);
+  const words = archive ?? {
+    label: "Archive",
+    title: `Archive this ${noun}?`,
+    description: "It stops showing in the register and no reminders go out. It is kept, with its history, never deleted.",
+    placeholder: `e.g. The ${noun} is no longer used`,
+    missingMessage: "Enter the reason for archiving it",
+  };
   return (
     <SideCard title="Manage">
-      <SideButton onClick={onEdit}>
-        <Pencil className="size-3.5" />
-        Edit Details
-      </SideButton>
+      {onEdit ? (
+        <SideButton onClick={onEdit}>
+          <Pencil className="size-3.5" />
+          Edit Details
+        </SideButton>
+      ) : null}
       {onArchive ? (
         <>
           <SideButton onClick={() => setArchiving(true)}>
             <Archive className="size-3.5" />
-            Archive
+            {words.label}
           </SideButton>
           <ReasonDialog
             open={archiving}
-            title={`Archive this ${noun}?`}
-            description={`It stops showing in the register and no reminders go out. It is kept, with its history, never deleted.`}
-            placeholder={`e.g. The ${noun} is no longer used`}
-            confirmLabel="Archive"
-            missingMessage="Enter the reason for archiving it"
+            title={words.title}
+            description={words.description}
+            placeholder={words.placeholder}
+            confirmLabel={words.label}
+            missingMessage={words.missingMessage}
             onClose={() => setArchiving(false)}
             onConfirm={onArchive}
           />

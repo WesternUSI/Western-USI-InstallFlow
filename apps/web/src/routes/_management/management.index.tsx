@@ -70,6 +70,13 @@ function ComplianceOverview() {
           to="/management/exceptions"
           search={{ category: "first-aid", status: "needs-action" }}
         />
+        <StatCard
+          label="Equipment checks due"
+          value={count((row) => row.category === "equipment" && row.status !== "current")}
+          hint="Checks due, damage found or out of service"
+          to="/management/exceptions"
+          search={{ category: "equipment", status: "needs-action" }}
+        />
         {changesToReview > 0 ? (
           // Only while something waits, as on the admin dashboard (decision D3); management can approve them (AD43).
           <StatCard

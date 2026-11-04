@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { Field, FieldRow, FormCard, SelectInput, TextInput } from "@/components/whs/safety-form";
 import { Notice, Panel, SafetyButton, SafetyPage } from "@/components/whs/safety-ui";
 import { toUserMessage } from "@/lib/errors";
-import { MONTH_CHOICES } from "@/lib/kit-checks";
+import { MonthsField, monthsError } from "@/components/whs/months-field";
 import { useInspectors } from "@/lib/use-people";
 
 export const Route = createFileRoute("/_auth/safety/kits/$kitId/assign")({
@@ -43,7 +43,8 @@ function AssignKitInspection() {
     const found: typeof errors = {};
     if (installerValue === "") found.installer = "Select the installer who inspects this kit.";
     if (dueValue === "") found.due = "Select when the inspection is due.";
-    if (intervalValue === "") found.interval = "Select how often the kit is inspected.";
+    const intervalProblem = monthsError(intervalValue);
+    if (intervalProblem) found.interval = intervalProblem;
     setErrors(found);
     const first = Object.values(found)[0];
     if (first) {
@@ -82,9 +83,7 @@ function AssignKitInspection() {
           <Field label="Due date" required error={errors.due}>
             <TextInput type="date" value={dueValue} onChange={setDue} invalid={!!errors.due} />
           </Field>
-          <Field label="Repeat interval" required error={errors.interval}>
-            <SelectInput value={intervalValue} onChange={setInterval} options={MONTH_CHOICES} invalid={!!errors.interval} />
-          </Field>
+          <MonthsField label="Repeat interval" value={intervalValue} onChange={setInterval} error={errors.interval} />
         </FieldRow>
         <Notice tone="info">The installer completes the inspection on their phone. Reminders go out 14 and 7 days before it's due.</Notice>
         <div className="flex flex-wrap gap-3">

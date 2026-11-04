@@ -70,7 +70,10 @@ function WorkerAccreditations() {
           <SearchBox value={query} onChange={setQuery} placeholder="Record, worker, entity" />
           <FilterSelect label="Entity" value={entity} onChange={setEntity} options={[{ value: ALL, label: "All" }, ...(data?.entities ?? []).map((value) => ({ value, label: value }))]} />
           <FilterSelect label="Status" value={status} onChange={setStatus} options={[{ value: ALL, label: "All" }, ...STATUSES.map((value) => ({ value, label: statusLabel(value) }))]} />
-          <SafetyButton to="/safety/records/new/accreditation" className="h-[38px] sm:ml-auto">
+          <SafetyButton variant="secondary" to="/safety/accreditation-types" className="h-[38px] sm:ml-auto">
+            Manage Accreditations
+          </SafetyButton>
+          <SafetyButton to="/safety/records/new/accreditation" className="h-[38px]">
             + Add Record
           </SafetyButton>
         </Toolbar>

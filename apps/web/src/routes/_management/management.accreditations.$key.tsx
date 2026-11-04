@@ -114,7 +114,11 @@ function ReviewAccreditation() {
             {detail.status === "action-required" && evidence?.rejected_reason ? (
               <Notice tone="danger">New evidence requested: {evidence.rejected_reason}. The worker sees this as Action required.</Notice>
             ) : null}
-            {detail.status === "missing" ? <Notice tone="warning">{detail.worker} hasn't uploaded this yet. Contact your administrator if it's needed urgently.</Notice> : null}
+            {detail.archived ? (
+              <Notice tone="warning">This {detail.type} was deleted. It's kept with its history but no longer shown anywhere.</Notice>
+            ) : detail.status === "missing" ? (
+              <Notice tone="warning">{detail.worker} hasn't uploaded this yet. Contact your administrator if it's needed urgently.</Notice>
+            ) : null}
             {waiting ? (
               <Panel className="flex flex-col gap-3 p-6">
                 <h3 className="text-base font-semibold text-[#111827]">Evidence review</h3>

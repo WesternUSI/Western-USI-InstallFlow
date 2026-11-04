@@ -1,9 +1,14 @@
 import { ConvexError, v } from "convex/values";
+import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { mutation, query, type QueryCtx } from "./_generated/server";
+import { internalAction, internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { isValidIsoDate, requireCaller } from "./accreditations";
-import { canViewCompliance, isAdminUser } from "./permissions";
-import { businessToday, formatLongDate } from "./whsDates";
+import { enabledRecipientEmails } from "./emails";
+import { canViewCompliance, isAdminUser, isManagementUser } from "./permissions";
+import { addDays, addMonths, businessToday, formatLongDate } from "./whsDates";
+import { managementLink } from "./whsLinks";
+import { escalateAfterDays } from "./whsSettings";
+import { daysBetween, planReminders } from "./whsStatus";
 import { checkReason, describeEdit } from "./whsEdits";
 
 /**
@@ -13,15 +18,32 @@ import { checkReason, describeEdit } from "./whsEdits";
  * worker answers "Any damage?" and adds a recommendation on their phone
  * (Mitch, 23 Oct). Damage found updates the item's Damage and stays Action
  * required until the admin reviews it (repaired, out of service or no action
- * needed). Not in the
- * Compliance Register and not shown to installers except their own checks.
+ * needed). Checks repeat (decision AD57): each item is checked every few
+ * months (3 by default), and when a check is done the next one is set for the
+ * same worker. Items are in the Compliance Register and on the dashboards, with
+ * reminders like first-aid kits. Installers see only their own checks.
  */
 
 const MAX_TEXT = 1000;
 const MAX_SHORT_TEXT = 200;
 const IMPORT_REASON = "Updated from Excel import";
 
-export type EquipmentStatus = "current" | "overdue" | "action-required" | "out-of-service";
+export type EquipmentStatus = "current" | "due-soon" | "overdue" | "action-required" | "out-of-service";
+
+/** Months between checks when none is set (decision AD57). */
+export const DEFAULT_CHECK_MONTHS = 3;
+/** Reminders before a check is due, as for first-aid kits (decision K6); also when it becomes Due soon. */
+export const EQUIPMENT_REMINDER_DAYS = [14, 7];
+
+export const checkMonths = (item: Pick<Doc<"equipment">, "frequency_months">) => item.frequency_months ?? DEFAULT_CHECK_MONTHS;
+/** One worker's months between checks: their own, else the item's, else 3 (decision AD57). */
+export const workerMonths = (check: Pick<Doc<"equipment_checks">, "frequency_months">, item: Pick<Doc<"equipment">, "frequency_months">) =>
+  check.frequency_months ?? checkMonths(item);
+const monthsText = (months: number) => `every ${months} ${months === 1 ? "month" : "months"}`;
+
+function checkFrequency(months: number) {
+  if (!(Number.isInteger(months) && months >= 1 && months <= 24)) throw new ConvexError("Select how often it's checked (1 to 24 months).");
+}
 
 /** The same item: type, brand and name/number, ignoring case and spacing (AD49). */
 function itemKey(item: { type: string; brand: string; name: string }) {
@@ -38,7 +60,7 @@ function hasIssue(check: Doc<"equipment_checks">) {
   return check.state === "done" && check.damage_found === true;
 }
 
-async function checksOf(ctx: QueryCtx, equipmentId: Id<"equipment">) {
+export async function checksOf(ctx: QueryCtx, equipmentId: Id<"equipment">) {
   return (
     await ctx.db
       .query("equipment_checks")
@@ -47,15 +69,23 @@ async function checksOf(ctx: QueryCtx, equipmentId: Id<"equipment">) {
   ).sort((a, b) => b._creationTime - a._creationTime);
 }
 
-function summarise(item: Doc<"equipment">, checks: Doc<"equipment_checks">[], today: string) {
-  const open = checks.find((check) => check.state === "assigned");
+/**
+ * An item's checks summed up. Several workers can each have their own open
+ * check (decision AD57): `opens` soonest first, `open` the soonest. The item
+ * shows the most urgent of them, and Action required while any check that
+ * found damage is waiting for review.
+ */
+export function summarise(item: Doc<"equipment">, checks: Doc<"equipment_checks">[], today: string) {
+  const opens = checks.filter((check) => check.state === "assigned").sort((a, b) => a.due.localeCompare(b.due));
+  const open = opens[0];
   const latest = checks.find((check) => check.state === "done");
-  const unreviewed = latest !== undefined && hasIssue(latest) && latest.reviewed_at === undefined;
+  const unreviewed = checks.some((check) => hasIssue(check) && check.reviewed_at === undefined);
   let status: EquipmentStatus = "current";
   if (item.out_of_service_date) status = "out-of-service";
   else if (unreviewed) status = "action-required";
   else if (open !== undefined && open.due < today) status = "overdue";
-  return { open, latest, unreviewed, status };
+  else if (open !== undefined && daysBetween(today, open.due) <= Math.max(...EQUIPMENT_REMINDER_DAYS)) status = "due-soon";
+  return { opens, open, latest, unreviewed, status };
 }
 
 async function personName(ctx: QueryCtx, id: Id<"users"> | undefined) {
@@ -92,7 +122,7 @@ export const list = query({
       .collect();
     const rows = await Promise.all(
       items.map(async (item) => {
-        const { open, status } = summarise(item, await checksOf(ctx, item._id), today);
+        const { opens, open, status } = summarise(item, await checksOf(ctx, item._id), today);
         return {
           id: item._id,
           type: item.type,
@@ -100,7 +130,16 @@ export const list = query({
           name: item.name,
           damage: item.damage,
           status,
-          check: open === undefined ? null : { assigned_to: await personName(ctx, open.assigned_to), due: open.due },
+          // Each worker with their own frequency, e.g. "Umar (every 12 months), Sam (every 3 months)".
+          check:
+            open === undefined
+              ? null
+              : {
+                  assigned_to: (
+                    await Promise.all(opens.map(async (check) => `${await personName(ctx, check.assigned_to)} (${monthsText(workerMonths(check, item))})`))
+                  ).join(", "),
+                  due: open.due,
+                },
         };
       }),
     );
@@ -108,7 +147,7 @@ export const list = query({
   },
 });
 
-const AUDIT_TEXT: Record<Doc<"equipment_audit">["action"], string> = {
+export const AUDIT_TEXT: Record<Doc<"equipment_audit">["action"], string> = {
   added: "Added",
   imported: "Updated from Excel import",
   assigned: "Check assigned",
@@ -116,6 +155,8 @@ const AUDIT_TEXT: Record<Doc<"equipment_audit">["action"], string> = {
   reviewed: "Reviewed",
   edited: "Details changed",
   archived: "Archived",
+  reminder_sent: "Reminder sent",
+  escalated: "Escalated to management",
 };
 
 /** One item for the admin: details, open check, latest result, past checks and activity. */
@@ -128,7 +169,7 @@ export const adminDetail = query({
     // An archived item still opens, read-only, so its history stays reachable (framework 11).
     if (item === null) return null;
     const checks = await checksOf(ctx, item._id);
-    const { open, latest, unreviewed, status } = summarise(item, checks, businessToday());
+    const { opens, latest, unreviewed, status } = summarise(item, checks, businessToday());
     const trail = (
       await ctx.db
         .query("equipment_audit")
@@ -150,10 +191,16 @@ export const adminDetail = query({
       status,
       archived: item.archived,
       can_manage: isAdminUser(viewer) && !item.archived,
-      open_check:
-        open === undefined
-          ? null
-          : { assigned_to_id: open.assigned_to, assigned_to: await personName(ctx, open.assigned_to), due: open.due },
+      // Each worker's own next check, soonest first (decision AD57).
+      open_checks: await Promise.all(
+        opens.map(async (check) => ({
+          id: check._id,
+          assigned_to_id: check.assigned_to,
+          assigned_to: (await personName(ctx, check.assigned_to)) ?? "Unknown",
+          due: check.due,
+          frequency_months: workerMonths(check, item),
+        })),
+      ),
       latest:
         latest === undefined
           ? null
@@ -358,50 +405,125 @@ export const adminArchive = mutation({
 });
 
 /**
- * The admin assigns a check of an item to a worker, to do by a date. An item
- * has one open check at a time: assigning again changes who and when.
+ * Schedules an item's checks for these workers (decision AD57): each gets
+ * their own check with this due date and frequency. A worker who already
+ * checks it has their date and frequency changed. Nobody else is touched:
+ * a worker stops checking it only through adminStopCheck.
  */
+async function schedule(
+  ctx: MutationCtx,
+  admin: Doc<"users">,
+  item: Doc<"equipment">,
+  workers: Doc<"users">[],
+  due: string,
+  months: number,
+) {
+  const opens = (await checksOf(ctx, item._id)).filter((check) => check.state === "assigned");
+  let changed = false;
+  for (const worker of workers) {
+    const name = worker.name ?? worker.email;
+    const existing = opens.find((check) => check.assigned_to === worker._id);
+    if (existing !== undefined) {
+      const before = workerMonths(existing, item);
+      if (existing.due === due && before === months) continue;
+      await ctx.db.patch(existing._id, { due, frequency_months: months, assigned_by: admin._id });
+      await ctx.db.insert("equipment_audit", {
+        equipment_id: item._id,
+        check_id: existing._id,
+        action: "assigned",
+        actor_id: admin._id,
+        details: `${name}: was due ${formatLongDate(existing.due)}, ${monthsText(before)}; now due ${formatLongDate(due)}, ${monthsText(months)}.`,
+      });
+    } else {
+      const checkId = await ctx.db.insert("equipment_checks", {
+        equipment_id: item._id,
+        assigned_to: worker._id,
+        assigned_by: admin._id,
+        due,
+        frequency_months: months,
+        state: "assigned",
+      });
+      await ctx.db.insert("equipment_audit", {
+        equipment_id: item._id,
+        check_id: checkId,
+        action: "assigned",
+        actor_id: admin._id,
+        details: `${name}, due ${formatLongDate(due)}, ${monthsText(months)}.`,
+      });
+    }
+    changed = true;
+  }
+  return changed;
+}
+
+/** Checks the workers, date and frequency for scheduling. */
+async function checkSchedule(ctx: QueryCtx, args: { user_ids: Id<"users">[]; due: string; frequency_months: number }) {
+  if (args.user_ids.length === 0) throw new ConvexError("Tick at least one worker who does the checks.");
+  if (!isValidIsoDate(args.due)) throw new ConvexError("Select the date the first check is due by.");
+  checkFrequency(args.frequency_months);
+  const workers: Doc<"users">[] = [];
+  for (const id of new Set(args.user_ids)) {
+    const worker = await ctx.db.get(id);
+    if (worker === null) throw new ConvexError("One of the ticked workers no longer exists. Reload and try again.");
+    if (worker.role !== "installer" && worker.role !== "subcontractor") {
+      throw new ConvexError(`${worker.name ?? worker.email} doesn't use the installer app, so they can't do a check.`);
+    }
+    workers.push(worker);
+  }
+  return workers;
+}
+
+/** The admin schedules one item's checks. */
 export const adminAssign = mutation({
-  args: { equipment_id: v.id("equipment"), user_id: v.id("users"), due: v.string() },
+  args: { equipment_id: v.id("equipment"), user_ids: v.array(v.id("users")), due: v.string(), frequency_months: v.optional(v.number()) },
   handler: async (ctx, args) => {
     const admin = await requireEquipmentAdmin(ctx);
     const item = await ctx.db.get(args.equipment_id);
     if (item === null || item.archived) throw new ConvexError("That item no longer exists.");
-    if (!isValidIsoDate(args.due)) throw new ConvexError("Select the date the check is due by.");
-    const worker = await ctx.db.get(args.user_id);
-    if (worker === null) throw new ConvexError("That worker no longer exists.");
-    if (worker.role !== "installer" && worker.role !== "subcontractor") {
-      throw new ConvexError(`${worker.name ?? worker.email} doesn't use the installer app, so they can't do a check.`);
-    }
-    const name = worker.name ?? worker.email;
-    const open = (await checksOf(ctx, item._id)).find((check) => check.state === "assigned");
-    if (open !== undefined) {
-      if (open.assigned_to === worker._id && open.due === args.due) throw new ConvexError("Nothing was changed.");
-      const before = (await personName(ctx, open.assigned_to)) ?? "Unknown";
-      await ctx.db.patch(open._id, { assigned_to: worker._id, due: args.due, assigned_by: admin._id });
-      await ctx.db.insert("equipment_audit", {
-        equipment_id: item._id,
-        check_id: open._id,
-        action: "assigned",
-        actor_id: admin._id,
-        details: `Changed from ${before}, due ${formatLongDate(open.due)}, to ${name}, due ${formatLongDate(args.due)}.`,
-      });
-      return;
-    }
-    const checkId = await ctx.db.insert("equipment_checks", {
-      equipment_id: item._id,
-      assigned_to: worker._id,
-      assigned_by: admin._id,
-      due: args.due,
-      state: "assigned",
-    });
+    if (item.out_of_service_date) throw new ConvexError("This item is out of service. Clear its out of service date in Edit Details first.");
+    const months = args.frequency_months ?? checkMonths(item);
+    const workers = await checkSchedule(ctx, { ...args, frequency_months: months });
+    if (!(await schedule(ctx, admin, item, workers, args.due, months))) throw new ConvexError("Nothing was changed.");
+  },
+});
+
+/** The admin stops one worker checking an item: their open check is cancelled, kept in the history (decision AD57). */
+export const adminStopCheck = mutation({
+  args: { check_id: v.id("equipment_checks") },
+  handler: async (ctx, args) => {
+    const admin = await requireEquipmentAdmin(ctx);
+    const check = await ctx.db.get(args.check_id);
+    if (check === null || check.state !== "assigned") throw new ConvexError("That worker no longer has this check.");
+    await ctx.db.patch(check._id, { state: "cancelled" });
     await ctx.db.insert("equipment_audit", {
-      equipment_id: item._id,
-      check_id: checkId,
+      equipment_id: check.equipment_id,
+      check_id: check._id,
       action: "assigned",
       actor_id: admin._id,
-      details: `${name}, due ${formatLongDate(args.due)}.`,
+      details: `${(await personName(ctx, check.assigned_to)) ?? "Unknown"} no longer checks it.`,
     });
+  },
+});
+
+/** The admin schedules many items' checks at once for the same workers, due date and frequency; other workers are left as they are (decision AD57). */
+export const adminAssignMany = mutation({
+  args: { equipment_ids: v.array(v.id("equipment")), user_ids: v.array(v.id("users")), due: v.string(), frequency_months: v.number() },
+  handler: async (ctx, args): Promise<{ scheduled: number; skipped: number }> => {
+    const admin = await requireEquipmentAdmin(ctx);
+    if (args.equipment_ids.length === 0) throw new ConvexError("Tick at least one item to schedule.");
+    const workers = await checkSchedule(ctx, args);
+    let scheduled = 0;
+    let skipped = 0;
+    for (const id of new Set(args.equipment_ids)) {
+      const item = await ctx.db.get(id);
+      // Archived or out-of-service items are left alone.
+      if (item === null || item.archived || item.out_of_service_date) {
+        skipped++;
+        continue;
+      }
+      if (await schedule(ctx, admin, item, workers, args.due, args.frequency_months)) scheduled++;
+    }
+    return { scheduled, skipped };
   },
 });
 
@@ -422,17 +544,23 @@ export const adminReview = mutation({
     if (item === null || item.archived) throw new ConvexError("That item no longer exists.");
     const note = text(args.note, "The note", MAX_TEXT);
     if (note === undefined) throw new ConvexError(args.outcome === "repaired" ? "Describe the repair." : "Add a note about your decision.");
-    const latest = (await checksOf(ctx, item._id)).find((check) => check.state === "done");
-    if (latest === undefined || !hasIssue(latest) || latest.reviewed_at !== undefined) {
-      throw new ConvexError("This item has no check waiting for review.");
-    }
+    // With several workers, every check that found damage and is still waiting is reviewed together (decision AD57).
+    const waiting = (await checksOf(ctx, item._id)).filter((check) => hasIssue(check) && check.reviewed_at === undefined);
+    const latest = waiting[0];
+    if (latest === undefined) throw new ConvexError("This item has no check waiting for review.");
     const today = businessToday();
-    await ctx.db.patch(latest._id, { reviewed_at: Date.now(), reviewed_by: admin._id, outcome: args.outcome, review_note: note });
+    for (const check of waiting) {
+      await ctx.db.patch(check._id, { reviewed_at: Date.now(), reviewed_by: admin._id, outcome: args.outcome, review_note: note });
+    }
     if (args.outcome === "repaired") {
       const entry = `${note} ${formatLongDate(today)}`;
       await ctx.db.patch(item._id, { damage: "Nil", repair_history: item.repair_history ? `${item.repair_history}; ${entry}` : entry });
     } else if (args.outcome === "out-of-service") {
       await ctx.db.patch(item._id, { out_of_service_date: today });
+      // An item out of service isn't checked until it is back in use (decision AD57).
+      for (const check of await checksOf(ctx, item._id)) {
+        if (check.state === "assigned") await ctx.db.patch(check._id, { state: "cancelled" });
+      }
     }
     const outcome = { repaired: "Repaired", "out-of-service": "Out of service", "no-action": "No action needed" }[args.outcome];
     await ctx.db.insert("equipment_audit", {
@@ -549,6 +677,199 @@ export const submitCheck = mutation({
       actor_id: user._id,
       details: [args.damage_found ? `Damage: ${damage}` : "No damage", recommendation ? `Recommendation: ${recommendation}` : ""].filter(Boolean).join(". "),
     });
+    // The next check, for the same worker, a frequency later (decision AD57).
+    if (!item.out_of_service_date) {
+      const months = workerMonths(check, item);
+      const due = addMonths(businessToday(), months);
+      const nextId = await ctx.db.insert("equipment_checks", {
+        equipment_id: item._id,
+        assigned_to: check.assigned_to,
+        assigned_by: check.assigned_by,
+        due,
+        frequency_months: months,
+        state: "assigned",
+      });
+      await ctx.db.insert("equipment_audit", {
+        equipment_id: item._id,
+        check_id: nextId,
+        action: "assigned",
+        details: `Next check set automatically: ${user.name ?? user.email}, due ${formatLongDate(due)}.`,
+      });
+    }
     return { issue: args.damage_found };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Check reminders
+// ---------------------------------------------------------------------------
+
+/**
+ * Height and safety equipment check reminders (decision AD57), the same as
+ * first-aid kits (K6) and run by the same 8am check (`whsReminders.sweepAtEight`):
+ * 14 and 7 days before, to the worker the check is assigned to; once overdue,
+ * weekly to them and the admin list; escalated to management once after the
+ * escalation setting (AD47). Keys include the due date, so each check starts afresh.
+ */
+
+const PAUSE_BETWEEN_EMAILS_MS = 600;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function days(count: number): string {
+  return `${count} ${count === 1 ? "day" : "days"}`;
+}
+
+interface EquipmentReminder {
+  equipment_id: Id<"equipment">;
+  key: string;
+  action: "reminder_sent" | "escalated";
+  to: string[];
+  subject: string;
+  lines: string[];
+  link?: { label: string; url: string };
+}
+
+/** Every equipment reminder due today and not yet sent. Read-only, so it doubles as a dry run. */
+export const remindersDue = internalQuery({
+  args: { today: v.string() },
+  handler: async (ctx, args): Promise<EquipmentReminder[]> => {
+    const escalationDays = await escalateAfterDays(ctx);
+    const horizon = addDays(args.today, Math.max(...EQUIPMENT_REMINDER_DAYS));
+    const adminEmails = await enabledRecipientEmails(ctx);
+    const managementEmails = (await ctx.db.query("users").collect())
+      .filter(isManagementUser)
+      .map((user) => user.email);
+
+    const reminders: EquipmentReminder[] = [];
+    const items = await ctx.db
+      .query("equipment")
+      .withIndex("by_archived", (q) => q.eq("archived", false))
+      .collect();
+    for (const item of items) {
+      if (item.out_of_service_date) continue;
+      // Each worker's own check is reminded on its own (decision AD57).
+      const opens = (
+        await ctx.db
+          .query("equipment_checks")
+          .withIndex("by_equipment", (q) => q.eq("equipment_id", item._id))
+          .collect()
+      ).filter((check) => check.state === "assigned" && check.due <= horizon);
+      for (const open of opens) {
+        const planned = planReminders({
+          today: args.today,
+          expires: open.due,
+          verifiedDate: businessToday(open._creationTime),
+          reminderDays: EQUIPMENT_REMINDER_DAYS,
+          escalateAfterDays: escalationDays,
+        });
+        if (planned.length === 0) continue;
+
+        const worker = await ctx.db.get(open.assigned_to);
+        const workerTo = worker === null ? adminEmails : [worker.email];
+        const greeting = worker === null ? [] : [`Hi ${worker.name ?? worker.email},`];
+        const dueDate = formatLongDate(open.due);
+        const detail = [item.brand, item.type].filter(Boolean).join(" ");
+        const name = detail ? `${item.name} (${detail})` : item.name;
+
+        for (const candidate of planned) {
+          const key = `${open.due}:${candidate.key}:${open.assigned_to}`;
+          const sent = await ctx.db
+            .query("equipment_audit")
+            .withIndex("by_equipment_and_key", (q) => q.eq("equipment_id", item._id).eq("key", key))
+            .first();
+          if (sent !== null) continue;
+
+          if (candidate.kind === "pre") {
+            const left = candidate.daysLeft ?? 0;
+            reminders.push({
+              equipment_id: item._id,
+              key,
+              action: "reminder_sent",
+              to: workerTo,
+              subject: `Equipment check due ${dueDate}: ${item.name}`,
+              lines: [
+                ...greeting,
+                left === 0 ? `${name} is due for its check today (${dueDate}).` : `${name} is due for its check on ${dueDate}, in ${days(left)}.`,
+                "Open Safety in the Western USI InstallFlow app, then Equipment Checks, and complete the check.",
+              ],
+            });
+          } else if (candidate.kind === "overdue") {
+            reminders.push({
+              equipment_id: item._id,
+              key,
+              action: "reminder_sent",
+              to: [...new Set([...workerTo, ...adminEmails])],
+              subject: `Equipment check overdue: ${item.name}`,
+              lines: [
+                `${name} was due for its check on ${dueDate}, ${days(candidate.overdueDays ?? 0)} ago${worker === null ? "" : ` (assigned to ${worker.name ?? worker.email})`}.`,
+                "Please complete it in the Western USI InstallFlow app. This reminder goes out each week until it's done.",
+              ],
+            });
+          } else {
+            reminders.push({
+              equipment_id: item._id,
+              key,
+              action: "escalated",
+              to: managementEmails,
+              subject: `Escalation: equipment check for ${item.name} is ${days(candidate.overdueDays ?? 0)} overdue`,
+              link: managementLink(`/management/equipment/${item._id}`),
+              lines: [
+                `${name} was due for its check on ${dueDate} and is now ${days(candidate.overdueDays ?? 0)} overdue${worker === null ? "" : ` (assigned to ${worker.name ?? worker.email})`}.`,
+                "Reminders have gone out each week. Please follow up.",
+              ],
+            });
+          }
+        }
+      }
+    }
+    return reminders.filter((reminder) => reminder.to.length > 0);
+  },
+});
+
+export const logReminderSent = internalMutation({
+  args: {
+    equipment_id: v.id("equipment"),
+    key: v.string(),
+    action: v.union(v.literal("reminder_sent"), v.literal("escalated")),
+    details: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.insert("equipment_audit", args);
+  },
+});
+
+/** Sends every equipment reminder due today. Called by `whsReminders.sweepAtEight`. */
+export const sweepReminders = internalAction({
+  args: {},
+  handler: async (ctx): Promise<{ due: number; sent: number; failed: number }> => {
+    const reminders = await ctx.runQuery(internal.equipment.remindersDue, { today: businessToday() });
+
+    let sent = 0;
+    let failed = 0;
+    for (const [index, reminder] of reminders.entries()) {
+      if (index > 0) await sleep(PAUSE_BETWEEN_EMAILS_MS);
+      try {
+        const emailed: string[] = await ctx.runAction(internal.email.sendWhsEmail, {
+          to: reminder.to,
+          subject: reminder.subject,
+          lines: reminder.lines,
+          link: reminder.link,
+        });
+        await ctx.runMutation(internal.equipment.logReminderSent, {
+          equipment_id: reminder.equipment_id,
+          key: reminder.key,
+          action: reminder.action,
+          details: emailed.length > 0 ? `Emailed ${emailed.join(", ")}: ${reminder.subject}` : `Not emailed (recipients on the skip list): ${reminder.subject}`,
+        });
+        sent++;
+      } catch (error) {
+        failed++;
+        console.error(`Equipment reminder ${reminder.key} for ${reminder.equipment_id} was not sent`, error);
+      }
+    }
+    return { due: reminders.length, sent, failed };
   },
 });

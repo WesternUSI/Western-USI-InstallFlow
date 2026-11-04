@@ -42,6 +42,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   sds: "SDS",
   document: "Other safety document",
   "first-aid": "First aid",
+  equipment: "Height & safety equipment",
 };
 
 const NEEDS_ACTION = ["missing", "overdue", "expired", "action-required", "out-of-service"];

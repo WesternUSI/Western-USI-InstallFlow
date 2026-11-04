@@ -2,7 +2,8 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { query, type QueryCtx } from "./_generated/server";
 import { LISTED_DOCUMENT_TYPES } from "./documents";
-import { certificatesOf, entityName, INSURANCE_TYPE_LABELS, policyStatus } from "./insurance";
+import { certificatesOf, entityName, insuranceTypeName, policyStatus } from "./insurance";
+import { checksOf as equipmentChecksOf, summarise as summariseEquipment } from "./equipment";
 import { deriveKitStatus } from "./kits";
 import { deriveVehicleStatus, VEHICLE_STATUS_LABELS, type VehicleStatus } from "./vehicles";
 import { canViewCompliance, documentIsFor, holdsAccreditations, isAdminUser, mustAcknowledgeDocuments } from "./permissions";
@@ -31,7 +32,7 @@ export type RegisterStatus =
 export interface RegisterRow {
   id: string;
   name: string;
-  category: "accreditation" | "swms" | "sds" | "document" | "first-aid" | "insurance" | "vehicle";
+  category: "accreditation" | "swms" | "sds" | "document" | "first-aid" | "insurance" | "vehicle" | "equipment";
   entity: string;
   /** The worker the record is about, when there is one. */
   person?: string;
@@ -121,7 +122,8 @@ export const register = query({
       ctx.db.query("accreditation_types").collect(),
       ctx.db.query("accreditation_requirements").collect(),
       ctx.db.query("accreditation_assignments").collect(),
-      ctx.db.query("whs_records").collect(),
+      // Deleted cards are left out everywhere (decision AD54).
+      ctx.db.query("whs_records").collect().then((all) => all.filter((record) => !record.archived)),
       versionsInState("pending"),
       versionsInState("verified"),
       versionsInState("rejected"),
@@ -169,7 +171,8 @@ export const register = query({
       const typeIds = new Set([...required, ...own.map((record) => record.type_id)]);
       for (const typeId of typeIds) {
         const type = typeById.get(typeId);
-        if (type === undefined || (type.archived && !own.some((record) => record.type_id === typeId))) continue;
+        // A type removed from the system is hidden, cards and all (decision AD54).
+        if (type === undefined || type.archived) continue;
         const record = own.find((entry) => entry.type_id === typeId);
         const history = record === undefined ? [] : (versionsByRecord.get(record._id) ?? []);
         const status = deriveAccreditationStatus(history, today, dueSoonWindowDays(type.reminder_days));
@@ -268,6 +271,27 @@ export const register = query({
       });
     }
 
+    // Height and safety equipment (decisions AD49, AD57): one row per item, due on its next check.
+    const equipmentItems = await ctx.db
+      .query("equipment")
+      .withIndex("by_archived", (q) => q.eq("archived", false))
+      .collect();
+    for (const item of equipmentItems) {
+      const { opens, open, status } = summariseEquipment(item, await equipmentChecksOf(ctx, item._id), today);
+      // Everyone with their own check of it (decision AD57).
+      const checkers = (await Promise.all(opens.map((check) => nameOf(check.assigned_to)))).join(", ");
+      rows.push({
+        id: item._id,
+        name: [item.name, [item.brand, item.type].filter(Boolean).join(" ")].filter(Boolean).join(" · "),
+        category: "equipment",
+        entity: "Western USI",
+        person: checkers || undefined,
+        status,
+        due: open?.due,
+        responsible: checkers || ADMIN_LIST,
+      });
+    }
+
     // Insurance policies (framework 4C).
     const policies = await ctx.db
       .query("insurance_policies")
@@ -278,7 +302,7 @@ export const register = query({
       const shown = [...certificates].reverse().find((certificate) => certificate.state === "pending" || certificate.state === "verified");
       rows.push({
         id: policy._id,
-        name: INSURANCE_TYPE_LABELS[policy.insurance_type],
+        name: insuranceTypeName(policy),
         category: "insurance",
         entity: await entityName(ctx, policy.subcontractor_id),
         status: policyStatus(certificates, today),
@@ -344,6 +368,7 @@ export const HISTORY_TEXT = {
     reminder_sent: "Reminder sent",
     escalated: "Escalated to management",
     edited: "Details changed",
+    archived: "Deleted",
     required: "Ticked as required",
     not_required: "Unticked, not required",
   },
@@ -389,6 +414,8 @@ export const HISTORY_TEXT = {
     escalated: "Escalated to management",
     edited: "Details changed",
     archived: "Archived",
+    document_added: "Document uploaded",
+    document_deleted: "Document deleted",
   },
 } as const;
 
@@ -477,7 +504,7 @@ export const entityHistory = query({
       .query("insurance_policies")
       .withIndex("by_subcontractor", (q) => q.eq("subcontractor_id", args.subcontractor_id))
       .collect()) {
-      const label = `${INSURANCE_TYPE_LABELS[policy.insurance_type]} policy`;
+      const label = `${insuranceTypeName(policy)} policy`;
       for (const row of await ctx.db
         .query("insurance_audit")
         .withIndex("by_policy", (q) => q.eq("policy_id", policy._id))

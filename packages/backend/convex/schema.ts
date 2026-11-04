@@ -368,7 +368,13 @@ export default defineSchema({
      */
     escalate_after_days: v.optional(v.number()),
     sort_order: v.number(),
+    /**
+     * Removed from the whole system (decision AD54): on no company's list, and
+     * its cards are hidden everywhere. Kept, with who removed it and why.
+     */
     archived: v.boolean(),
+    archived_by: v.optional(v.id("users")),
+    archived_reason: v.optional(v.string()),
   }).index("by_name", ["name"]),
 
   /**
@@ -418,6 +424,12 @@ export default defineSchema({
     type_id: v.id("accreditation_types"),
     /** Who is chased for renewals; the worker unless set otherwise. */
     responsible_user_id: v.id("users"),
+    /**
+     * Deleted by an admin, e.g. uploaded by mistake (decision AD54): hidden
+     * everywhere and never reminded, kept with its history. A new upload for
+     * the same type starts a new record.
+     */
+    archived: v.optional(v.boolean()),
   })
     .index("by_worker", ["worker_id"])
     .index("by_worker_and_type", ["worker_id", "type_id"]),
@@ -467,6 +479,8 @@ export default defineSchema({
       v.literal("escalated"),
       /** The admin corrected the details, with a reason (framework 11, decision AD32). */
       v.literal("edited"),
+      /** The admin deleted the card, with a reason (decision AD54). */
+      v.literal("archived"),
     ),
     /** Who did it. Absent for what the system does itself, such as sending a reminder. */
     actor_id: v.optional(v.id("users")),
@@ -717,7 +731,11 @@ export default defineSchema({
       v.literal("public_liability"),
       v.literal("motor_vehicle"),
       v.literal("professional_indemnity"),
+      /** A type framework 4C doesn't list, named in `other_type` (decision AD55). */
+      v.literal("other"),
     ),
+    /** The typed name of an "other" policy, e.g. "Business Package Insurance". */
+    other_type: v.optional(v.string()),
     insurer: v.string(),
     policy_number: v.optional(v.string()),
     coverage: v.string(),
@@ -809,6 +827,21 @@ export default defineSchema({
     recorded_by: v.id("users"),
   }).index("by_vehicle", ["vehicle_id"]),
 
+  /**
+   * A document kept on a vehicle, e.g. its registration papers (decision
+   * AD56). Separate from service reports, which belong to a service.
+   * Deleted ones are archived, kept with who removed them and why (framework 11).
+   */
+  vehicle_documents: defineTable({
+    vehicle_id: v.id("vehicles"),
+    name: v.string(),
+    file_id: v.id("_storage"),
+    file_name: v.string(),
+    content_type: v.optional(v.string()),
+    uploaded_by: v.id("users"),
+    archived: v.boolean(),
+  }).index("by_vehicle", ["vehicle_id"]),
+
   /** Append-only trail for vehicles (framework 11), with reminder keys. */
   vehicle_audit: defineTable({
     vehicle_id: v.id("vehicles"),
@@ -821,6 +854,9 @@ export default defineSchema({
       v.literal("escalated"),
       v.literal("edited"),
       v.literal("archived"),
+      /** A document uploaded to or deleted from the vehicle (decision AD56). */
+      v.literal("document_added"),
+      v.literal("document_deleted"),
     ),
     actor_id: v.optional(v.id("users")),
     details: v.optional(v.string()),
@@ -862,6 +898,11 @@ export default defineSchema({
     repair_history: v.optional(v.string()),
     out_of_service_date: v.optional(v.string()),
     last_updated: v.optional(v.string()),
+    /**
+     * Months between checks before they were set per worker (decision AD57);
+     * still the fallback for older checks. Absent means the default, 3.
+     */
+    frequency_months: v.optional(v.number()),
     archived: v.boolean(),
   }).index("by_archived", ["archived"]),
 
@@ -876,6 +917,11 @@ export default defineSchema({
     assigned_by: v.id("users"),
     /** "Check by" date. */
     due: v.string(),
+    /**
+     * This worker's months between checks (decision AD57): each worker on an
+     * item can have their own. Absent means the item's, else 3.
+     */
+    frequency_months: v.optional(v.number()),
     state: v.union(v.literal("assigned"), v.literal("done"), v.literal("cancelled")),
     done_on: v.optional(v.string()),
     damage_found: v.optional(v.boolean()),
@@ -906,10 +952,17 @@ export default defineSchema({
       v.literal("reviewed"),
       v.literal("edited"),
       v.literal("archived"),
+      /** Check reminders and escalation, like kits (decision AD57). */
+      v.literal("reminder_sent"),
+      v.literal("escalated"),
     ),
     actor_id: v.optional(v.id("users")),
     details: v.optional(v.string()),
-  }).index("by_equipment", ["equipment_id"]),
+    /** For reminders: which one, with the check's due date, so each is sent once. */
+    key: v.optional(v.string()),
+  })
+    .index("by_equipment", ["equipment_id"])
+    .index("by_equipment_and_key", ["equipment_id", "key"]),
 
   /**
    * WHS settings the admin can change, one row (decision AD47). Absent values

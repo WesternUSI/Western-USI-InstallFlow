@@ -24,6 +24,7 @@ const typeValidator = v.union(
   v.literal("public_liability"),
   v.literal("motor_vehicle"),
   v.literal("professional_indemnity"),
+  v.literal("other"),
 );
 
 export const INSURANCE_TYPE_LABELS: Record<Doc<"insurance_policies">["insurance_type"], string> = {
@@ -31,7 +32,33 @@ export const INSURANCE_TYPE_LABELS: Record<Doc<"insurance_policies">["insurance_
   public_liability: "Public Liability",
   motor_vehicle: "Motor Vehicle",
   professional_indemnity: "Professional Indemnity",
+  other: "Other",
 };
+
+/** A policy's type as shown everywhere: a listed one, or the name typed under "Other" (decision AD55). */
+export function insuranceTypeName(policy: Pick<Doc<"insurance_policies">, "insurance_type" | "other_type">): string {
+  return policy.insurance_type === "other" ? (policy.other_type ?? "Other insurance") : INSURANCE_TYPE_LABELS[policy.insurance_type];
+}
+
+/** Every name typed under "Other" on a policy, archived ones too, A-Z: offered in the Type list next time (decision AD55). */
+async function typedInsuranceTypes(ctx: QueryCtx): Promise<string[]> {
+  const listed = new Set(Object.values(INSURANCE_TYPE_LABELS).map((name) => name.toLowerCase()));
+  const names = new Map<string, string>();
+  for (const policy of await ctx.db.query("insurance_policies").collect()) {
+    const name = policy.insurance_type === "other" ? policy.other_type?.trim() : undefined;
+    if (name && !listed.has(name.toLowerCase()) && !names.has(name.toLowerCase())) names.set(name.toLowerCase(), name);
+  }
+  return [...names.values()].sort((a, b) => a.localeCompare(b));
+}
+
+/** The names typed under "Other" before, for Add Insurance Policy's Type list. */
+export const adminInsuranceTypes = query({
+  args: {},
+  handler: async (ctx) => {
+    await requirePanel(ctx);
+    return await typedInsuranceTypes(ctx);
+  },
+});
 
 async function requirePanel(ctx: QueryCtx) {
   const user = await requireCaller(ctx);
@@ -128,7 +155,7 @@ export const list = query({
         const current = [...certificates].reverse().find((certificate) => certificate.state === "pending" || certificate.state === "verified");
         return {
           id: policy._id,
-          type: INSURANCE_TYPE_LABELS[policy.insurance_type],
+          type: insuranceTypeName(policy),
           entity: await entityName(ctx, policy.subcontractor_id),
           subcontractor_id: policy.subcontractor_id,
           insurer: policy.insurer,
@@ -168,7 +195,7 @@ export async function policyDetail(
 
   return {
     id: policy._id,
-    type: INSURANCE_TYPE_LABELS[policy.insurance_type],
+    type: insuranceTypeName(policy),
     insurance_type: policy.insurance_type,
     entity: await entityName(ctx, policy.subcontractor_id),
     subcontractor_id: policy.subcontractor_id,
@@ -226,6 +253,9 @@ const certificateArgs = {
 export const adminCreate = mutation({
   args: {
     insurance_type: typeValidator,
+    /** "other": the type's name, typed now (`new_type`) or picked from the earlier ones (decision AD55). */
+    other_type: v.optional(v.string()),
+    new_type: v.optional(v.boolean()),
     subcontractor_id: v.optional(v.id("subcontractors")),
     insurer: v.string(),
     policy_number: v.optional(v.string()),
@@ -236,6 +266,18 @@ export const adminCreate = mutation({
   },
   handler: async (ctx, args) => {
     const admin = await requireAdmin(ctx);
+    let otherType: string | undefined;
+    if (args.insurance_type === "other") {
+      otherType = text(args.other_type?.replace(/\s+/g, " "), "The name of the insurance type");
+      if (otherType === undefined) throw new ConvexError("Enter the name of the insurance type.");
+      const typed = otherType.toLowerCase();
+      const listed = Object.values(INSURANCE_TYPE_LABELS).find((name) => name !== "Other" && name.toLowerCase() === typed);
+      if (listed !== undefined) throw new ConvexError(`"${listed}" is already in the list. Choose it instead of Other.`);
+      if (args.new_type) {
+        const earlier = (await typedInsuranceTypes(ctx)).find((name) => name.toLowerCase() === typed);
+        if (earlier !== undefined) throw new ConvexError(`There is already an insurance type called "${earlier}". Choose it from the list instead.`);
+      }
+    }
     const insurer = text(args.insurer, "The insurer");
     if (insurer === undefined) throw new ConvexError("Enter the insurer.");
     const coverage = text(args.coverage, "The coverage");
@@ -251,16 +293,22 @@ export const adminCreate = mutation({
         .query("insurance_policies")
         .withIndex("by_subcontractor", (q) => q.eq("subcontractor_id", args.subcontractor_id))
         .collect()
-    ).find((policy) => !policy.archived && policy.insurance_type === args.insurance_type);
+    ).find(
+      (policy) =>
+        !policy.archived &&
+        policy.insurance_type === args.insurance_type &&
+        (args.insurance_type !== "other" || policy.other_type?.toLowerCase() === otherType?.toLowerCase()),
+    );
     if (duplicate) {
       throw new ConvexError(
-        `${await entityName(ctx, args.subcontractor_id)} already has a ${INSURANCE_TYPE_LABELS[args.insurance_type]} policy. Open it and upload a renewal instead.`,
+        `${await entityName(ctx, args.subcontractor_id)} already has a ${insuranceTypeName(duplicate)} policy. Open it and upload a renewal instead.`,
       );
     }
 
     const policyId = await ctx.db.insert("insurance_policies", {
       subcontractor_id: args.subcontractor_id,
       insurance_type: args.insurance_type,
+      other_type: otherType,
       insurer,
       policy_number: text(args.policy_number, "The policy number"),
       coverage,
@@ -374,7 +422,7 @@ async function notifyContact(
 ) {
   const [uploader, policy] = await Promise.all([ctx.db.get(certificate.uploaded_by), ctx.db.get(certificate.policy_id)]);
   if (uploader === null || uploader.role !== "subcontractor" || policy === null) return;
-  const type = INSURANCE_TYPE_LABELS[policy.insurance_type];
+  const type = insuranceTypeName(policy);
   await ctx.scheduler.runAfter(0, internal.email.sendWhsEmail, {
     to: [uploader.email],
     subject: outcome.approved ? `Your ${type} certificate has been verified` : `Your ${type} certificate needs another look`,

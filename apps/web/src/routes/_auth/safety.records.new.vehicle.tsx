@@ -5,11 +5,11 @@ import { useMutation } from "convex/react";
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { Field, FieldRow, FormCard, SelectInput, TextInput } from "@/components/whs/safety-form";
+import { Field, FieldRow, FilePicker, FormCard, SelectInput, TextInput } from "@/components/whs/safety-form";
 import { Notice, SafetyButton, SafetyPage } from "@/components/whs/safety-ui";
 import { toUserMessage } from "@/lib/errors";
 import { MONTH_CHOICES } from "@/lib/kit-checks";
-import { formatIsoDate } from "@/lib/upload-file";
+import { formatIsoDate, uploadFile } from "@/lib/upload-file";
 import { useResponsiblePeople } from "@/lib/use-people";
 import { addMonthsIso } from "@/lib/whs-sample";
 
@@ -23,6 +23,7 @@ type Errors = Partial<Record<"rego" | "model" | "year" | "regoExpiry" | "insuran
 function AddVehicle() {
   const navigate = useNavigate();
   const create = useMutation(api.vehicles.adminCreate);
+  const generateUploadUrl = useMutation(api.vehicles.generateUploadUrl);
   const people = useResponsiblePeople();
   const [rego, setRego] = useState("");
   const [model, setModel] = useState("");
@@ -35,7 +36,14 @@ function AddVehicle() {
   const [provider, setProvider] = useState("");
   const [responsible, setResponsible] = useState("");
   const [errors, setErrors] = useState<Errors>({});
+  // Optional documents saved with the vehicle, e.g. its registration papers (decision AD56).
+  const [documents, setDocuments] = useState<{ name: string; file: File | null }[]>([]);
+  const [documentErrors, setDocumentErrors] = useState<{ name?: string; file?: string }[]>([]);
   const [saving, setSaving] = useState(false);
+  const setDocument = (index: number, change: Partial<{ name: string; file: File | null }>) => {
+    setDocuments((current) => current.map((entry, at) => (at === index ? { ...entry, ...change } : entry)));
+    setDocumentErrors((current) => current.map((entry, at) => (at === index ? {} : entry)));
+  };
   const next = lastService && interval ? addMonthsIso(lastService, Number(interval)) : "";
 
   const save = async () => {
@@ -49,13 +57,29 @@ function AddVehicle() {
     else if (lastService > new Date().toISOString().slice(0, 10)) found.lastService = "The last service date can't be in the future.";
     if (interval === "") found.interval = "Select the service interval.";
     setErrors(found);
-    const first = Object.values(found)[0];
+    // A document row needs both a name and a file; a row left completely empty is ignored.
+    const filled = documents.filter((entry) => entry.name.trim() !== "" || entry.file !== null);
+    const rowErrors = documents.map((entry) => {
+      if (entry.name.trim() === "" && entry.file === null) return {};
+      return {
+        name: entry.name.trim() === "" ? "Enter the document name, e.g. Registration papers 2026." : undefined,
+        file: entry.file === null ? "Choose the file for this document." : undefined,
+      };
+    });
+    setDocumentErrors(rowErrors);
+    const first = Object.values(found)[0] ?? rowErrors.flatMap((entry) => [entry.name, entry.file]).find(Boolean);
     if (first) {
       toast.error(first);
       return;
     }
     setSaving(true);
     try {
+      const uploaded = [];
+      for (const entry of filled) {
+        if (entry.file === null) continue;
+        const fileId = await uploadFile(await generateUploadUrl(), entry.file);
+        uploaded.push({ name: entry.name.trim(), file_id: fileId, file_name: entry.file.name, content_type: entry.file.type || undefined });
+      }
       const vehicleId = await create({
         registration: rego.trim(),
         make_model: model.trim(),
@@ -67,6 +91,7 @@ function AddVehicle() {
         service_interval_months: Number(interval),
         service_provider: provider.trim() || undefined,
         responsible_user_id: responsible === "" ? undefined : (responsible as Id<"users">),
+        documents: uploaded.length > 0 ? uploaded : undefined,
       });
       toast.success(`${rego.trim().toUpperCase()} saved`);
       void navigate({ replace: true, to: "/safety/vehicles/$vehicleId", params: { vehicleId } });
@@ -123,6 +148,47 @@ function AddVehicle() {
         <Field label="Responsible person" className="sm:max-w-[calc(50%-10px)]">
           <SelectInput value={responsible} onChange={setResponsible} options={people} placeholder="The admin list" />
         </Field>
+        <div className="flex flex-col gap-3 border-t border-[#f1f5f9] pt-4">
+          <div>
+            <p className="text-sm font-semibold text-[#111827]">Documents (optional)</p>
+            <p className="text-xs text-[#64748b]">Papers kept with the vehicle, like its registration. You can add more later on the vehicle's page.</p>
+          </div>
+          {documents.map((entry, index) => (
+            <div key={index} className="flex flex-col gap-3 rounded-[8px] border border-[#e5e7eb] p-4">
+              <div className="flex items-start gap-3">
+                <Field label="Document name" required error={documentErrors[index]?.name} className="flex-1">
+                  <TextInput
+                    value={entry.name}
+                    onChange={(value) => setDocument(index, { name: value })}
+                    placeholder="e.g. Registration papers 2026"
+                    invalid={!!documentErrors[index]?.name}
+                  />
+                </Field>
+                <button
+                  type="button"
+                  className="mt-7 text-xs font-medium text-[#dc2626] hover:underline"
+                  onClick={() => {
+                    setDocuments((current) => current.filter((_, at) => at !== index));
+                    setDocumentErrors((current) => current.filter((_, at) => at !== index));
+                  }}
+                >
+                  Remove
+                </button>
+              </div>
+              <FilePicker file={entry.file} onChange={(file) => setDocument(index, { file })} error={documentErrors[index]?.file} />
+            </div>
+          ))}
+          <button
+            type="button"
+            className="w-fit text-[13px] font-medium text-[#2563eb] hover:underline"
+            onClick={() => {
+              setDocuments((current) => [...current, { name: "", file: null }]);
+              setDocumentErrors((current) => [...current, {}]);
+            }}
+          >
+            {documents.length === 0 ? "+ Add a document" : "+ Add another document"}
+          </button>
+        </div>
         <Notice tone="info">Reminders: registration and insurance 60, 30, 14 and 7 days before expiry; service 30, 14 and 7 days before it's due.</Notice>
         <div className="flex flex-wrap gap-3">
           <SafetyButton variant="secondary" to="/safety/records/new">

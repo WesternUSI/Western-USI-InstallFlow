@@ -2,6 +2,7 @@ import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { query, type QueryCtx } from "./_generated/server";
 import { HISTORY_TEXT, requirePanelUser } from "./whsAdmin";
+import { AUDIT_TEXT as EQUIPMENT_AUDIT_TEXT } from "./equipment";
 import { isValidIsoDate } from "./accreditations";
 import { documentIsFor } from "./permissions";
 
@@ -154,6 +155,7 @@ export const recordHistory = query({
       v.literal("sds"),
       v.literal("document"),
       v.literal("first-aid"),
+      v.literal("equipment"),
       v.literal("insurance"),
       v.literal("vehicle"),
     ),
@@ -175,6 +177,11 @@ export const recordHistory = query({
       if (id === null) throw notFound();
       trail = await ctx.db.query("insurance_audit").withIndex("by_policy", (q) => q.eq("policy_id", id)).collect();
       texts = HISTORY_TEXT.insurance;
+    } else if (args.category === "equipment") {
+      const id = ctx.db.normalizeId("equipment", args.id);
+      if (id === null) throw notFound();
+      trail = await ctx.db.query("equipment_audit").withIndex("by_equipment", (q) => q.eq("equipment_id", id)).collect();
+      texts = EQUIPMENT_AUDIT_TEXT;
     } else if (args.category === "first-aid") {
       const id = ctx.db.normalizeId("first_aid_kits", args.id);
       if (id === null) throw notFound();

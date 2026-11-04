@@ -57,6 +57,7 @@ const CATEGORIES = [
   { value: "swms", label: "SWMS" },
   { value: "sds", label: "SDS" },
   { value: "first-aid", label: "First aid" },
+  { value: "equipment", label: "Height & safety equipment" },
 ];
 const TYPE_PREFIX = "type:";
 
@@ -284,6 +285,10 @@ function RegisterScreen() {
                     </RowAction>
                   ) : row.category === "first-aid" ? (
                     <RowAction to="/safety/kits/$kitId" params={{ kitId: row.id }}>
+                      Open
+                    </RowAction>
+                  ) : row.category === "equipment" ? (
+                    <RowAction to="/safety/equipment/$equipmentId" params={{ equipmentId: row.id }}>
                       Open
                     </RowAction>
                   ) : (

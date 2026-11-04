@@ -1,5 +1,7 @@
 import { api } from "@usi-installer/backend/convex/_generated/api";
+import type { Id } from "@usi-installer/backend/convex/_generated/dataModel";
 import { createFileRoute } from "@tanstack/react-router";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@usi-installer/ui/components/dialog";
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
@@ -8,7 +10,7 @@ import { toast } from "sonner";
 import { DetailsLayout, SideCard } from "@/components/whs/record-cards";
 import { ArchivedNotice, EditRecordDialog, ManageRecordCard } from "@/components/whs/record-admin";
 import { Field, FieldRow, SelectInput, TextArea, TextInput } from "@/components/whs/safety-form";
-import { DetailGrid, Panel, SafetyButton, SafetyPage, StatusBadge } from "@/components/whs/safety-ui";
+import { DetailGrid, Panel, RowAction, SafetyButton, SafetyPage, StatusBadge } from "@/components/whs/safety-ui";
 import { toUserMessage } from "@/lib/errors";
 import { formatIsoDate, formatTime } from "@/lib/upload-file";
 
@@ -32,7 +34,11 @@ function EquipmentDetails() {
   const { equipmentId } = Route.useParams();
   const item = useQuery(api.equipment.adminDetail, { equipment_id: equipmentId });
   const archive = useMutation(api.equipment.adminArchive);
+  const stopCheck = useMutation(api.equipment.adminStopCheck);
   const [editing, setEditing] = useState(false);
+  // One worker to stop checking this item (decision AD57).
+  const [removing, setRemoving] = useState<{ id: Id<"equipment_checks">; name: string } | null>(null);
+  const [busy, setBusy] = useState(false);
 
   if (item === undefined || item === null) {
     return (
@@ -106,10 +112,19 @@ function EquipmentDetails() {
           <>
             <SideCard title="Check">
               <p className="text-[13px] text-[#64748b]">
-                {item.open_check
-                  ? `${item.open_check.assigned_to} checks this item in the installer app, by ${formatIsoDate(item.open_check.due)}.`
-                  : "No check is assigned."}
+                {item.open_checks.length > 0 ? "Each worker checks it in the installer app on their own schedule:" : "No checks are scheduled."}
               </p>
+              {item.open_checks.map((check) => (
+                <div key={check.id} className="flex items-start justify-between gap-2 border-t border-[#f1f5f9] pt-2 first-of-type:border-t-0">
+                  <div className="min-w-0">
+                    <p className="text-[13px] font-medium text-[#111827]">{check.assigned_to}</p>
+                    <p className="text-xs text-[#64748b]">
+                      Every {check.frequency_months} {check.frequency_months === 1 ? "month" : "months"} · next by {formatIsoDate(check.due)}
+                    </p>
+                  </div>
+                  {item.can_manage ? <RowAction onClick={() => setRemoving({ id: check.id, name: check.assigned_to })}>Remove</RowAction> : null}
+                </div>
+              ))}
               {item.can_manage ? (
                 <SafetyButton
                   variant="secondary"
@@ -117,7 +132,7 @@ function EquipmentDetails() {
                   params={{ equipmentId }}
                   className="w-full rounded-[8px] border-[#3b82f6] text-xs"
                 >
-                  {item.open_check ? "Change Check" : "Assign Check"}
+                  {item.open_checks.length > 0 ? "Add or Change Workers" : "Schedule Checks"}
                 </SafetyButton>
               ) : null}
             </SideCard>
@@ -139,6 +154,37 @@ function EquipmentDetails() {
           </>
         }
       />
+      <Dialog open={removing !== null} onOpenChange={(next) => !next && !busy && setRemoving(null)}>
+        <DialogContent className="rounded-xl border-slate-200 bg-white sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold text-slate-900">Stop {removing?.name} checking {item.name}?</DialogTitle>
+            <DialogDescription className="text-sm leading-relaxed text-slate-500">
+              Their check disappears from their app and their reminders stop. Other workers keep their checks. Their past checks stay in the history.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <SafetyButton variant="secondary" onClick={() => setRemoving(null)} disabled={busy}>
+              Cancel
+            </SafetyButton>
+            <SafetyButton
+              onClick={() => {
+                if (removing === null) return;
+                setBusy(true);
+                void stopCheck({ check_id: removing.id })
+                  .then(() => {
+                    toast.success(`${removing.name} no longer checks ${item.name}`);
+                    setRemoving(null);
+                  })
+                  .catch((error: unknown) => toast.error(toUserMessage(error, "Could not remove that worker.")))
+                  .finally(() => setBusy(false));
+              }}
+              disabled={busy}
+            >
+              {busy ? "Removing…" : "Yes, Remove"}
+            </SafetyButton>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {item.can_manage ? <EditEquipmentDialog item={item} open={editing} onClose={() => setEditing(false)} /> : null}
     </SafetyPage>
   );

@@ -3,7 +3,7 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { internalAction, internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
 import { enabledRecipientEmails } from "./emails";
-import { entityName, INSURANCE_REMINDER_DAYS, INSURANCE_TYPE_LABELS } from "./insurance";
+import { entityName, INSURANCE_REMINDER_DAYS, insuranceTypeName } from "./insurance";
 import { REGISTRATION_REMINDER_DAYS, SERVICE_REMINDER_DAYS, INSURANCE_REMINDER_DAYS as VEHICLE_INSURANCE_DAYS } from "./vehicles";
 import { businessToday, formatLongDate } from "./whsDates";
 import { planReminders } from "./whsStatus";
@@ -140,7 +140,7 @@ export const due = internalQuery({
       const common = {
         kind: "insurance" as const,
         targetId: policy._id,
-        name: `${await entityName(ctx, policy.subcontractor_id)} ${INSURANCE_TYPE_LABELS[policy.insurance_type]}`,
+        name: `${await entityName(ctx, policy.subcontractor_id)} ${insuranceTypeName(policy)}`,
         what: "the policy",
         date: current.expires,
         since: businessToday(current.verified_at ?? current._creationTime),

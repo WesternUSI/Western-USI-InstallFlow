@@ -10,10 +10,11 @@ import { ConvexError } from "convex/values";
 const MAX_REASON = 500;
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-export function checkReason(reason: string, action: "change" | "archive" = "change") {
+export function checkReason(reason: string, action: "change" | "archive" | "delete" | "remove" = "change") {
   const trimmed = reason.trim();
   if (trimmed === "") {
-    throw new ConvexError(action === "change" ? "Enter the reason for the change." : "Enter the reason for archiving it.");
+    const missing = { change: "the change", archive: "archiving it", delete: "deleting it", remove: "removing it" };
+    throw new ConvexError(`Enter the reason for ${missing[action]}.`);
   }
   if (trimmed.length > MAX_REASON) throw new ConvexError(`The reason can be up to ${MAX_REASON} characters.`);
   return trimmed;

@@ -1,6 +1,6 @@
 import { api } from "@usi-installer/backend/convex/_generated/api";
 import type { Id } from "@usi-installer/backend/convex/_generated/dataModel";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@usi-installer/ui/components/dialog";
 import { useEffect, useState } from "react";
@@ -26,6 +26,7 @@ const ACTION_TEXT: Record<string, string> = {
   reminder_sent: "Reminder sent",
   escalated: "Escalated to management",
   edited: "Details changed",
+  archived: "Deleted",
 };
 
 /**
@@ -39,6 +40,8 @@ function ReviewEvidence() {
   const detail = useQuery(api.accreditations.adminDetail, { key: accreditationId });
   const verify = useMutation(api.accreditations.verify);
   const reject = useMutation(api.accreditations.reject);
+  const archive = useMutation(api.accreditations.adminArchive);
+  const navigate = useNavigate();
   const [expires, setExpires] = useState("");
   const [requesting, setRequesting] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -80,6 +83,20 @@ function ReviewEvidence() {
       throw error;
     }
   };
+
+  // Deleting a wrong upload (decision AD54): archived, then back to the register.
+  const handleArchive = async (reason: string) => {
+    if (!detail.record_id) return;
+    try {
+      await archive({ record_id: detail.record_id, reason });
+      toast.success(`${detail.type} deleted for ${detail.worker}`);
+      void navigate({ to: "/safety/register" });
+    } catch (error) {
+      toast.error(toUserMessage(error, "Could not delete that accreditation."));
+      throw error;
+    }
+  };
+  const canManage = !detail.archived && detail.can_verify;
 
   return (
     <SafetyPage
@@ -141,7 +158,12 @@ function ReviewEvidence() {
             {detail.status === "action-required" && evidence?.rejected_reason ? (
               <Notice tone="danger">New evidence requested: {evidence.rejected_reason}. The worker sees this as Action required.</Notice>
             ) : null}
-            {detail.status === "missing" ? <Notice tone="warning">{detail.worker} hasn't uploaded this yet. You can add it for them.</Notice> : null}
+            {detail.archived ? (
+              <Notice tone="warning">This {detail.type} was deleted. It's kept with its history but no longer shown anywhere, so it can't be changed.</Notice>
+            ) : null}
+            {detail.status === "missing" && !detail.archived ? (
+              <Notice tone="warning">{detail.worker} hasn't uploaded this yet. You can add it for them.</Notice>
+            ) : null}
 
             {waiting ? (
               <Panel className="flex flex-col gap-3 p-6">
@@ -195,9 +217,20 @@ function ReviewEvidence() {
                 </SideButton>
               ) : null}
             </SideCard>
-            {/* Verified evidence is corrected here; waiting evidence is corrected while verifying it (S6). */}
-            {!waiting && detail.can_verify && evidence?.state === "verified" && detail.record_id ? (
-              <ManageRecordCard noun="accreditation" onEdit={() => setEditing(true)} />
+            {/* Verified evidence is corrected here; waiting evidence is corrected while verifying it (S6). Any upload can be deleted (AD54). */}
+            {canManage && detail.record_id ? (
+              <ManageRecordCard
+                noun="accreditation"
+                onEdit={!waiting && evidence?.state === "verified" ? () => setEditing(true) : undefined}
+                onArchive={handleArchive}
+                archive={{
+                  label: "Delete",
+                  title: `Delete ${detail.worker}'s ${detail.type}?`,
+                  description: `It disappears from the register, Worker Accreditations, the matrix, the reports and ${detail.worker}'s app, and no reminders go out for it. If ${detail.worker} is ticked for ${detail.type}, it shows as Missing so the right one can be uploaded. It's kept in the company's History with your reason, never wiped.`,
+                  placeholder: "e.g. Uploaded to the wrong person by mistake",
+                  missingMessage: "Enter the reason for deleting it",
+                }}
+              />
             ) : null}
           </>
         }

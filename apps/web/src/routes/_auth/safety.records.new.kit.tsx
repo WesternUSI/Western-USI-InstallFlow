@@ -8,7 +8,8 @@ import { toast } from "sonner";
 import { Field, FieldRow, FormCard, SelectInput, TextInput } from "@/components/whs/safety-form";
 import { Notice, SafetyButton, SafetyPage } from "@/components/whs/safety-ui";
 import { toUserMessage } from "@/lib/errors";
-import { KIT_TYPES, MONTH_CHOICES } from "@/lib/kit-checks";
+import { KIT_TYPES } from "@/lib/kit-checks";
+import { MonthsField, monthsError } from "@/components/whs/months-field";
 import { useInspectors } from "@/lib/use-people";
 
 export const Route = createFileRoute("/_auth/safety/records/new/kit")({
@@ -38,7 +39,8 @@ function AddFirstAidKit() {
     if (type === "") found.type = "Select the kit type.";
     if (location.trim() === "") found.location = "Enter where the kit is kept, or its vehicle.";
     if (installer === "") found.installer = "Select the installer who inspects this kit.";
-    if (interval === "") found.interval = "Select how often the kit is inspected.";
+    const intervalProblem = monthsError(interval);
+    if (intervalProblem) found.interval = intervalProblem;
     if (next === "") found.next = "Select when the first inspection is due.";
     setErrors(found);
     const first = Object.values(found)[0];
@@ -86,9 +88,7 @@ function AddFirstAidKit() {
           </Field>
         </FieldRow>
         <FieldRow>
-          <Field label="Inspection interval" required error={errors.interval}>
-            <SelectInput value={interval} onChange={setInterval} options={MONTH_CHOICES} invalid={!!errors.interval} />
-          </Field>
+          <MonthsField label="Inspection interval" value={interval} onChange={setInterval} error={errors.interval} />
           <Field label="First inspection due" required error={errors.next}>
             <TextInput type="date" value={next} onChange={setNext} invalid={!!errors.next} />
           </Field>

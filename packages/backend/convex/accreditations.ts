@@ -100,6 +100,33 @@ export async function requiredTypeIds(ctx: QueryCtx, user: Doc<"users">) {
   return new Set(ticked.map((row) => row.type_id).filter((typeId) => onList.has(typeId)));
 }
 
+/** The worker's card for one type, leaving out deleted ones (decision AD54). */
+export async function liveRecord(ctx: QueryCtx, workerId: Id<"users">, typeId: Id<"accreditation_types">) {
+  const records = await ctx.db
+    .query("whs_records")
+    .withIndex("by_worker_and_type", (q) => q.eq("worker_id", workerId).eq("type_id", typeId))
+    .collect();
+  return records.find((record) => !record.archived) ?? null;
+}
+
+/**
+ * A type removed from the system with this name, any capitalisation: creating
+ * it again brings it back, cards and all, instead of a duplicate (decision AD54).
+ */
+export async function removedTypeNamed(ctx: QueryCtx, name: string) {
+  const needle = name.trim().toLowerCase();
+  return (await ctx.db.query("accreditation_types").collect()).find((type) => type.archived && type.name.toLowerCase() === needle) ?? null;
+}
+
+/** All of a worker's cards, leaving out deleted ones (decision AD54). */
+export async function liveRecords(ctx: QueryCtx, workerId: Id<"users">) {
+  const records = await ctx.db
+    .query("whs_records")
+    .withIndex("by_worker", (q) => q.eq("worker_id", workerId))
+    .collect();
+  return records.filter((record) => !record.archived);
+}
+
 async function versionsOf(ctx: QueryCtx, recordId: Id<"whs_records">) {
   // The index is ordered by creation time within a record, so this is oldest first.
   return await ctx.db
@@ -149,10 +176,7 @@ export const mine = query({
     const [types, required, records] = await Promise.all([
       ctx.db.query("accreditation_types").collect(),
       requiredTypeIds(ctx, user),
-      ctx.db
-        .query("whs_records")
-        .withIndex("by_worker", (q) => q.eq("worker_id", user._id))
-        .collect(),
+      liveRecords(ctx, user._id),
     ]);
 
     // A subcontractor login that isn't also a worker holds nothing (decision R6).
@@ -169,7 +193,8 @@ export const mine = query({
 
     const items = types
       .filter((type) => required.has(type._id) || versionsByType.has(type._id))
-      .filter((type) => !type.archived || versionsByType.has(type._id))
+      // A type removed from the system is hidden, cards and all (decision AD54).
+    .filter((type) => !type.archived)
       .map((type) => summarise(type, versionsByType.get(type._id) ?? [], today));
 
     // Resolve who verified each one, once.
@@ -200,10 +225,7 @@ export const detail = query({
     const type = await ctx.db.get(args.type_id);
     if (type === null) return null;
 
-    const record = await ctx.db
-      .query("whs_records")
-      .withIndex("by_worker_and_type", (q) => q.eq("worker_id", user._id).eq("type_id", type._id))
-      .unique();
+    const record = await liveRecord(ctx, user._id, type._id);
     const versions = record === null ? [] : await versionsOf(ctx, record._id);
 
     const summary = summarise(type, versions, businessToday());
@@ -241,7 +263,7 @@ async function audit(
   entry: {
     record_id: Id<"whs_records">;
     version_id: Id<"whs_record_versions">;
-    action: "uploaded" | "verified" | "rejected" | "superseded" | "edited";
+    action: "uploaded" | "verified" | "rejected" | "superseded" | "edited" | "archived";
     actor_id: Id<"users">;
     details?: string;
   },
@@ -312,10 +334,7 @@ export async function saveUpload(
     throw new ConvexError("That accreditation type no longer exists.");
   }
 
-  const existing = await ctx.db
-    .query("whs_records")
-    .withIndex("by_worker_and_type", (q) => q.eq("worker_id", worker._id).eq("type_id", type._id))
-    .unique();
+  const existing = await liveRecord(ctx, worker._id, type._id);
   if (existing === null && !(await requiredTypeIds(ctx, worker)).has(type._id)) {
     const whose = worker._id === uploader._id ? "your" : `${worker.name ?? worker.email}'s`;
     throw new ConvexError(`${type.name} isn't on ${whose} required list.`);
@@ -402,6 +421,9 @@ async function pendingVersion(ctx: MutationCtx, versionId: Id<"whs_record_versio
   }
   if (version.state !== "pending") {
     throw new ConvexError("That upload has already been checked.");
+  }
+  if ((await ctx.db.get(version.record_id))?.archived) {
+    throw new ConvexError("That accreditation was deleted, so there is nothing to check.");
   }
   return version;
 }
@@ -708,18 +730,14 @@ export async function accreditationDetail(
     const [workerPart, typePart] = key.split(":");
     workerId = ctx.db.normalizeId("users", workerPart ?? "");
     typeId = ctx.db.normalizeId("accreditation_types", typePart ?? "");
-    if (workerId !== null && typeId !== null) {
-      const w = workerId;
-      const t = typeId;
-      record = await ctx.db
-        .query("whs_records")
-        .withIndex("by_worker_and_type", (q) => q.eq("worker_id", w).eq("type_id", t))
-        .unique();
-    }
+    if (workerId !== null && typeId !== null) record = await liveRecord(ctx, workerId, typeId);
   }
   if (workerId === null || typeId === null) return null;
   const [worker, type] = await Promise.all([ctx.db.get(workerId), ctx.db.get(typeId)]);
   if (worker === null || type === null || !canSee(worker)) return null;
+  // Deleted cards (decision AD54) open read-only for the office only, from the History tab.
+  const archived = record?.archived === true || type.archived;
+  if (archived && !canViewCompliance(viewer)) return null;
 
   const versions = record === null ? [] : await versionsOf(ctx, record._id);
   const status = deriveAccreditationStatus(versions, businessToday(), dueSoonWindowDays(type.reminder_days));
@@ -747,7 +765,8 @@ export async function accreditationDetail(
     entity: subcontractor?.name ?? "Western USI",
     type: type.name,
     status,
-    can_verify: canVerifyEvidence(viewer),
+    archived,
+    can_verify: canVerifyEvidence(viewer) && !archived,
     reminder_days: type.reminder_days,
     evidence:
       shown === undefined
@@ -843,21 +862,22 @@ export const adminAddEvidence = mutation({
       if (all.some((entry) => !entry.archived && entry.name.toLowerCase() === newTypeName.toLowerCase())) {
         throw new ConvexError(`There is already an accreditation called "${newTypeName}". Choose it from the list instead.`);
       }
-      const typeId = await ctx.db.insert("accreditation_types", {
-        name: newTypeName,
-        reminder_days: DEFAULT_REMINDER_DAYS,
-        sort_order: all.reduce((max, entry) => Math.max(max, entry.sort_order), 0) + 1,
-        archived: false,
-      });
+      const removed = await removedTypeNamed(ctx, newTypeName);
+      if (removed !== null) await ctx.db.patch(removed._id, { archived: false, archived_by: undefined, archived_reason: undefined });
+      const typeId =
+        removed?._id ??
+        (await ctx.db.insert("accreditation_types", {
+          name: newTypeName,
+          reminder_days: DEFAULT_REMINDER_DAYS,
+          sort_order: all.reduce((max, entry) => Math.max(max, entry.sort_order), 0) + 1,
+          archived: false,
+        }));
       type = await ctx.db.get(typeId);
     }
     if (type === null) throw new ConvexError("Select the accreditation type.");
     const heldType = type;
 
-    const existing = await ctx.db
-      .query("whs_records")
-      .withIndex("by_worker_and_type", (q) => q.eq("worker_id", worker._id).eq("type_id", heldType._id))
-      .unique();
+    const existing = await liveRecord(ctx, worker._id, heldType._id);
     const recordId =
       existing?._id ??
       (await ctx.db.insert("whs_records", {
@@ -926,7 +946,7 @@ export const adminEdit = mutation({
   handler: async (ctx, args) => {
     const admin = await requireEvidenceAdmin(ctx);
     const record = await ctx.db.get(args.record_id);
-    if (record === null) throw new ConvexError("That accreditation no longer exists.");
+    if (record === null || record.archived) throw new ConvexError("That accreditation no longer exists.");
     const versions = await versionsOf(ctx, record._id);
     const verified = lastWhere(versions, "verified");
     if (verified === undefined) throw new ConvexError("There's no verified evidence to correct yet. Verify or add evidence first.");
@@ -959,6 +979,26 @@ export const adminEdit = mutation({
 });
 
 /**
+ * The admin deletes a worker's card, e.g. one uploaded by mistake, with a
+ * reason (decision AD54). It is archived, never deleted (framework 11): hidden
+ * everywhere and no longer reminded, kept with its history. If the worker is
+ * still ticked for it, it shows as Missing again.
+ */
+export const adminArchive = mutation({
+  args: { record_id: v.id("whs_records"), reason: v.string() },
+  handler: async (ctx, args) => {
+    const admin = await requireEvidenceAdmin(ctx);
+    const record = await ctx.db.get(args.record_id);
+    if (record === null || record.archived) throw new ConvexError("That accreditation has already been deleted.");
+    const reason = checkReason(args.reason, "delete");
+    const versions = await versionsOf(ctx, record._id);
+    const latest = versions[versions.length - 1];
+    await ctx.db.patch(record._id, { archived: true });
+    await ctx.db.insert("whs_audit", { record_id: record._id, version_id: latest?._id, action: "archived", actor_id: admin._id, details: reason });
+  },
+});
+
+/**
  * One worker's accreditations for the management worker page (Figma M6,
  * decision AD43): every one they must hold or have uploaded, most urgent
  * first, each with its register key so it opens its record. Read-only.
@@ -980,10 +1020,7 @@ export async function workerAccreditations(ctx: QueryCtx, worker: Doc<"users">) 
   const [types, required, records] = await Promise.all([
     ctx.db.query("accreditation_types").collect(),
     requiredTypeIds(ctx, worker),
-    ctx.db
-      .query("whs_records")
-      .withIndex("by_worker", (q) => q.eq("worker_id", worker._id))
-      .collect(),
+    liveRecords(ctx, worker._id),
   ]);
   const recordByType = new Map(records.map((record) => [record.type_id, record]));
   const versionsByType = new Map<Id<"accreditation_types">, Version[]>();
@@ -992,7 +1029,8 @@ export async function workerAccreditations(ctx: QueryCtx, worker: Doc<"users">) 
 
   const items = types
     .filter((type) => required.has(type._id) || versionsByType.has(type._id))
-    .filter((type) => !type.archived || versionsByType.has(type._id))
+    // A type removed from the system is hidden, cards and all (decision AD54).
+    .filter((type) => !type.archived)
     .map((type) => ({
       ...summarise(type, versionsByType.get(type._id) ?? [], today),
       key: recordByType.get(type._id)?._id ?? `${worker._id}:${type._id}`,

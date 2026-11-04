@@ -11,7 +11,8 @@ import { ArchivedNotice, EditRecordDialog, ManageRecordCard } from "@/components
 import { Field, FieldRow, SelectInput, TextArea, TextInput } from "@/components/whs/safety-form";
 import { DetailGrid, Panel, SafetyButton, SafetyPage, StatusBadge, reminderText } from "@/components/whs/safety-ui";
 import { toUserMessage } from "@/lib/errors";
-import { KIT_CHECKS, KIT_TYPES, MONTH_CHOICES } from "@/lib/kit-checks";
+import { KIT_CHECKS, KIT_TYPES } from "@/lib/kit-checks";
+import { MonthsField, monthsError } from "@/components/whs/months-field";
 import { formatIsoDate, formatTime } from "@/lib/upload-file";
 
 export const Route = createFileRoute("/_auth/safety/kits/$kitId/")({
@@ -162,7 +163,7 @@ function KitDetails() {
 }
 
 type KitDetail = NonNullable<FunctionReturnType<typeof api.kits.adminDetail>>;
-type KitErrors = Partial<Record<"code" | "type" | "location" | "next", string>>;
+type KitErrors = Partial<Record<"code" | "type" | "location" | "next" | "frequency", string>>;
 
 /** Edit Details for a kit (decision AD32). Who inspects it is changed with Assign Inspection. */
 function EditKitDialog({ kit, open, onClose }: { kit: KitDetail; open: boolean; onClose: () => void }) {
@@ -186,9 +187,6 @@ function EditKitDialog({ kit, open, onClose }: { kit: KitDetail; open: boolean; 
     }
   }
   const set = (key: keyof ReturnType<typeof initial>) => (value: string) => setForm((current) => ({ ...current, [key]: value }));
-  const frequencies = MONTH_CHOICES.some((choice) => choice.value === form.frequency)
-    ? MONTH_CHOICES
-    : [...MONTH_CHOICES, { value: form.frequency, label: `${form.frequency} months` }];
   const types = KIT_TYPES.some((choice) => choice.value === form.type) ? KIT_TYPES : [...KIT_TYPES, { value: form.type, label: form.type }];
 
   const save = async (reason: string) => {
@@ -197,6 +195,8 @@ function EditKitDialog({ kit, open, onClose }: { kit: KitDetail; open: boolean; 
     if (form.type === "") found.type = "Select the kit type";
     if (form.location.trim() === "") found.location = "Enter where the kit is kept, or its vehicle";
     if (form.next === "") found.next = "Select the next inspection date";
+    const frequencyProblem = monthsError(form.frequency);
+    if (frequencyProblem) found.frequency = frequencyProblem;
     setErrors(found);
     const first = Object.values(found)[0];
     if (first) {
@@ -236,9 +236,7 @@ function EditKitDialog({ kit, open, onClose }: { kit: KitDetail; open: boolean; 
         <TextInput value={form.location} onChange={set("location")} invalid={!!errors.location} />
       </Field>
       <FieldRow>
-        <Field label="Inspected every" required>
-          <SelectInput value={form.frequency} onChange={set("frequency")} options={frequencies} />
-        </Field>
+        <MonthsField label="Inspected every" value={form.frequency} onChange={set("frequency")} error={errors.frequency} />
         <Field label="Next inspection" required error={errors.next}>
           <TextInput type="date" value={form.next} onChange={set("next")} invalid={!!errors.next} />
         </Field>

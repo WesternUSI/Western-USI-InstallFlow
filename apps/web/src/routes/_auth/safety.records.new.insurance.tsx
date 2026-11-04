@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { Field, FieldRow, FilePicker, FormCard, SelectInput, TextInput } from "@/components/whs/safety-form";
 import { Notice, SafetyButton, SafetyPage } from "@/components/whs/safety-ui";
 import { toUserMessage } from "@/lib/errors";
-import { INSURANCE_TYPES, type InsuranceType } from "@/lib/insurance-types";
+import { OTHER_INSURANCE_TYPE, insuranceTypeChoices, typedInsuranceName, type InsuranceType } from "@/lib/insurance-types";
 import { uploadFile } from "@/lib/upload-file";
 import { useResponsiblePeople } from "@/lib/use-people";
 
@@ -17,7 +17,7 @@ export const Route = createFileRoute("/_auth/safety/records/new/insurance")({
 });
 
 const WESTERN_USI = "western-usi";
-type Errors = Partial<Record<"type" | "entity" | "insurer" | "coverage" | "start" | "expires" | "file", string>>;
+type Errors = Partial<Record<"type" | "otherType" | "entity" | "insurer" | "coverage" | "start" | "expires" | "file", string>>;
 
 /** F4 Add Insurance Policy, real (framework 4C fields). Verified straight away (V4). */
 function AddInsurancePolicy() {
@@ -26,8 +26,11 @@ function AddInsurancePolicy() {
   const people = useResponsiblePeople();
   const generateUploadUrl = useMutation(api.insurance.generateUploadUrl);
   const create = useMutation(api.insurance.adminCreate);
+  const typeChoices = insuranceTypeChoices(useQuery(api.insurance.adminInsuranceTypes));
 
   const [type, setType] = useState("");
+  // The name typed under "Other" (decision AD55).
+  const [otherType, setOtherType] = useState("");
   const [entity, setEntity] = useState("");
   const [insurer, setInsurer] = useState("");
   const [policyNumber, setPolicyNumber] = useState("");
@@ -41,7 +44,8 @@ function AddInsurancePolicy() {
 
   const save = async () => {
     const found: Errors = {};
-    if (type === "") found.type = "Select the policy type.";
+    if (type === "") found.type = "Select the policy type, or choose Other.";
+    if (type === OTHER_INSURANCE_TYPE && otherType.trim() === "") found.otherType = "Enter the name of the insurance type.";
     if (entity === "") found.entity = "Select who the policy insures.";
     if (insurer.trim() === "") found.insurer = "Enter the insurer.";
     if (coverage.trim() === "") found.coverage = "Enter the coverage, e.g. $10,000,000 or Statutory.";
@@ -58,8 +62,11 @@ function AddInsurancePolicy() {
     setSaving(true);
     try {
       const fileId = await uploadFile(await generateUploadUrl(), file);
+      const earlier = typedInsuranceName(type);
       const policyId = await create({
-        insurance_type: type as InsuranceType,
+        insurance_type: type === OTHER_INSURANCE_TYPE || earlier !== undefined ? "other" : (type as InsuranceType),
+        other_type: type === OTHER_INSURANCE_TYPE ? otherType.trim() : earlier,
+        new_type: type === OTHER_INSURANCE_TYPE || undefined,
         subcontractor_id: entity === WESTERN_USI ? undefined : (entity as Id<"subcontractors">),
         insurer: insurer.trim(),
         policy_number: policyNumber.trim() || undefined,
@@ -85,7 +92,15 @@ function AddInsurancePolicy() {
       <FormCard title="Record details">
         <FieldRow>
           <Field label="Policy type" required error={errors.type}>
-            <SelectInput value={type} onChange={setType} options={[...INSURANCE_TYPES]} invalid={!!errors.type} />
+            <SelectInput
+              value={type}
+              onChange={(value) => {
+                setType(value);
+                setErrors((current) => ({ ...current, type: undefined, otherType: undefined }));
+              }}
+              options={typeChoices}
+              invalid={!!errors.type}
+            />
           </Field>
           <Field label="Insured entity" required error={errors.entity}>
             <SelectInput
@@ -96,6 +111,19 @@ function AddInsurancePolicy() {
             />
           </Field>
         </FieldRow>
+        {type === OTHER_INSURANCE_TYPE ? (
+          <Field label="Name of the insurance type" required error={errors.otherType} hint="It's added to the Type list for next time.">
+            <TextInput
+              value={otherType}
+              onChange={(value) => {
+                setOtherType(value);
+                setErrors((current) => ({ ...current, otherType: undefined }));
+              }}
+              placeholder="e.g. Business Package Insurance"
+              invalid={!!errors.otherType}
+            />
+          </Field>
+        ) : null}
         <FieldRow>
           <Field label="Insurer" required error={errors.insurer}>
             <TextInput value={insurer} onChange={setInsurer} placeholder="e.g. Allianz" invalid={!!errors.insurer} />

@@ -2,10 +2,10 @@ import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
-import { accreditationDetail, requireCaller, saveUpload, workerAccreditations } from "./accreditations";
+import { accreditationDetail, liveRecord, liveRecords, requireCaller, saveUpload, workerAccreditations } from "./accreditations";
 import { agreementsOf, agreementStatus } from "./agreements";
 import { enabledRecipientEmails } from "./emails";
-import { certificatesOf, INSURANCE_TYPE_LABELS, policyDetail, policyStatus, saveContactRenewal } from "./insurance";
+import { certificatesOf, insuranceTypeName, policyDetail, policyStatus, saveContactRenewal } from "./insurance";
 import { documentIsFor, holdsAccreditations, mustAcknowledgeDocuments } from "./permissions";
 import { businessToday, formatLongDate } from "./whsDates";
 import { adminPanelLink } from "./whsLinks";
@@ -30,9 +30,9 @@ async function requireContact(ctx: QueryCtx) {
   return { user, company };
 }
 
-/** Whether someone has any accreditation evidence on file. */
+/** Whether someone has any accreditation evidence on file, deleted cards aside (decision AD54). */
 async function hasEvidence(ctx: QueryCtx, userId: Id<"users">) {
-  return (await ctx.db.query("whs_records").withIndex("by_worker", (q) => q.eq("worker_id", userId)).first()) !== null;
+  return (await liveRecords(ctx, userId)).length > 0;
 }
 
 /** The company's workers: its installers, and its logins that are also workers (decision R6), A-Z. */
@@ -65,7 +65,7 @@ async function policiesOf(ctx: QueryCtx, companyId: Id<"subcontractors">) {
       const shown = [...certificates].reverse().find((certificate) => certificate.state === "pending" || certificate.state === "verified");
       return {
         id: policy._id,
-        type: INSURANCE_TYPE_LABELS[policy.insurance_type],
+        type: insuranceTypeName(policy),
         insurer: policy.insurer,
         coverage: policy.coverage,
         policy_number: policy.policy_number,
@@ -293,7 +293,7 @@ export const uploadInsuranceRenewal = mutation({
     const fileName = required(args.file_name, "Choose the certificate of currency to upload.");
     await saveContactRenewal(ctx, user, policy, { ...args, start, expires, file_name: fileName });
 
-    const type = INSURANCE_TYPE_LABELS[policy.insurance_type];
+    const type = insuranceTypeName(policy);
     await tellAdmins(
       ctx,
       `${company.name} uploaded a ${type} renewal`,
@@ -328,13 +328,7 @@ export const uploadWorkerEvidence = mutation({
     const fileName = required(args.file_name, "Choose the evidence file to upload.");
     const result = await saveUpload(ctx, user, worker, { ...args, type_id: typeId, file_name: fileName });
 
-    const [type, record] = await Promise.all([
-      ctx.db.get(typeId),
-      ctx.db
-        .query("whs_records")
-        .withIndex("by_worker_and_type", (q) => q.eq("worker_id", worker._id).eq("type_id", typeId))
-        .unique(),
-    ]);
+    const [type, record] = await Promise.all([ctx.db.get(typeId), liveRecord(ctx, worker._id, typeId)]);
     const workerName = worker.name ?? worker.email;
     await tellAdmins(
       ctx,

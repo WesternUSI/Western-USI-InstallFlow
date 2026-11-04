@@ -90,7 +90,7 @@ async function audit(ctx: MutationCtx, entry: Omit<Doc<"vehicle_audit">, "_id" |
   await ctx.db.insert("vehicle_audit", entry);
 }
 
-/** A one-off URL for a service invoice or report. */
+/** A one-off URL for a service invoice or report, or a vehicle document. */
 export const generateUploadUrl = mutation({
   args: {},
   handler: async (ctx) => {
@@ -152,6 +152,13 @@ export const adminDetail = query({
       .order("desc")
       .take(20);
     const latest = services[0];
+    const documents = (
+      await ctx.db
+        .query("vehicle_documents")
+        .withIndex("by_vehicle", (q) => q.eq("vehicle_id", vehicle._id))
+        .order("desc")
+        .collect()
+    ).filter((document) => !document.archived);
 
     return {
       ...summary(vehicle, businessToday()),
@@ -169,6 +176,18 @@ export const adminDetail = query({
           odometer: service.odometer,
           notes: service.notes,
           by: await nameOf(ctx, service.recorded_by),
+          // Every service's report, not just the latest (decision AD56).
+          file_url: service.file_id === undefined ? null : await ctx.storage.getUrl(service.file_id),
+        })),
+      ),
+      documents: await Promise.all(
+        documents.map(async (document) => ({
+          id: document._id,
+          name: document.name,
+          file_name: document.file_name,
+          url: await ctx.storage.getUrl(document.file_id),
+          uploaded_at: document._creationTime,
+          by: await nameOf(ctx, document.uploaded_by),
         })),
       ),
       activity: await Promise.all(
@@ -178,7 +197,41 @@ export const adminDetail = query({
   },
 });
 
-/** The admin adds a vehicle (Figma F5, framework 4E). The next service is worked out. */
+const documentArgs = {
+  name: v.string(),
+  file_id: v.id("_storage"),
+  file_name: v.string(),
+  content_type: v.optional(v.string()),
+};
+
+/** Checks one vehicle document's name and file; `which` names it when several are added at once. */
+async function checkDocument(ctx: QueryCtx, document: { name: string; file_id: Id<"_storage"> }, which = "the document") {
+  const name = text(document.name.replace(/\s+/g, " "), `The name of ${which}`);
+  if (name === undefined) throw new ConvexError(`Enter the name of ${which}, e.g. Registration papers 2026.`);
+  if ((await ctx.db.system.get(document.file_id)) === null) throw new ConvexError(`The file for ${name} didn't finish uploading. Please try again.`);
+  return name;
+}
+
+async function insertDocument(
+  ctx: MutationCtx,
+  vehicleId: Id<"vehicles">,
+  document: { file_id: Id<"_storage">; file_name: string; content_type?: string },
+  name: string,
+  adminId: Id<"users">,
+) {
+  await ctx.db.insert("vehicle_documents", {
+    vehicle_id: vehicleId,
+    name,
+    file_id: document.file_id,
+    file_name: document.file_name,
+    content_type: document.content_type,
+    uploaded_by: adminId,
+    archived: false,
+  });
+  await audit(ctx, { vehicle_id: vehicleId, action: "document_added", actor_id: adminId, details: name });
+}
+
+/** The admin adds a vehicle (Figma F5, framework 4E), optionally with its documents (AD56). The next service is worked out. */
 export const adminCreate = mutation({
   args: {
     registration: v.string(),
@@ -192,6 +245,8 @@ export const adminCreate = mutation({
     service_provider: v.optional(v.string()),
     responsible_user_id: v.optional(v.id("users")),
     notes: v.optional(v.string()),
+    /** Documents added on the same form, e.g. the registration papers (decision AD56). */
+    documents: v.optional(v.array(v.object(documentArgs))),
   },
   handler: async (ctx, args) => {
     const admin = await requireAdmin(ctx);
@@ -213,6 +268,11 @@ export const adminCreate = mutation({
       .withIndex("by_registration", (q) => q.eq("registration", registration))
       .first();
     if (existing !== null && !existing.archived) throw new ConvexError(`Vehicle ${registration} is already in the register.`);
+    const documents = args.documents ?? [];
+    const names: string[] = [];
+    for (const [index, document] of documents.entries()) {
+      names.push(await checkDocument(ctx, document, documents.length === 1 ? "the document" : `document ${index + 1}`));
+    }
 
     const vehicleId = await ctx.db.insert("vehicles", {
       registration,
@@ -231,6 +291,7 @@ export const adminCreate = mutation({
       archived: false,
     });
     await audit(ctx, { vehicle_id: vehicleId, action: "added", actor_id: admin._id });
+    for (const [index, document] of documents.entries()) await insertDocument(ctx, vehicleId, document, names[index], admin._id);
     return vehicleId;
   },
 });
@@ -401,6 +462,30 @@ export const adminEdit = mutation({
     );
     await ctx.db.patch(vehicle._id, next);
     await audit(ctx, { vehicle_id: vehicle._id, action: "edited", actor_id: admin._id, details });
+  },
+});
+
+/** The admin uploads a document to a vehicle, e.g. its registration papers (decision AD56). */
+export const adminAddDocument = mutation({
+  args: { vehicle_id: v.id("vehicles"), ...documentArgs },
+  handler: async (ctx, args) => {
+    const admin = await requireAdmin(ctx);
+    const vehicle = await ctx.db.get(args.vehicle_id);
+    if (vehicle === null || vehicle.archived) throw new ConvexError("That vehicle no longer exists.");
+    await insertDocument(ctx, vehicle._id, args, await checkDocument(ctx, args), admin._id);
+  },
+});
+
+/** The admin deletes a vehicle document, with a reason. It is archived, never wiped (framework 11, decision AD56). */
+export const adminDeleteDocument = mutation({
+  args: { document_id: v.id("vehicle_documents"), reason: v.string() },
+  handler: async (ctx, args) => {
+    const admin = await requireAdmin(ctx);
+    const document = await ctx.db.get(args.document_id);
+    if (document === null || document.archived) throw new ConvexError("That document has already been deleted.");
+    const reason = checkReason(args.reason, "delete");
+    await ctx.db.patch(document._id, { archived: true });
+    await audit(ctx, { vehicle_id: document.vehicle_id, action: "document_deleted", actor_id: admin._id, details: `${document.name}: ${reason}` });
   },
 });
 
