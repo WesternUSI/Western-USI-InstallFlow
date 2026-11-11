@@ -206,13 +206,12 @@ export async function buildReport(id: ReportId, input: ReportInput): Promise<Rep
       tables = [
         {
           heading: "Vehicles",
-          columns: ["Registration", "Make / model", "Status", "Registration expiry", "Insurance expiry", "Last service", "Next service", "Service provider"],
+          columns: ["Registration", "Make / model", "Status", "Registration expiry", "Last service", "Next service", "Service provider"],
           rows: vehicles.map((vehicle) => [
             vehicle.registration,
             vehicle.make_model,
             vehicle.out_of_service && vehicle.out_of_service_reason ? `${vehicle.status_label}: ${vehicle.out_of_service_reason}` : vehicle.status_label,
             date(vehicle.registration_expiry),
-            date(vehicle.insurance_expiry),
             date(vehicle.last_service),
             date(vehicle.next_service),
             vehicle.service_provider ?? "",

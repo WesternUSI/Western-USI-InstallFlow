@@ -15,7 +15,6 @@ import { checkReason, describeEdit } from "./whsEdits";
 /** Framework 7: registration 60, 30, 14, 7 days before expiry; service 30, 14, 7 before it's due. */
 export const REGISTRATION_REMINDER_DAYS = [60, 30, 14, 7];
 export const SERVICE_REMINDER_DAYS = [30, 14, 7];
-export const INSURANCE_REMINDER_DAYS = [60, 30, 14, 7];
 
 export type VehicleStatus =
   | "current"
@@ -23,8 +22,6 @@ export type VehicleStatus =
   | "service-overdue"
   | "registration-expiring"
   | "registration-expired"
-  | "insurance-expiring"
-  | "insurance-expired"
   | "out-of-service";
 
 export const VEHICLE_STATUS_LABELS: Record<VehicleStatus, string> = {
@@ -33,24 +30,21 @@ export const VEHICLE_STATUS_LABELS: Record<VehicleStatus, string> = {
   "service-overdue": "Service overdue",
   "registration-expiring": "Registration expiring",
   "registration-expired": "Registration expired",
-  "insurance-expiring": "Insurance expiring",
-  "insurance-expired": "Insurance expired",
   "out-of-service": "Out of service",
 };
 
 /**
  * The one status shown for a vehicle (framework 4E's list), the most urgent
- * first. "Insurance expired" is added: 4E lists only "Insurance expiring".
+ * first. Vehicle insurance is not tracked here (decision AD59): it is the Motor
+ * Vehicle policy in the Insurance Register.
  */
 export function deriveVehicleStatus(vehicle: Doc<"vehicles">, today: string): VehicleStatus {
   if (vehicle.out_of_service) return "out-of-service";
   const left = (date: string) => daysBetween(today, date);
   if (left(vehicle.registration_expiry) < 0) return "registration-expired";
-  if (left(vehicle.insurance_expiry) < 0) return "insurance-expired";
   if (left(vehicle.next_service) < 0) return "service-overdue";
   if (left(vehicle.registration_expiry) <= Math.max(...REGISTRATION_REMINDER_DAYS)) return "registration-expiring";
   if (left(vehicle.next_service) <= Math.max(...SERVICE_REMINDER_DAYS)) return "service-due-soon";
-  if (left(vehicle.insurance_expiry) <= Math.max(...INSURANCE_REMINDER_DAYS)) return "insurance-expiring";
   return "current";
 }
 
@@ -108,7 +102,6 @@ function summary(vehicle: Doc<"vehicles">, today: string) {
     year: vehicle.year,
     vin: vehicle.vin,
     registration_expiry: vehicle.registration_expiry,
-    insurance_expiry: vehicle.insurance_expiry,
     last_service: vehicle.last_service,
     next_service: vehicle.next_service,
     service_interval_months: vehicle.service_interval_months,
@@ -239,7 +232,8 @@ export const adminCreate = mutation({
     year: v.optional(v.number()),
     vin: v.optional(v.string()),
     registration_expiry: v.string(),
-    insurance_expiry: v.string(),
+    /** Ignored (decision AD59); still accepted so a page that has not refreshed does not fail. */
+    insurance_expiry: v.optional(v.string()),
     last_service: v.string(),
     service_interval_months: v.number(),
     service_provider: v.optional(v.string()),
@@ -258,7 +252,6 @@ export const adminCreate = mutation({
       throw new ConvexError("Enter a four-digit year, e.g. 2021.");
     }
     checkDate(args.registration_expiry, "registration expiry");
-    checkDate(args.insurance_expiry, "insurance expiry");
     checkDate(args.last_service, "last service date");
     if (args.last_service > businessToday()) throw new ConvexError("The last service date can't be in the future.");
     checkInterval(args.service_interval_months);
@@ -280,7 +273,6 @@ export const adminCreate = mutation({
       year: args.year,
       vin: text(args.vin, "The VIN"),
       registration_expiry: args.registration_expiry,
-      insurance_expiry: args.insurance_expiry,
       last_service: args.last_service,
       service_interval_months: args.service_interval_months,
       next_service: addMonths(args.last_service, args.service_interval_months),
@@ -300,7 +292,7 @@ export const adminCreate = mutation({
  * "Mark service complete" (framework 8): enter the date, optionally the
  * invoice; the next service is worked out and the vehicle returns to Current,
  * so an out-of-service vehicle can be used again (decision AD38).
- * Registration and insurance are unchanged.
+ * Registration is unchanged.
  */
 export const adminRecordService = mutation({
   args: {
@@ -390,7 +382,8 @@ export const adminEdit = mutation({
     year: v.optional(v.number()),
     vin: v.optional(v.string()),
     registration_expiry: v.string(),
-    insurance_expiry: v.string(),
+    /** Ignored (decision AD59); still accepted so a page that has not refreshed does not fail. */
+    insurance_expiry: v.optional(v.string()),
     last_service: v.string(),
     service_interval_months: v.number(),
     service_provider: v.optional(v.string()),
@@ -411,7 +404,6 @@ export const adminEdit = mutation({
       throw new ConvexError("Enter a four-digit year, e.g. 2021.");
     }
     checkDate(args.registration_expiry, "registration expiry");
-    checkDate(args.insurance_expiry, "insurance expiry");
     checkDate(args.last_service, "last service date");
     if (args.last_service > businessToday()) throw new ConvexError("The last service date can't be in the future.");
     checkInterval(args.service_interval_months);
@@ -432,7 +424,6 @@ export const adminEdit = mutation({
       year: args.year,
       vin: text(args.vin, "The VIN"),
       registration_expiry: args.registration_expiry,
-      insurance_expiry: args.insurance_expiry,
       last_service: args.last_service,
       service_interval_months: args.service_interval_months,
       next_service: addMonths(args.last_service, args.service_interval_months),
@@ -447,7 +438,6 @@ export const adminEdit = mutation({
         { label: "Year", before: vehicle.year, after: next.year },
         { label: "VIN", before: vehicle.vin, after: next.vin },
         { label: "Registration expiry", before: vehicle.registration_expiry, after: next.registration_expiry, kind: "date" },
-        { label: "Insurance expiry", before: vehicle.insurance_expiry, after: next.insurance_expiry, kind: "date" },
         { label: "Last service", before: vehicle.last_service, after: next.last_service, kind: "date" },
         { label: "Service interval (months)", before: vehicle.service_interval_months, after: next.service_interval_months },
         { label: "Service provider", before: vehicle.service_provider, after: next.service_provider },

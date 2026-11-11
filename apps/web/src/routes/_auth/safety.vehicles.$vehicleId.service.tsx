@@ -115,8 +115,8 @@ function MarkVehicleServiced() {
         </Field>
         <FilePicker file={file} onChange={setFile} />
         <Notice tone="info">
-          Saving records the service and works out the next one.{vehicle.out_of_service ? " The vehicle is no longer out of service." : ""} Registration and
-          insurance are separate.
+          Saving records the service and works out the next one.{vehicle.out_of_service ? " The vehicle is no longer out of service." : ""} Registration is
+          separate.
         </Notice>
         <div className="flex flex-wrap gap-3">
           <SafetyButton variant="secondary" to="/safety/vehicles/$vehicleId" params={{ vehicleId }}>

@@ -804,7 +804,8 @@ export default defineSchema({
     year: v.optional(v.number()),
     vin: v.optional(v.string()),
     registration_expiry: v.string(),
-    insurance_expiry: v.string(),
+    // Kept from before decision AD59; no longer shown or used. Vehicle insurance is the Motor Vehicle policy in the Insurance Register.
+    insurance_expiry: v.optional(v.string()),
     last_service: v.string(),
     service_interval_months: v.number(),
     next_service: v.string(),

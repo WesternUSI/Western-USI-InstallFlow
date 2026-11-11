@@ -48,7 +48,6 @@ function VehicleForManagement() {
                   { label: "Next service", value: formatIsoDate(vehicle.next_service) },
                   { label: "Service provider", value: vehicle.service_provider ?? "—" },
                   { label: "Responsible person", value: vehicle.responsible ?? "The admin list" },
-                  { label: "Insurance expires", value: formatIsoDate(vehicle.insurance_expiry) },
                   { label: "Last service", value: formatIsoDate(vehicle.last_service) },
                 ]}
               />
@@ -78,7 +77,7 @@ function VehicleForManagement() {
                 </SideButton>
               ) : null}
             </SideCard>
-            <ReminderScheduleCard text="Service 30, 14 and 7 days before it's due; registration and insurance 60, 30, 14 and 7 days before expiry" />
+            <ReminderScheduleCard text="Service 30, 14 and 7 days before it's due; registration 60, 30, 14 and 7 days before expiry" />
           </>
         }
       />

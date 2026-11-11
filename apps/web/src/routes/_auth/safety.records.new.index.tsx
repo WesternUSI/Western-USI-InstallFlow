@@ -15,7 +15,7 @@ const TYPES = [
   { to: "/safety/records/new/document", title: "Safety Document", text: "SWMS, SDS, client and reference documents" },
   { to: "/safety/records/new/accreditation", title: "Accreditation", text: "A worker’s card, licence or induction" },
   { to: "/safety/records/new/insurance", title: "Insurance", text: "Policies and certificates of currency" },
-  { to: "/safety/records/new/vehicle", title: "Vehicle", text: "Registration, insurance and date-based servicing" },
+  { to: "/safety/records/new/vehicle", title: "Vehicle", text: "Registration and date-based servicing" },
   { to: "/safety/records/new/kit", title: "First-aid kit", text: "Kit location, assigned installer and inspection dates" },
 ] as const;
 

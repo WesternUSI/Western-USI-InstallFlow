@@ -332,10 +332,8 @@ export const register = query({
       current: "current",
       "service-due-soon": "due-soon",
       "registration-expiring": "due-soon",
-      "insurance-expiring": "due-soon",
       "service-overdue": "overdue",
       "registration-expired": "expired",
-      "insurance-expired": "expired",
       "out-of-service": "out-of-service",
     };
     for (const vehicle of vehicles) {
@@ -347,7 +345,7 @@ export const register = query({
         entity: "Western USI",
         status: VEHICLE_TO_REGISTER[status],
         label: status === "current" ? undefined : VEHICLE_STATUS_LABELS[status],
-        due: [vehicle.registration_expiry, vehicle.insurance_expiry, vehicle.next_service].sort()[0],
+        due: [vehicle.registration_expiry, vehicle.next_service].sort()[0],
         responsible: await nameOf(vehicle.responsible_user_id),
         vehicle: vehicle.registration,
       });

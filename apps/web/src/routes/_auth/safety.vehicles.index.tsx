@@ -19,8 +19,6 @@ const STATUSES = [
   { value: "service-overdue", label: "Service overdue" },
   { value: "registration-expiring", label: "Registration expiring" },
   { value: "registration-expired", label: "Registration expired" },
-  { value: "insurance-expiring", label: "Insurance expiring" },
-  { value: "insurance-expired", label: "Insurance expired" },
   { value: "out-of-service", label: "Out of service" },
 ];
 
@@ -40,8 +38,8 @@ function VehicleRegister() {
   );
 
   return (
-    <SafetyPage title="Vehicle Register" description="Monitor registration, insurance and servicing for Western USI vehicles.">
-      <Notice tone="info">Completing a service doesn't renew registration or insurance; each date is tracked on its own.</Notice>
+    <SafetyPage title="Vehicle Register" description="Monitor registration and servicing for Western USI vehicles.">
+      <Notice tone="info">Completing a service doesn't renew registration; each date is tracked on its own.</Notice>
       <Panel>
         <Toolbar>
           <div className="w-full sm:flex-1">
@@ -74,7 +72,6 @@ function VehicleRegister() {
               ),
             },
             { key: "rego", header: "Registration due", render: (row) => formatIsoDate(row.registration_expiry) },
-            { key: "insurance", header: "Insurance due", render: (row) => formatIsoDate(row.insurance_expiry) },
             { key: "service", header: "Next service", render: (row) => formatIsoDate(row.next_service) },
             { key: "status", header: "Status", render: (row) => <StatusBadge status={vehicleBadge(row.status)} label={row.status_label} /> },
             {

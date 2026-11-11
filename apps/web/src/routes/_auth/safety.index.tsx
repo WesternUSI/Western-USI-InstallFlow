@@ -56,7 +56,7 @@ function SafetyDashboard() {
         <StatCard label="SWMS acknowledgements outstanding" value={count((row) => row.category === "swms" && (row.outstanding ?? 0) > 0)} hint="Documents with outstanding workers" to="/safety/register" search={{ category: "swms", status: "acks-outstanding" }} />
         <StatCard label="First-aid inspections due" value={count((row) => row.category === "first-aid" && row.status !== "current")} hint="Follow up with assigned installers" to="/safety/register" search={{ category: "first-aid", status: "needs-action" }} />
         <StatCard label="Equipment checks due" value={count((row) => row.category === "equipment" && row.status !== "current")} hint="Checks due, damage found or out of service" to="/safety/register" search={{ category: "equipment", status: "needs-action" }} />
-        <StatCard label="Vehicle actions required" value={count((row) => row.category === "vehicle" && row.status !== "current")} hint="Service, registration or insurance" to="/safety/register" search={{ category: "vehicle", status: "needs-action" }} />
+        <StatCard label="Vehicle actions required" value={count((row) => row.category === "vehicle" && row.status !== "current")} hint="Service or registration" to="/safety/register" search={{ category: "vehicle", status: "needs-action" }} />
         {changesToReview > 0 ? (
           // Only shown while there is something to review (decision D3), so the usual view keeps the framework's nine cards.
           <StatCard

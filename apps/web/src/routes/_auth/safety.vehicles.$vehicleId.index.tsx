@@ -66,13 +66,12 @@ function VehicleDetails() {
                   { label: "VIN", value: vehicle.vin ?? "—" },
                   { label: "Year", value: vehicle.year ?? "—" },
                   { label: "Registration expires", value: formatIsoDate(vehicle.registration_expiry) },
-                  { label: "Insurance expires", value: formatIsoDate(vehicle.insurance_expiry) },
                   { label: "Last service", value: formatIsoDate(vehicle.last_service) },
                   { label: "Next service", value: formatIsoDate(vehicle.next_service) },
                   { label: "Service interval", value: `${vehicle.service_interval_months} months` },
                   { label: "Service provider", value: vehicle.service_provider ?? "—" },
                   { label: "Responsible person", value: vehicle.responsible ?? "The admin list" },
-                  { label: "Reminders", value: `Service ${reminderText([30, 14, 7], "it's due")}; registration and insurance 60, 30, 14 and 7 days before expiry` },
+                  { label: "Reminders", value: `Service ${reminderText([30, 14, 7], "it's due")}; registration 60, 30, 14 and 7 days before expiry` },
                 ]}
               />
             </Panel>
@@ -152,7 +151,7 @@ function VehicleDetails() {
 }
 
 type VehicleDetail = NonNullable<FunctionReturnType<typeof api.vehicles.adminDetail>>;
-type VehicleErrors = Partial<Record<"registration" | "model" | "year" | "regoExpiry" | "insuranceExpiry" | "lastService", string>>;
+type VehicleErrors = Partial<Record<"registration" | "model" | "year" | "regoExpiry" | "lastService", string>>;
 
 /** Edit Details for a vehicle (decision AD32). The next service is worked out again from the last service and interval. */
 function EditVehicleDialog({ vehicle, open, onClose }: { vehicle: VehicleDetail; open: boolean; onClose: () => void }) {
@@ -164,7 +163,6 @@ function EditVehicleDialog({ vehicle, open, onClose }: { vehicle: VehicleDetail;
     year: vehicle.year === undefined ? "" : String(vehicle.year),
     vin: vehicle.vin ?? "",
     regoExpiry: vehicle.registration_expiry,
-    insuranceExpiry: vehicle.insurance_expiry,
     lastService: vehicle.last_service,
     interval: String(vehicle.service_interval_months),
     provider: vehicle.service_provider ?? "",
@@ -192,7 +190,6 @@ function EditVehicleDialog({ vehicle, open, onClose }: { vehicle: VehicleDetail;
     if (form.model.trim() === "") found.model = "Enter the make and model";
     if (form.year !== "" && !/^\d{4}$/.test(form.year)) found.year = "Enter a four-digit year, e.g. 2021";
     if (form.regoExpiry === "") found.regoExpiry = "Select the registration expiry";
-    if (form.insuranceExpiry === "") found.insuranceExpiry = "Select the insurance expiry";
     if (form.lastService === "") found.lastService = "Select the last service date";
     setErrors(found);
     const first = Object.values(found)[0];
@@ -208,7 +205,6 @@ function EditVehicleDialog({ vehicle, open, onClose }: { vehicle: VehicleDetail;
         year: form.year === "" ? undefined : Number(form.year),
         vin: form.vin.trim() || undefined,
         registration_expiry: form.regoExpiry,
-        insurance_expiry: form.insuranceExpiry,
         last_service: form.lastService,
         service_interval_months: Number(form.interval),
         service_provider: form.provider.trim() || undefined,
@@ -246,26 +242,21 @@ function EditVehicleDialog({ vehicle, open, onClose }: { vehicle: VehicleDetail;
         <Field label="Registration expiry" required error={errors.regoExpiry}>
           <TextInput type="date" value={form.regoExpiry} onChange={set("regoExpiry")} invalid={!!errors.regoExpiry} />
         </Field>
-        <Field label="Insurance expiry" required error={errors.insuranceExpiry}>
-          <TextInput type="date" value={form.insuranceExpiry} onChange={set("insuranceExpiry")} invalid={!!errors.insuranceExpiry} />
-        </Field>
-      </FieldRow>
-      <FieldRow>
         <Field label="Last service" required error={errors.lastService}>
           <TextInput type="date" value={form.lastService} onChange={set("lastService")} invalid={!!errors.lastService} />
         </Field>
+      </FieldRow>
+      <FieldRow>
         <Field label="Service interval" required>
           <SelectInput value={form.interval} onChange={set("interval")} options={intervals} />
         </Field>
-      </FieldRow>
-      <FieldRow>
         <Field label="Service provider">
           <TextInput value={form.provider} onChange={set("provider")} />
         </Field>
-        <Field label="Responsible person">
-          <SelectInput value={form.responsible} onChange={set("responsible")} options={people} placeholder="The admin list" />
-        </Field>
       </FieldRow>
+      <Field label="Responsible person">
+        <SelectInput value={form.responsible} onChange={set("responsible")} options={people} placeholder="The admin list" />
+      </Field>
       <Field label="Notes">
         <TextArea value={form.notes} onChange={set("notes")} placeholder="Optional" />
       </Field>

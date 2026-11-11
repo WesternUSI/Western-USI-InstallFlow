@@ -67,7 +67,7 @@ function VehicleAvailability() {
         <Notice tone="info">
           {takingOut
             ? "Out-of-service vehicles show in the dashboard's Out of service card and aren't chased for reminders."
-            : "Check the registration, insurance and servicing are in order before returning it to service."}
+            : "Check the registration and servicing are in order before returning it to service."}
         </Notice>
         <div className="flex flex-wrap gap-3">
           <SafetyButton variant="secondary" to="/safety/vehicles/$vehicleId" params={{ vehicleId }}>

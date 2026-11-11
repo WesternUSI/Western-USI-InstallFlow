@@ -6,7 +6,6 @@ export function vehicleBadge(status: string): SafetyStatus {
     case "out-of-service":
       return "out-of-service";
     case "registration-expired":
-    case "insurance-expired":
       return "expired";
     case "service-overdue":
       return "overdue";
